@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg-app: #0a0e17;
+  --bg-panel: #0f141e;
+  --bg-raised: #151b28;
+  --bg-active: #1a2233;
+  --border: #1d2534;
+  --border-strong: #2a3547;
+  --text-primary: #e6e9ef;
+  --text-secondary: #98a1b3;
+  --text-muted: #5c6577;
+  --accent: #5271ff;
+  --accent-dim: #33427f;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --err: #f85149;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #1d2534;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2a3547;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-icon {
+    @apply inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-txt-secondary transition-colors hover:bg-bg-raised hover:text-txt-primary;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+  .input {
+    @apply w-full rounded-md border border-border bg-bg-panel px-3 py-1.5 text-[13px] text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent;
+  }
+}
+
+/* 代码/终端等可选中区域 */
+.selectable {
+  user-select: text;
+}
