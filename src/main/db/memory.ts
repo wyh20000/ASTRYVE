@@ -1,11 +1,55 @@
+import { app } from 'electron'
+import { join } from 'path'
+import fs from 'fs'
 import { randomUUID } from 'crypto'
 import type { Session, Message } from '@shared/types'
 import type { DbStore, InsertMessageInput } from './index'
 
-/** 内存后端：当 MySQL 不可用时的兜底，P1 演示/验证用 */
+interface FileShape {
+  sessions: Session[]
+  messages: Message[]
+}
+
+/** 本地文件持久化后端：当 MySQL 不可用时兜底，数据写到用户数据目录，重启不丢 */
 export class MemoryStore implements DbStore {
   private sessions = new Map<string, Session>()
   private messages = new Map<string, Message[]>()
+  private filePath: string | null = null
+
+  constructor(filePath?: string) {
+    this.filePath = filePath ?? null
+    if (this.filePath) this.load()
+  }
+
+  private load(): void {
+    try {
+      if (fs.existsSync(this.filePath!)) {
+        const data = JSON.parse(fs.readFileSync(this.filePath!, 'utf-8')) as FileShape
+        for (const s of data.sessions ?? []) this.sessions.set(s.id, s)
+        for (const m of data.messages ?? []) {
+          const list = this.messages.get(m.sessionId) ?? []
+          list.push(m)
+          this.messages.set(m.sessionId, list)
+        }
+      }
+    } catch (e) {
+      console.warn('[db] load file failed:', e)
+    }
+  }
+
+  private persist(): void {
+    if (!this.filePath) return
+    try {
+      fs.mkdirSync(app.getPath('userData'), { recursive: true })
+      const payload: FileShape = {
+        sessions: [...this.sessions.values()],
+        messages: [...this.messages.values()].flat()
+      }
+      fs.writeFileSync(this.filePath, JSON.stringify(payload, null, 2), 'utf-8')
+    } catch (e) {
+      console.warn('[db] save file failed:', e)
+    }
+  }
 
   async listSessions(): Promise<Session[]> {
     return [...this.sessions.values()].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -26,6 +70,7 @@ export class MemoryStore implements DbStore {
       updatedAt: now
     }
     this.sessions.set(s.id, s)
+    this.persist()
     return s
   }
 
@@ -34,6 +79,7 @@ export class MemoryStore implements DbStore {
     if (!s) return null
     s.title = title
     s.updatedAt = Date.now()
+    this.persist()
     return s
   }
 
@@ -41,12 +87,14 @@ export class MemoryStore implements DbStore {
     const s = this.sessions.get(id)
     if (!s) return null
     s.updatedAt = Date.now()
+    this.persist()
     return s
   }
 
   async deleteSession(id: string): Promise<void> {
     this.sessions.delete(id)
     this.messages.delete(id)
+    this.persist()
   }
 
   async listMessages(sessionId: string): Promise<Message[]> {
@@ -66,6 +114,7 @@ export class MemoryStore implements DbStore {
     const list = this.messages.get(m.sessionId) ?? []
     list.push(m)
     this.messages.set(m.sessionId, list)
+    this.persist()
     return m
   }
 
@@ -75,6 +124,7 @@ export class MemoryStore implements DbStore {
     if (idx >= 0) list[idx] = msg
     else list.push(msg)
     this.messages.set(msg.sessionId, list)
+    this.persist()
     return msg
   }
 }

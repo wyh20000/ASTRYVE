@@ -24,6 +24,10 @@ export const IPC = {
     setReasoning: 'model:set-reasoning',
     test: 'model:test'
   },
+  settings: {
+    getTheme: 'settings:get-theme',
+    setTheme: 'settings:set-theme'
+  },
   window: {
     setTitleBarOverlay: 'window:set-title-bar-overlay'
   }

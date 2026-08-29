@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import {
-  THEMES,
   applyTheme,
   getTheme,
   buildTheme,
@@ -9,43 +8,7 @@ import {
   type ThemePreset,
   type ThemeOverrides
 } from '../theme/theme'
-
-const PRESET_KEY = 'ai-agent:theme'
-const OVERRIDES_KEY = 'ai-agent:theme-overrides'
-
-function readPreset(): string {
-  try {
-    const saved = localStorage.getItem(PRESET_KEY)
-    if (saved && THEMES.some((t) => t.id === saved)) return saved
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_THEME_ID
-}
-
-function readOverrides(): ThemeOverrides {
-  try {
-    const raw = localStorage.getItem(OVERRIDES_KEY)
-    if (!raw) return {}
-    const o = JSON.parse(raw) as ThemeOverrides
-    const out: ThemeOverrides = {}
-    if (o.bg) out.bg = normalizeHex(o.bg) ?? undefined
-    if (o.text) out.text = normalizeHex(o.text) ?? undefined
-    if (o.accent) out.accent = normalizeHex(o.accent) ?? undefined
-    return out
-  } catch {
-    return {}
-  }
-}
-
-function persist(presetId: string, overrides: ThemeOverrides): void {
-  try {
-    localStorage.setItem(PRESET_KEY, presetId)
-    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides))
-  } catch {
-    /* ignore */
-  }
-}
+import type { PersistedTheme } from '@shared/types'
 
 function pushTitleBar(t: ThemePreset): void {
   try {
@@ -55,11 +18,17 @@ function pushTitleBar(t: ThemePreset): void {
   }
 }
 
-export const STORAGE_THEME_KEY = PRESET_KEY
+function apply(presetId: string, overrides: ThemeOverrides): void {
+  const theme = buildTheme(getTheme(presetId), overrides)
+  applyTheme(theme)
+  pushTitleBar(theme)
+}
 
 interface ThemeState {
   presetId: string
   overrides: ThemeOverrides
+  hydrated: boolean
+  hydrate: () => Promise<void>
   setPreset: (id: string) => void
   setBg: (hex: string) => void
   setText: (hex: string) => void
@@ -67,21 +36,31 @@ interface ThemeState {
   resetOverrides: () => void
 }
 
-const initialPreset = readPreset()
-const initialOverrides = readOverrides()
-const initialTheme = buildTheme(getTheme(initialPreset), initialOverrides)
-applyTheme(initialTheme)
-pushTitleBar(initialTheme)
+// 先用默认主题（避免首帧空白），随后 hydrate 从主进程加载已保存主题
+apply(DEFAULT_THEME_ID, {})
 
 export const useThemeStore = create<ThemeState>((set, get) => {
-  const apply = (presetId: string, overrides: ThemeOverrides): void => {
-    const theme = buildTheme(getTheme(presetId), overrides)
-    applyTheme(theme)
-    pushTitleBar(theme)
+  const persist = (presetId: string, overrides: ThemeOverrides): void => {
+    const payload: PersistedTheme = { presetId, overrides }
+    void window.agent.settings.setTheme(payload)
   }
   return {
-    presetId: initialPreset,
-    overrides: initialOverrides,
+    presetId: DEFAULT_THEME_ID,
+    overrides: {},
+    hydrated: false,
+    hydrate: async () => {
+      try {
+        const r = await window.agent.settings.getTheme()
+        if (r.ok) {
+          const presetId = r.data.presetId || DEFAULT_THEME_ID
+          const overrides = r.data.overrides ?? {}
+          apply(presetId, overrides)
+          set({ presetId, overrides, hydrated: true })
+        }
+      } catch {
+        /* ignore */
+      }
+    },
     setPreset: (id) => {
       apply(id, {})
       set({ presetId: id, overrides: {} })
@@ -112,9 +91,10 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       persist(get().presetId, overrides)
     },
     resetOverrides: () => {
-      apply(get().presetId, {})
+      const p = get().presetId
+      apply(p, {})
       set({ overrides: {} })
-      persist(get().presetId, {})
+      persist(p, {})
     }
   }
 })

@@ -107,6 +107,19 @@ export interface ModelTestResult {
   message: string
 }
 
+/** 主题颜色覆盖（背景 / 文字 / 强调色） */
+export interface ThemeOverrides {
+  bg?: string
+  text?: string
+  accent?: string
+}
+
+/** 持久化的主题状态 */
+export interface PersistedTheme {
+  presetId: string
+  overrides: ThemeOverrides
+}
+
 /** 前端可通过 window.agent 访问的统一 API 面 */
 export interface AgentApi {
   platform: string
@@ -130,6 +143,10 @@ export interface AgentApi {
     test: (preset?: ModelPreset) => Promise<IpcResult<ModelTestResult>>
   }
   onMessageStreamed: (cb: (m: Message) => void) => () => void
+  settings: {
+    getTheme: () => Promise<IpcResult<PersistedTheme>>
+    setTheme: (t: PersistedTheme) => Promise<IpcResult<PersistedTheme>>
+  }
   window: {
     setTitleBarOverlay: (opts?: { color: string; symbolColor: string }) => Promise<IpcResult<boolean>>
   }

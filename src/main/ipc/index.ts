@@ -4,6 +4,7 @@ import { registerSessionIpc } from './session'
 import { registerMessageIpc } from './message'
 import { registerWindowIpc } from './window'
 import { registerModelIpc } from './model'
+import { registerSettingsIpc } from './settings'
 import { ok, err } from './result'
 
 export function registerIpcHandlers(): void {
@@ -19,4 +20,5 @@ export function registerIpcHandlers(): void {
   registerMessageIpc()
   registerWindowIpc()
   registerModelIpc()
+  registerSettingsIpc()
 }

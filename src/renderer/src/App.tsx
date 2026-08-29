@@ -9,6 +9,7 @@ import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useUiStore } from './stores/uiStore'
 import { useModelStore } from './stores/modelStore'
+import { useThemeStore } from './stores/themeStore'
 
 export default function App(): JSX.Element {
   const init = useSessionStore((s) => s.init)
@@ -24,6 +25,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     void init()
     void loadModel()
+    void useThemeStore.getState().hydrate()
   }, [init, loadModel])
 
   useEffect(() => {

@@ -7,6 +7,7 @@ import type {
   ModelConfig,
   ModelPreset,
   ReasoningEffort,
+  PersistedTheme,
   Message
 } from '@shared/types'
 
@@ -35,6 +36,10 @@ const api: AgentApi = {
     const listener = (_e: unknown, m: Message): void => cb(m)
     ipcRenderer.on(EVENTS.messageStreamed, listener)
     return () => ipcRenderer.removeListener(EVENTS.messageStreamed, listener)
+  },
+  settings: {
+    getTheme: () => ipcRenderer.invoke(IPC.settings.getTheme),
+    setTheme: (t: PersistedTheme) => ipcRenderer.invoke(IPC.settings.setTheme, t)
   },
   window: {
     setTitleBarOverlay: (opts) => ipcRenderer.invoke(IPC.window.setTitleBarOverlay, opts)

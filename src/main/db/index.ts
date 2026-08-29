@@ -1,3 +1,5 @@
+import { app } from 'electron'
+import { join } from 'path'
 import type { Session, Message, MessageBlock, MessageRole, MessageStatus } from '@shared/types'
 import { MySqlStore, type MySqlConfig } from './mysql'
 import { MemoryStore } from './memory'
@@ -45,15 +47,15 @@ export function defaultMySqlConfig(): MySqlConfig {
 
 let store: DbStore | null = null
 
-/** 初始化并选择后端：优先 MySQL，连不上则回退内存（应用仍可运行） */
+/** 初始化并选择后端：优先 MySQL；连不上则回退本地文件持久化（JSON，重启不丢） */
 export async function initStore(): Promise<DbStore> {
   if (store) return store
   try {
     store = await MySqlStore.connect(defaultMySqlConfig())
     console.log('[db] connected to MySQL at', process.env.MYSQL_HOST ?? '127.0.0.1')
   } catch (e) {
-    console.warn('[db] MySQL unavailable, falling back to in-memory store:', String(e))
-    store = new MemoryStore()
+    console.warn('[db] MySQL unavailable, using local file store (persistent):', String(e))
+    store = new MemoryStore(join(app.getPath('userData'), 'ai-agent-data.json'))
   }
   return store
 }

@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
+import { initSettings } from './services/settings'
 import { registerIpcHandlers } from './ipc'
 
 const isDev = !app.isPackaged
@@ -50,6 +51,7 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   await initStore()
   initModelConfig()
+  initSettings()
   registerIpcHandlers()
   createWindow()
 
