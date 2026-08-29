@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import type { Session, Message, MessageBlock, MessageRole, MessageStatus } from '@shared/types'
+import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus } from '@shared/types'
 import { MySqlStore, type MySqlConfig } from './mysql'
 import { MemoryStore } from './memory'
 import { getDbSettings } from '../services/settings'
@@ -14,15 +14,7 @@ export interface DbStore {
   touchSession(id: string): Promise<Session | null>
   deleteSession(id: string): Promise<void>
   listMessages(sessionId: string): Promise<Message[]>
-  insertMessage(input: {
-    id?: string
-    sessionId: string
-    role: MessageRole
-    content: string
-    blocks?: MessageBlock[]
-    status?: MessageStatus
-    timestamp?: number
-  }): Promise<Message>
+  insertMessage(input: InsertMessageInput): Promise<Message>
   upsertMessage(msg: Message): Promise<Message>
 }
 
@@ -32,6 +24,7 @@ export interface InsertMessageInput {
   role: MessageRole
   content: string
   blocks?: MessageBlock[]
+  attachments?: Attachment[]
   status?: MessageStatus
   timestamp?: number
 }

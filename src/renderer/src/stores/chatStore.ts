@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Message } from '@shared/types'
+import type { Message, Attachment } from '@shared/types'
 import { useSessionStore } from './sessionStore'
 
 interface ChatState {
@@ -9,7 +9,7 @@ interface ChatState {
   /** 加载某个会话的消息 */
   load: (sessionId: string) => Promise<void>
   /** 发送用户消息（本地 Mock 回复已由主进程推送，经 upsertMessage 合并） */
-  send: (sessionId: string, content: string) => Promise<void>
+  send: (sessionId: string, content: string, attachments?: Attachment[], search?: boolean) => Promise<void>
   /** 从主进程流式事件合并一条消息 */
   upsertMessage: (msg: Message) => void
   clear: () => void
@@ -40,8 +40,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  send: async (sessionId, content) => {
-    const res = await window.agent.message.send({ sessionId, content })
+  send: async (sessionId, content, attachments, search) => {
+    const res = await window.agent.message.send({ sessionId, content, attachments, search })
     if (!res.ok) return
     set((s) => ({
       messages: append(s.messages, sessionId, res.data),

@@ -1,25 +1,76 @@
-import { useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ClipboardEvent,
+  type DragEvent,
+  type ChangeEvent
+} from 'react'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
-import type { ReasoningEffort } from '@shared/types'
+import type { ReasoningEffort, Attachment } from '@shared/types'
 import { Icon } from '../ui/icons'
+import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
 
 const MAX_H = 200
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
 const EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high']
 
+function formatBytes(n?: number): string {
+  if (n == null) return ''
+  if (n < 1024) return `${n}B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
+  return `${(n / 1024 / 1024).toFixed(1)}MB`
+}
+
 export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [value, setValue] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [notice, setNotice] = useState('')
+  const [search, setSearch] = useState(false)
   const send = useChatStore((s) => s.send)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const imgRef = useRef<HTMLInputElement>(null)
+  const docRef = useRef<HTMLInputElement>(null)
+
+  const config = useModelStore((s) => s.config)
+  const activePreset = config?.presets.find((p) => p.id === config.activePresetId)
+
+  const images = attachments.filter((a) => a.kind === 'image')
+  const files = attachments.filter((a) => a.kind === 'file')
+  const visionBlocked = images.length > 0 && !activePreset?.supportsVision
+  const canSend =
+    (value.trim().length > 0 || attachments.length > 0) && !!sessionId && !sending && !visionBlocked
+
+  const addFiles = async (incoming: File[]): Promise<void> => {
+    const ok: Attachment[] = []
+    const errors: string[] = []
+    for (const f of incoming) {
+      try {
+        if (isImageFile(f)) ok.push(await fileToImageAttachment(f))
+        else if (isDocumentFile(f)) ok.push(await fileToDocumentAttachment(f))
+        else errors.push(`不支持的文件：${f.name}`)
+      } catch (e) {
+        errors.push((e as Error)?.message ?? '读取失败')
+      }
+    }
+    if (ok.length) setAttachments((prev) => [...prev, ...ok])
+    setNotice(errors[0] ?? '')
+  }
+
+  const removeAttachment = (id: string): void => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
 
   const doSend = (): void => {
     const v = value.trim()
-    if (!v || !sessionId) return
-    void send(sessionId, v)
+    if ((!v && attachments.length === 0) || !sessionId || visionBlocked) return
+    void send(sessionId, v, attachments, search)
     setValue('')
+    setAttachments([])
+    setNotice('')
     if (taRef.current) taRef.current.style.height = 'auto'
   }
 
@@ -30,6 +81,26 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     }
   }
 
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = Array.from(e.clipboardData?.files ?? []).filter((f) => isImageFile(f) || isDocumentFile(f))
+    if (files.length) {
+      e.preventDefault()
+      void addFiles(files)
+    }
+  }
+
+  const onDrop = (e: DragEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => isImageFile(f) || isDocumentFile(f))
+    void addFiles(files)
+  }
+
+  const onPick = (e: ChangeEvent<HTMLInputElement>): void => {
+    const files = Array.from(e.target.files ?? [])
+    void addFiles(files)
+    e.target.value = ''
+  }
+
   const autosize = (): void => {
     const el = taRef.current
     if (!el) return
@@ -38,9 +109,47 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   }
 
   return (
-    <div className="shrink-0 px-4 pb-2 pt-3">
+    <div className="shrink-0 px-4 pb-2 pt-3" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <div className="mx-auto max-w-[820px]">
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
+          {(images.length > 0 || files.length > 0) && (
+            <div className="flex flex-wrap gap-2 px-3 pt-2.5">
+              {images.map((a) => (
+                <div
+                  key={a.id}
+                  className="relative h-16 w-16 overflow-hidden rounded-md border border-border bg-bg-raised"
+                >
+                  <img src={a.dataRef} alt={a.name} className="h-full w-full object-cover" />
+                  <button
+                    className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                    title="移除"
+                    onClick={() => removeAttachment(a.id)}
+                  >
+                    <Icon.X size={10} />
+                  </button>
+                </div>
+              ))}
+              {files.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
+                >
+                  <Icon.File size={14} className="shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-txt-secondary" title={a.name}>
+                    {a.name}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-txt-muted">{formatBytes(a.meta?.sizeBytes as number | undefined)}</span>
+                  <button
+                    className="shrink-0 text-txt-muted hover:text-txt-primary"
+                    title="移除"
+                    onClick={() => removeAttachment(a.id)}
+                  >
+                    <Icon.X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             ref={taRef}
             rows={1}
@@ -50,6 +159,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
               autosize()
             }}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             placeholder="向 AI Agent 发送消息..."
             className="block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
             style={{ height: 'auto' }}
@@ -57,14 +167,24 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
           <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
             <ModelSelector />
             <div className="ml-auto flex items-center gap-1">
-              <button className="btn-icon" title="附件">
+              {activePreset?.provider === 'kimi' && (
+                <button
+                  onClick={() => setSearch((v) => !v)}
+                  className={`chip border ${search ? 'border-accent bg-accent-dim/20 text-accent' : 'border-border text-txt-muted hover:text-txt-secondary'}`}
+                  title="联网搜索（Kimi）"
+                >
+                  <Icon.Search size={12} />
+                  联网
+                </button>
+              )}
+              <button className="btn-icon" title="附件（PDF/Word/Excel/CSV）" onClick={() => docRef.current?.click()}>
                 <Icon.Paperclip size={16} />
               </button>
-              <button className="btn-icon" title="图片">
+              <button className="btn-icon" title="图片（粘贴 / 拖拽 / 选择）" onClick={() => imgRef.current?.click()}>
                 <Icon.Image size={16} />
               </button>
               <button
-                disabled={!value.trim() || !sessionId || sending}
+                disabled={!canSend}
                 onClick={doSend}
                 className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
                 title="发送"
@@ -74,10 +194,27 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             </div>
           </div>
         </div>
+        {visionBlocked && (
+          <div className="mt-1.5 text-center text-[11px] text-warn">
+            当前模型不支持图片，请在「设置 → 模型设置」切换视觉模型后重试
+          </div>
+        )}
+        {notice && !visionBlocked && (
+          <div className="mt-1.5 text-center text-[11px] text-warn">{notice}</div>
+        )}
         <div className="mt-2 text-center text-[11px] text-txt-muted">
           AI 生成的内容可能不准确，请注意甄别
         </div>
       </div>
+      <input ref={imgRef} type="file" accept="image/*" multiple className="hidden" onChange={onPick} />
+      <input
+        ref={docRef}
+        type="file"
+        accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.markdown,.json,.log"
+        multiple
+        className="hidden"
+        onChange={onPick}
+      />
     </div>
   )
 }

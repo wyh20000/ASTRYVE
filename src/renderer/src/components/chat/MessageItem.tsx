@@ -1,6 +1,5 @@
 import type { Message } from '@shared/types'
 import { Blocks, RichText } from './Blocks'
-import MarkdownRenderer from './MarkdownRenderer'
 import { Icon } from '../ui/icons'
 import { fullTime } from '../../lib/time'
 
@@ -10,6 +9,8 @@ export function MessageItem({ message }: { message: Message }): JSX.Element {
 }
 
 function UserMessage({ message }: { message: Message }): JSX.Element {
+  const images = (message.attachments ?? []).filter((a) => a.kind === 'image')
+  const files = (message.attachments ?? []).filter((a) => a.kind === 'file')
   return (
     <div className="flex justify-end">
       <div className="max-w-[78%]">
@@ -18,7 +19,44 @@ function UserMessage({ message }: { message: Message }): JSX.Element {
           <span className="text-[11px] text-txt-secondary">我</span>
         </div>
         <div className="rounded-xl rounded-br-sm bg-bg-active px-4 py-2.5">
-          <MarkdownRenderer>{message.content}</MarkdownRenderer>
+          {images.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {images.map((a) => (
+                <img
+                  key={a.id}
+                  src={a.dataRef}
+                  alt={a.name}
+                  className="max-h-48 max-w-[240px] rounded-md border border-border object-contain"
+                />
+              ))}
+            </div>
+          )}
+          {files.length > 0 && (
+            <div className={`${images.length > 0 ? 'mb-2' : ''} flex flex-wrap gap-2`}>
+              {files.map((a) => {
+                const parsed = a.meta?.parsed as boolean | undefined
+                const charCount = a.meta?.charCount as number | undefined
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
+                  >
+                    <Icon.File size={14} className="shrink-0 text-accent" />
+                    <span className="truncate text-[12px] text-txt-secondary" title={a.name}>
+                      {a.name}
+                    </span>
+                    {parsed === true && charCount != null && (
+                      <span className="shrink-0 text-[10px] text-ok">已解析 {charCount} 字</span>
+                    )}
+                    {parsed === false && (
+                      <span className="shrink-0 text-[10px] text-warn">解析失败</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {message.content.trim() ? <RichText text={message.content} /> : null}
         </div>
       </div>
     </div>
@@ -41,7 +79,14 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
           <RichText text={message.content} />
         )}
         {message.status === 'streaming' && (
-          <span className="animate-pulse text-[12px] text-txt-muted">生成中...</span>
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-txt-muted">
+            正在生成
+            <span className="flex gap-0.5">
+              <span className="h-1 w-1 animate-bounce rounded-full bg-txt-muted [animation-delay:0ms]" />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-txt-muted [animation-delay:150ms]" />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-txt-muted [animation-delay:300ms]" />
+            </span>
+          </span>
         )}
       </div>
     </div>

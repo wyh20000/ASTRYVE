@@ -156,45 +156,57 @@ function ThinkingBlock({
 }
 
 function PlanBlock({ items }: { items: { order: number; title: string; done: boolean }[] }): JSX.Element {
+  const [open, setOpen] = useState(true)
   return (
     <div className="w-fit min-w-[260px] overflow-hidden rounded-md border border-border bg-bg-panel">
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-[13px] font-medium text-txt-primary">
+      <button
+        className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[13px] font-medium text-txt-primary hover:bg-bg-raised"
+        onClick={() => setOpen((v) => !v)}
+      >
         <Icon.Check size={14} className="text-ok" />
         执行计划
-        <Icon.ChevronDown size={13} className="ml-auto text-txt-muted" />
-      </div>
-      <ol className="py-1">
-        {items.map((it) => (
-          <li key={it.order} className="flex items-center gap-2 px-3 py-1 text-[13px] text-txt-secondary">
-            <span className="text-txt-muted">{it.order}.</span>
-            <span className="selectable flex-1">{it.title}</span>
-            {it.done && <Icon.Check size={13} className="text-ok" />}
-          </li>
-        ))}
-      </ol>
+        <Icon.ChevronDown size={13} className={`ml-auto text-txt-muted transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open && (
+        <ol className="py-1">
+          {items.map((it) => (
+            <li key={it.order} className="flex items-center gap-2 px-3 py-1 text-[13px] text-txt-secondary">
+              <span className="text-txt-muted">{it.order}.</span>
+              <span className="selectable flex-1">{it.title}</span>
+              {it.done && <Icon.Check size={13} className="text-ok" />}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }
 
 function FilesBlock({ files }: { files: { path: string; addedLines: number }[] }): JSX.Element {
+  const [open, setOpen] = useState(true)
   return (
     <div className="w-fit min-w-[320px] overflow-hidden rounded-md border border-border bg-bg-panel">
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-[13px] font-medium text-txt-primary">
+      <button
+        className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[13px] font-medium text-txt-primary hover:bg-bg-raised"
+        onClick={() => setOpen((v) => !v)}
+      >
         <Icon.Check size={14} className="text-ok" />
         创建文件
-        <Icon.ChevronDown size={13} className="ml-auto text-txt-muted" />
-      </div>
-      <div className="py-1">
-        {files.map((f) => (
-          <div key={f.path} className="flex items-center gap-2 px-3 py-1 text-[12px]">
-            <span className="text-accent">
-              <Icon.File size={14} />
-            </span>
-            <span className="selectable flex-1 truncate font-mono text-txt-primary">{f.path}</span>
-            <span className="text-ok">+{f.addedLines}</span>
-          </div>
-        ))}
-      </div>
+        <Icon.ChevronDown size={13} className={`ml-auto text-txt-muted transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open && (
+        <div className="py-1">
+          {files.map((f) => (
+            <div key={f.path} className="flex items-center gap-2 px-3 py-1 text-[12px]">
+              <span className="text-accent">
+                <Icon.File size={14} />
+              </span>
+              <span className="selectable flex-1 truncate font-mono text-txt-primary">{f.path}</span>
+              <span className="text-ok">+{f.addedLines}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -108,6 +108,7 @@ export class MemoryStore implements DbStore {
       role: input.role,
       content: input.content,
       blocks: input.blocks,
+      attachments: input.attachments,
       status: input.status ?? 'done',
       timestamp: input.timestamp ?? Date.now()
     }

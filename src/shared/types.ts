@@ -50,6 +50,7 @@ export interface Message {
   role: MessageRole
   content: string
   blocks?: MessageBlock[]
+  attachments?: Attachment[]
   status: MessageStatus
   timestamp: number
 }
@@ -74,6 +75,9 @@ export interface CreateSessionInput {
 export interface SendMessageInput {
   sessionId: string
   content: string
+  attachments?: Attachment[]
+  /** 是否启用联网搜索（Kimi $web_search） */
+  search?: boolean
 }
 
 /** 模型提供方（DeepSeek / Kimi / 自定义 OpenAI 兼容） */
@@ -92,6 +96,10 @@ export interface ModelPreset {
   model: string
   /** 发送给模型的上下文消息条数（多轮记忆长度） */
   contextMessages: number
+  /** 是否支持图片（多模态视觉）输入 */
+  supportsVision: boolean
+  /** 视觉模型名；缺省回退 model */
+  visionModel?: string
 }
 
 /** 模型配置（含多预设、当前激活项、推理等级） */

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import mysql, { type Pool } from 'mysql2/promise'
-import type { Session, Message, MessageBlock, MessageRole, MessageStatus } from '@shared/types'
+import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus } from '@shared/types'
 import type { DbStore, InsertMessageInput } from './index'
 
 export interface MySqlConfig {
@@ -26,6 +26,7 @@ interface MessageRow {
   role: string
   content: string
   blocks: string | null
+  attachments: string | null
   status: string
   timestamp: number | string
 }
@@ -50,6 +51,7 @@ function toMessage(r: MessageRow): Message {
     role: r.role as MessageRole,
     content: r.content,
     blocks: r.blocks ? (JSON.parse(r.blocks) as MessageBlock[]) : undefined,
+    attachments: r.attachments ? (JSON.parse(r.attachments) as Attachment[]) : undefined,
     status: r.status as MessageStatus,
     timestamp: num(r.timestamp)
   }
@@ -71,6 +73,7 @@ const SCHEMA_STATEMENTS = [
      role VARCHAR(16) NOT NULL,
      content MEDIUMTEXT NOT NULL,
      blocks MEDIUMTEXT,
+     attachments MEDIUMTEXT,
      status VARCHAR(16) NOT NULL DEFAULT 'done',
      timestamp BIGINT NOT NULL,
      INDEX idx_messages_session_time (session_id, timestamp),
@@ -114,6 +117,12 @@ export class MySqlStore implements DbStore {
 
     for (const stmt of SCHEMA_STATEMENTS) {
       await pool.query(stmt)
+    }
+    // 迁移：老库补 attachments 列（重复列错误忽略）
+    try {
+      await pool.query('ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL')
+    } catch {
+      /* column already exists */
     }
     await pool.query('SELECT 1')
     return new MySqlStore(pool)
@@ -178,24 +187,35 @@ export class MySqlStore implements DbStore {
       role: input.role,
       content: input.content,
       blocks: input.blocks,
+      attachments: input.attachments,
       status: input.status ?? 'done',
       timestamp
     }
     await this.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, blocks, status, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, m.sessionId, m.role, m.content, m.blocks ? JSON.stringify(m.blocks) : null, m.status, timestamp]
+      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        m.sessionId,
+        m.role,
+        m.content,
+        m.blocks ? JSON.stringify(m.blocks) : null,
+        m.attachments ? JSON.stringify(m.attachments) : null,
+        m.status,
+        timestamp
+      ]
     )
     return m
   }
 
   async upsertMessage(msg: Message): Promise<Message> {
     await this.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, blocks, status, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          content = VALUES(content),
          blocks = VALUES(blocks),
+         attachments = VALUES(attachments),
          status = VALUES(status),
          timestamp = VALUES(timestamp)`,
       [
@@ -204,6 +224,7 @@ export class MySqlStore implements DbStore {
         msg.role,
         msg.content,
         msg.blocks ? JSON.stringify(msg.blocks) : null,
+        msg.attachments ? JSON.stringify(msg.attachments) : null,
         msg.status,
         msg.timestamp
       ]
