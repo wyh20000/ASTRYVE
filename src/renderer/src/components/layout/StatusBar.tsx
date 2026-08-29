@@ -5,7 +5,7 @@ import { getTheme } from '../../theme/theme'
 export default function StatusBar(): JSX.Element {
   const presetId = useThemeStore((s) => s.presetId)
   const overrides = useThemeStore((s) => s.overrides)
-  const model = useModelStore((s) => s.config?.model)
+  const model = useModelStore((s) => s.config?.presets.find((p) => p.id === s.config?.activePresetId)?.model)
   const theme = getTheme(presetId)
   const custom = !!(overrides.bg || overrides.text || overrides.accent)
 

@@ -1,12 +1,14 @@
 import { create } from 'zustand'
-import type { ModelConfig, ModelTestResult } from '@shared/types'
+import type { ModelConfig, ModelPreset, ModelTestResult, ReasoningEffort } from '@shared/types'
 
 interface ModelState {
   config: ModelConfig | null
   loading: boolean
   load: () => Promise<void>
   save: (cfg: Partial<ModelConfig>) => Promise<boolean>
-  test: () => Promise<ModelTestResult | null>
+  activate: (id: string) => Promise<void>
+  setReasoning: (effort: ReasoningEffort) => Promise<void>
+  test: (preset?: ModelPreset) => Promise<ModelTestResult | null>
 }
 
 export const useModelStore = create<ModelState>((set) => ({
@@ -26,8 +28,16 @@ export const useModelStore = create<ModelState>((set) => ({
     }
     return false
   },
-  test: async () => {
-    const r = await window.agent.model.test()
+  activate: async (id) => {
+    const r = await window.agent.model.setActive(id)
+    if (r.ok) set({ config: r.data })
+  },
+  setReasoning: async (effort) => {
+    const r = await window.agent.model.setReasoning(effort)
+    if (r.ok) set({ config: r.data })
+  },
+  test: async (preset) => {
+    const r = await window.agent.model.test(preset)
     return r.ok ? r.data : null
   }
 }))

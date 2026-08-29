@@ -5,6 +5,8 @@ import type {
   CreateSessionInput,
   SendMessageInput,
   ModelConfig,
+  ModelPreset,
+  ReasoningEffort,
   Message
 } from '@shared/types'
 
@@ -25,7 +27,9 @@ const api: AgentApi = {
   model: {
     getConfig: () => ipcRenderer.invoke(IPC.model.getConfig),
     setConfig: (cfg: Partial<ModelConfig>) => ipcRenderer.invoke(IPC.model.setConfig, cfg),
-    test: () => ipcRenderer.invoke(IPC.model.test)
+    setActive: (id: string) => ipcRenderer.invoke(IPC.model.setActive, id),
+    setReasoning: (effort: ReasoningEffort) => ipcRenderer.invoke(IPC.model.setReasoning, effort),
+    test: (preset?: ModelPreset) => ipcRenderer.invoke(IPC.model.test, preset)
   },
   onMessageStreamed: (cb: (m: Message) => void) => {
     const listener = (_e: unknown, m: Message): void => cb(m)

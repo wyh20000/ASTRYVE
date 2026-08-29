@@ -1,4 +1,4 @@
-﻿/**
+/**
  * IPC channel 常量（typed，避免魔法字符串）。
  * 命名约定：`域:动作`
  */
@@ -20,6 +20,8 @@ export const IPC = {
   model: {
     getConfig: 'model:get-config',
     setConfig: 'model:set-config',
+    setActive: 'model:set-active',
+    setReasoning: 'model:set-reasoning',
     test: 'model:test'
   },
   window: {

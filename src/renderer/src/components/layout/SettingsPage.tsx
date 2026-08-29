@@ -3,7 +3,7 @@ import { useUiStore } from '../../stores/uiStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { useModelStore } from '../../stores/modelStore'
 import { THEMES, getTheme, normalizeHex, type ThemePreset } from '../../theme/theme'
-import type { ModelProvider, ModelConfig } from '@shared/types'
+import type { ModelProvider, ModelConfig, ModelPreset } from '@shared/types'
 import { Icon } from '../ui/icons'
 
 type Section = 'theme' | 'model'
@@ -221,114 +221,148 @@ function ColorField({
 /* ---------------- 模型 ---------------- */
 
 function ModelSection(): JSX.Element {
+  const config = useModelStore((s) => s.config)
   const load = useModelStore((s) => s.load)
   const save = useModelStore((s) => s.save)
+  const activate = useModelStore((s) => s.activate)
   const test = useModelStore((s) => s.test)
-  const config = useModelStore((s) => s.config)
-
-  const [provider, setProvider] = useState<ModelProvider>('deepseek')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState('')
-  const [contextMessages, setContextMessages] = useState(20)
+  const [editing, setEditing] = useState<ModelPreset | null>(null)
+  const [isNew, setIsNew] = useState(false)
   const [msg, setMsg] = useState('')
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     void load()
   }, [load])
 
-  useEffect(() => {
-    if (config) {
-      setProvider(config.provider)
-      setBaseUrl(config.baseUrl)
-      setApiKey(config.apiKey)
-      setModel(config.model)
-      setContextMessages(config.contextMessages ?? 20)
-    }
-  }, [config])
-
-  const onProvider = (p: ModelProvider): void => {
-    setProvider(p)
-    if (p !== 'custom') {
-      setBaseUrl(PROVIDER_PRESETS[p].baseUrl)
-      setModel(PROVIDER_PRESETS[p].model)
-    }
+  const startNew = (): void => {
+    setEditing({
+      id: '',
+      name: '',
+      provider: 'deepseek',
+      baseUrl: PROVIDER_PRESETS.deepseek.baseUrl,
+      apiKey: '',
+      model: PROVIDER_PRESETS.deepseek.model,
+      contextMessages: 20
+    })
+    setIsNew(true)
+  }
+  const startEdit = (p: ModelPreset): void => {
+    setEditing({ ...p })
+    setIsNew(false)
   }
 
-  const currentCfg = (): Partial<ModelConfig> => ({
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    contextMessages: Number(contextMessages) || 20
-  })
-
-  const doSave = async (): Promise<void> => {
-    setSaving(true)
-    const okSave = await save(currentCfg())
-    setMsg(okSave ? '已保存' : '保存失败')
-    setSaving(false)
+  const commit = async (): Promise<void> => {
+    if (!config || !editing) return
+    const draft: ModelPreset = {
+      ...editing,
+      id: editing.id || crypto.randomUUID(),
+      name: editing.name || editing.model
+    }
+    const presets = isNew
+      ? [...config.presets, draft]
+      : config.presets.map((x) => (x.id === draft.id ? draft : x))
+    const r = await save({ presets, activePresetId: config.activePresetId })
+    if (r) {
+      setMsg('已保存')
+      setEditing(null)
+    } else setMsg('保存失败')
   }
 
-  const doTest = async (): Promise<void> => {
+  const remove = async (id: string): Promise<void> => {
+    if (!config) return
+    const presets = config.presets.filter((x) => x.id !== id)
+    const activePresetId = config.activePresetId === id ? (presets[0]?.id ?? '') : config.activePresetId
+    await save({ presets, activePresetId })
+  }
+
+  const doTest = async (p: ModelPreset): Promise<void> => {
     setMsg('测试中...')
-    const r = await save(currentCfg())
-    if (!r) {
-      setMsg('请先保存配置再测试')
-      return
-    }
-    const t = await test()
+    const t = await test(p)
     setMsg(t ? (t.success ? `✅ ${t.message}` : `❌ ${t.message}`) : '测试失败')
+  }
+
+  if (editing) {
+    const set = (patch: Partial<ModelPreset>): void => setEditing((e) => (e ? { ...e, ...patch } : e))
+    return (
+      <>
+        <h1 className="selectable text-[18px] font-semibold text-txt-primary">模型设置</h1>
+        <Group title={isNew ? '新增模型' : '编辑模型'}>
+          <div className="space-y-3">
+            <Field label="名称">
+              <input className="input" value={editing.name} onChange={(e) => set({ name: e.target.value })} placeholder="如 DeepSeek / Kimi / 我的模型" />
+            </Field>
+            <Label>提供方</Label>
+            <div className="mb-3 flex gap-2">
+              {(['deepseek', 'kimi', 'custom'] as ModelProvider[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => {
+                    set({ provider: p })
+                    if (p !== 'custom') set({ baseUrl: PROVIDER_PRESETS[p].baseUrl, model: PROVIDER_PRESETS[p].model })
+                  }}
+                  className={`rounded-md border px-3 py-1.5 text-[13px] ${
+                    editing.provider === p ? 'border-accent text-txt-primary' : 'border-border text-txt-secondary hover:border-border-strong'
+                  }`}
+                >
+                  {p === 'deepseek' ? 'DeepSeek' : p === 'kimi' ? 'Kimi' : '自定义'}
+                </button>
+              ))}
+            </div>
+            <Field label="Base URL">
+              <input className="input font-mono" value={editing.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder="https://.../v1" />
+            </Field>
+            <Field label="API Key">
+              <input className="input font-mono" type="password" value={editing.apiKey} onChange={(e) => set({ apiKey: e.target.value })} placeholder="sk-..." />
+            </Field>
+            <Field label="模型">
+              <input className="input font-mono" value={editing.model} onChange={(e) => set({ model: e.target.value })} placeholder="deepseek-chat / moonshot-v1-8k" />
+            </Field>
+            <Field label="上下文消息数（多轮记忆）">
+              <input className="input font-mono" type="number" min={1} max={50} value={editing.contextMessages} onChange={(e) => set({ contextMessages: Number(e.target.value) || 20 })} />
+            </Field>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={() => void commit()} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">保存</button>
+            <button onClick={() => void doTest(editing)} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">测试连接</button>
+            <button onClick={() => setEditing(null)} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-secondary">取消</button>
+            {msg && <span className="text-[12px] text-txt-secondary">{msg}</span>}
+          </div>
+        </Group>
+      </>
+    )
   }
 
   return (
     <>
       <h1 className="selectable text-[18px] font-semibold text-txt-primary">模型设置</h1>
-      <Group title="模型接入">
-        <Label>提供方</Label>
-        <div className="mb-3 flex gap-2">
-          {(['deepseek', 'kimi', 'custom'] as ModelProvider[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => onProvider(p)}
-              className={`rounded-md border px-3 py-1.5 text-[13px] ${
-                provider === p
-                  ? 'border-accent text-txt-primary'
-                  : 'border-border text-txt-secondary hover:border-border-strong'
-              }`}
-            >
-              {p === 'deepseek' ? 'DeepSeek' : p === 'kimi' ? 'Kimi' : '自定义'}
-            </button>
+      <Group title="已配置的模型">
+        <div className="flex flex-col gap-2">
+          {(config?.presets ?? []).map((p) => (
+            <div key={p.id} className="flex items-center gap-3 rounded-md border border-border bg-bg-app px-3 py-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[12px] font-semibold text-white">{p.name.slice(0, 1).toUpperCase()}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-[13px] text-txt-primary">
+                  {p.name}
+                  <span className="rounded bg-bg-active px-1.5 text-[10px] text-txt-muted">{p.provider}</span>
+                </div>
+                <div className="truncate text-[11px] text-txt-muted">{p.model}</div>
+              </div>
+              {p.id === config?.activePresetId && <span className="chip border border-accent bg-accent-dim/20 text-accent">当前</span>}
+              <button className="btn-icon" title="设为当前" disabled={p.id === config?.activePresetId} onClick={() => void activate(p.id)}><Icon.Check size={14} /></button>
+              <button className="btn-icon" title="编辑" onClick={() => startEdit(p)}><Icon.Edit size={14} /></button>
+              <button className="btn-icon" title="测试" onClick={() => void doTest(p)}><Icon.Play size={14} /></button>
+              <button className="btn-icon" title="删除" onClick={() => void remove(p.id)}><Icon.Trash size={14} /></button>
+            </div>
           ))}
-        </div>
-        <div className="space-y-3">
-          <Field label="Base URL">
-            <input className="input font-mono" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
-          </Field>
-          <Field label="API Key">
-            <input className="input font-mono" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." />
-          </Field>
-          <Field label="模型">
-            <input className="input font-mono" value={model} onChange={(e) => setModel(e.target.value)} placeholder="deepseek-chat / moonshot-v1-8k" />
-          </Field>
-          <Field label="上下文消息数（多轮记忆）">
-            <input className="input font-mono" type="number" min={1} max={50} value={contextMessages} onChange={(e) => setContextMessages(Number(e.target.value) || 20)} />
-          </Field>
-        </div>
-        <div className="mt-4 flex items-center gap-3">
-          <button onClick={doSave} disabled={saving} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">
-            保存
+          <button onClick={startNew} className="btn justify-center gap-1.5 border border-dashed border-border bg-bg-app px-3 py-2 text-txt-secondary hover:border-accent hover:text-txt-primary">
+            <Icon.Plus size={14} /> 新增模型
           </button>
-          <button onClick={doTest} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">
-            测试连接
-          </button>
-          {msg && <span className="text-[12px] text-txt-secondary">{msg}</span>}
         </div>
+        {msg && <div className="mt-3 text-[12px] text-txt-secondary">{msg}</div>}
       </Group>
       <Group title="说明">
         <p className="text-[12px] leading-relaxed text-txt-secondary">
-          DeepSeek / Kimi 均为 OpenAI 兼容接口。完成模型设置后，回到对话发送消息即可获得 AI 真实回复；未配置时回退到本地演示（Mock）。上下文消息数控制发送给模型的多轮记忆长度。
+          可配置多个模型端点，对话输入框下方可通过下拉快速切换，并选择「低 / 中 / 高」推理等级（发送时作为 reasoning_effort 传给模型）。未配置时回退本地演示（Mock）。
         </p>
       </Group>
     </>

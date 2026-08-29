@@ -79,14 +79,26 @@ export interface SendMessageInput {
 /** 模型提供方（DeepSeek / Kimi / 自定义 OpenAI 兼容） */
 export type ModelProvider = 'deepseek' | 'kimi' | 'custom'
 
-/** 模型配置 */
-export interface ModelConfig {
+/** 推理强度档位 */
+export type ReasoningEffort = 'low' | 'medium' | 'high'
+
+/** 单个模型预设（一个可切换的模型端点） */
+export interface ModelPreset {
+  id: string
+  name: string
   provider: ModelProvider
   baseUrl: string
   apiKey: string
   model: string
   /** 发送给模型的上下文消息条数（多轮记忆长度） */
   contextMessages: number
+}
+
+/** 模型配置（含多预设、当前激活项、推理等级） */
+export interface ModelConfig {
+  presets: ModelPreset[]
+  activePresetId: string
+  reasoningEffort: ReasoningEffort
 }
 
 /** 模型连通性测试结果 */
@@ -113,7 +125,9 @@ export interface AgentApi {
   model: {
     getConfig: () => Promise<IpcResult<ModelConfig>>
     setConfig: (cfg: Partial<ModelConfig>) => Promise<IpcResult<ModelConfig>>
-    test: () => Promise<IpcResult<ModelTestResult>>
+    setActive: (id: string) => Promise<IpcResult<ModelConfig>>
+    setReasoning: (effort: ReasoningEffort) => Promise<IpcResult<ModelConfig>>
+    test: (preset?: ModelPreset) => Promise<IpcResult<ModelTestResult>>
   }
   onMessageStreamed: (cb: (m: Message) => void) => () => void
   window: {

@@ -1,11 +1,11 @@
 import { randomUUID } from 'crypto'
 import { ipcMain, type WebContents } from 'electron'
 import { IPC, EVENTS } from '@shared/ipc'
-import type { SendMessageInput, Message, MessageBlock, MessageStatus } from '@shared/types'
+import type { SendMessageInput, Message, MessageBlock, MessageStatus, ModelConfig } from '@shared/types'
 import { getStore } from '../db'
 import { buildMockReply } from '../services/mockAgent'
 import { streamChat, type ChatMessage } from '../services/modelProvider'
-import { getModelConfig } from '../services/modelConfig'
+import { getModelConfig, getActivePreset } from '../services/modelConfig'
 import { ok, err } from './result'
 
 export function registerMessageIpc(): void {
@@ -37,11 +37,12 @@ export function registerMessageIpc(): void {
 
 async function runReply(wc: WebContents, sessionId: string): Promise<void> {
   const cfg = getModelConfig()
-  if (!cfg.apiKey || !cfg.baseUrl || !cfg.model) {
+  const preset = getActivePreset()
+  if (!preset || !preset.apiKey || !preset.baseUrl || !preset.model) {
     scheduleMockReply(wc, sessionId)
     return
   }
-  await runModelReply(wc, cfg, sessionId)
+  await runModelReply(wc, preset, cfg.reasoningEffort, sessionId)
 }
 
 async function buildHistory(sessionId: string, contextMessages: number): Promise<ChatMessage[]> {
@@ -55,7 +56,8 @@ async function buildHistory(sessionId: string, contextMessages: number): Promise
 
 async function runModelReply(
   wc: WebContents,
-  cfg: ReturnType<typeof getModelConfig>,
+  preset: NonNullable<ReturnType<typeof getActivePreset>>,
+  reasoningEffort: ModelConfig['reasoningEffort'],
   sessionId: string
 ): Promise<void> {
   const id = randomUUID()
@@ -81,13 +83,17 @@ async function runModelReply(
 
   try {
     await emit('streaming')
-    const history = await buildHistory(sessionId, cfg.contextMessages)
-    await streamChat(cfg, history, async (ev) => {
-      if (ev.reasoning) reasoning += ev.reasoning
-      if (ev.content) content += ev.content
-      if (ev.done) return
-      await emit('streaming')
-    })
+    const history = await buildHistory(sessionId, preset.contextMessages)
+    await streamChat(
+      { baseUrl: preset.baseUrl, apiKey: preset.apiKey, model: preset.model, reasoningEffort },
+      history,
+      async (ev) => {
+        if (ev.reasoning) reasoning += ev.reasoning
+        if (ev.content) content += ev.content
+        if (ev.done) return
+        await emit('streaming')
+      }
+    )
     await emit('done')
   } catch (e) {
     const detail = (e as Error)?.message ?? '网络错误'

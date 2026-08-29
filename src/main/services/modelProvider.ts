@@ -1,4 +1,4 @@
-import type { ModelConfig } from '@shared/types'
+import type { ModelPreset, ReasoningEffort } from '@shared/types'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -13,22 +13,36 @@ export interface StreamEvent {
 
 type OnEvent = (ev: StreamEvent) => void | Promise<void>
 
+export interface RuntimeModel {
+  baseUrl: string
+  apiKey: string
+  model: string
+  reasoningEffort?: ReasoningEffort
+}
+
 /** 调用 OpenAI 兼容流式接口（DeepSeek / Kimi 通用）。仅打印接口信息（模型/URL/状态/耗时），不打印 prompt 与响应内容。 */
 export async function streamChat(
-  config: ModelConfig,
+  runtime: RuntimeModel,
   messages: ChatMessage[],
   onEvent: OnEvent
 ): Promise<void> {
-  const base = config.baseUrl.replace(/\/+$/, '')
+  const base = runtime.baseUrl.replace(/\/+$/, '')
   const started = Date.now()
-  console.log('[model] request model=' + config.model + ' url=' + base)
+  console.log('[model] request model=' + runtime.model + ' url=' + base)
+  const body: Record<string, unknown> = {
+    model: runtime.model,
+    messages,
+    stream: true,
+    temperature: 0.7
+  }
+  if (runtime.reasoningEffort) body.reasoning_effort = runtime.reasoningEffort
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`
+      Authorization: `Bearer ${runtime.apiKey}`
     },
-    body: JSON.stringify({ model: config.model, messages, stream: true, temperature: 0.7 })
+    body: JSON.stringify(body)
   })
   console.log('[model] response status=' + res.status + ' elapse_ms=' + (Date.now() - started))
 
@@ -76,19 +90,21 @@ export async function streamChat(
 }
 
 /** 测试连通性：发一次最小请求。仅打印接口信息。 */
-export async function testChat(config: ModelConfig): Promise<{ success: boolean; message: string }> {
-  if (!config.apiKey || !config.baseUrl || !config.model) {
+export async function testChat(
+  preset: Pick<ModelPreset, 'baseUrl' | 'apiKey' | 'model'>
+): Promise<{ success: boolean; message: string }> {
+  if (!preset.apiKey || !preset.baseUrl || !preset.model) {
     return { success: false, message: '未配置模型（需 API Key / baseUrl / model）' }
   }
-  const base = config.baseUrl.replace(/\/+$/, '')
+  const base = preset.baseUrl.replace(/\/+$/, '')
   try {
     const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`
+        Authorization: `Bearer ${preset.apiKey}`
       },
-      body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 5 })
+      body: JSON.stringify({ model: preset.model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 5 })
     })
     console.log('[model] test status=' + res.status)
     if (!res.ok) {
