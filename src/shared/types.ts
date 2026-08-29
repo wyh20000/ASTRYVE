@@ -120,6 +120,15 @@ export interface PersistedTheme {
   overrides: ThemeOverrides
 }
 
+/** 数据库连接配置 */
+export interface DbConfig {
+  host: string
+  port: number
+  user: string
+  password: string
+  database: string
+}
+
 /** 前端可通过 window.agent 访问的统一 API 面 */
 export interface AgentApi {
   platform: string

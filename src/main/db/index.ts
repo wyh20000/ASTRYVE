@@ -3,6 +3,7 @@ import { join } from 'path'
 import type { Session, Message, MessageBlock, MessageRole, MessageStatus } from '@shared/types'
 import { MySqlStore, type MySqlConfig } from './mysql'
 import { MemoryStore } from './memory'
+import { getDbSettings } from '../services/settings'
 
 /** 数据库访问统一接口（repos 之后不感知具体后端） */
 export interface DbStore {
@@ -36,12 +37,13 @@ export interface InsertMessageInput {
 }
 
 export function defaultMySqlConfig(): MySqlConfig {
+  const saved = getDbSettings()
   return {
-    host: process.env.MYSQL_HOST ?? '127.0.0.1',
-    port: Number(process.env.MYSQL_PORT ?? 3306),
-    user: process.env.MYSQL_USER ?? 'root',
-    password: process.env.MYSQL_PASSWORD ?? '',
-    database: process.env.MYSQL_DATABASE ?? 'ai_agent'
+    host: process.env.MYSQL_HOST ?? saved.host,
+    port: Number(process.env.MYSQL_PORT ?? saved.port),
+    user: process.env.MYSQL_USER ?? saved.user,
+    password: process.env.MYSQL_PASSWORD ?? saved.password,
+    database: process.env.MYSQL_DATABASE ?? saved.database
   }
 }
 

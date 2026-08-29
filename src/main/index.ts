@@ -49,9 +49,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  initSettings()
   await initStore()
   initModelConfig()
-  initSettings()
   registerIpcHandlers()
   createWindow()
 
