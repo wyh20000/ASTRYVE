@@ -29,13 +29,16 @@ export async function streamChat(
   const base = runtime.baseUrl.replace(/\/+$/, '')
   const started = Date.now()
   console.log('[model] request model=' + runtime.model + ' url=' + base)
-  const body: Record<string, unknown> = {
-    model: runtime.model,
-    messages,
-    stream: true,
-    temperature: 0.7
+  // 思考模式：三档都开启思考，强度不同：低→low / 中→high / 高→max。(DeepSeek 映射：medium/high→high，max→max)
+  // 思考模式下不支持 temperature（会被忽略），故仅在未启用思考时携带。
+  const body: Record<string, unknown> = { model: runtime.model, messages, stream: true }
+  const e = runtime.reasoningEffort
+  if (e === 'low' || e === 'medium' || e === 'high') {
+    body.thinking = { type: 'enabled' }
+    body.reasoning_effort = e === 'low' ? 'low' : e === 'high' ? 'max' : 'high'
+  } else {
+    body.temperature = 0.7
   }
-  if (runtime.reasoningEffort) body.reasoning_effort = runtime.reasoningEffort
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
