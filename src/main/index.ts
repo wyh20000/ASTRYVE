@@ -29,7 +29,11 @@ function createWindow(): void {
     }
   })
 
-  win.on('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    win.show()
+    win.focus()
+    win.moveTop()
+  })
 
   win.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url)
