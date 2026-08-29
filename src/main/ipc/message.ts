@@ -45,13 +45,21 @@ async function runReply(wc: WebContents, sessionId: string): Promise<void> {
   await runModelReply(wc, preset, cfg.reasoningEffort, sessionId)
 }
 
+/** Agent 系统提示：写代码必须同步给出测试文件，便于代码审查 */
+const AGENT_SYSTEM_PROMPT = [
+  '你是一个专业的 AI 编程助手。',
+  '重要要求：每次编写或修改代码时，必须同时提供对应的测试文件（pytest / vitest / jest 等），用于代码审查。',
+  '请将代码与测试都放在 markdown 代码块中，并标注语言。'
+].join('\n')
+
 async function buildHistory(sessionId: string, contextMessages: number): Promise<ChatMessage[]> {
   const msgs = await getStore().listMessages(sessionId)
-  return msgs
+  const history: ChatMessage[] = msgs
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
     .filter((m) => m.content.trim().length > 0)
     .slice(-(contextMessages || 20))
     .map((m) => ({ role: m.role as ChatMessage['role'], content: m.content }))
+  return [{ role: 'system', content: AGENT_SYSTEM_PROMPT }, ...history]
 }
 
 async function runModelReply(
