@@ -12,7 +12,6 @@ function createWindow(): void {
     height: 900,
     minWidth: 1120,
     minHeight: 720,
-    show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0a0e17',
     // 用自定义隐藏标题栏 + 覆盖层（仅 Windows），让顶部随主题颜色变化
@@ -29,6 +28,7 @@ function createWindow(): void {
     }
   })
 
+  // 窗口创建即显示；就绪后置顶聚焦，确保弹到最前
   win.once('ready-to-show', () => {
     win.show()
     win.focus()
