@@ -1,17 +1,25 @@
 import { create } from 'zustand'
-import type { Message, Attachment } from '@shared/types'
+import type { Message, Attachment, IpcResult, MessageNotice } from '@shared/types'
 import { useSessionStore } from './sessionStore'
 
 interface ChatState {
   /** sessionId -> messages（按 timestamp 升序） */
   messages: Record<string, Message[]>
   sending: Record<string, boolean>
+  notices: Record<string, MessageNotice | undefined>
   /** 加载某个会话的消息 */
   load: (sessionId: string) => Promise<void>
   /** 发送用户消息（本地 Mock 回复已由主进程推送，经 upsertMessage 合并） */
-  send: (sessionId: string, content: string, attachments?: Attachment[], search?: boolean) => Promise<void>
+  send: (
+    sessionId: string,
+    content: string,
+    attachments?: Attachment[],
+    search?: boolean
+  ) => Promise<IpcResult<Message>>
   /** 从主进程流式事件合并一条消息 */
   upsertMessage: (msg: Message) => void
+  setNotice: (notice: MessageNotice) => void
+  clearNotice: (sessionId: string, noticeId?: string) => void
   clear: () => void
 }
 
@@ -32,6 +40,7 @@ function append(record: Record<string, Message[]>, sessionId: string, msg: Messa
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   sending: {},
+  notices: {},
 
   load: async (sessionId) => {
     const res = await window.agent.message.list(sessionId)
@@ -42,22 +51,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   send: async (sessionId, content, attachments, search) => {
     const res = await window.agent.message.send({ sessionId, content, attachments, search })
-    if (!res.ok) return
+    if (!res.ok) return res
     set((s) => ({
       messages: append(s.messages, sessionId, res.data),
       sending: { ...s.sending, [sessionId]: true }
     }))
     // 主进程可能已自动生成会话标题，刷新一次以同步侧栏
     void useSessionStore.getState().touch(sessionId)
+    return res
   },
 
   upsertMessage: (msg) => {
     set((s) => {
       const sending = { ...s.sending }
-      if (msg.status === 'done') sending[msg.sessionId] = false
+      if (msg.status === 'done' || msg.status === 'error') sending[msg.sessionId] = false
       return { messages: append(s.messages, msg.sessionId, msg), sending }
     })
   },
 
-  clear: () => set({ messages: {}, sending: {} })
+  setNotice: (notice) => {
+    set((s) => ({ notices: { ...s.notices, [notice.sessionId]: notice } }))
+  },
+
+  clearNotice: (sessionId, noticeId) => {
+    set((s) => {
+      const current = s.notices[sessionId]
+      if (!current || (noticeId && current.id !== noticeId)) return s
+      return { notices: { ...s.notices, [sessionId]: undefined } }
+    })
+  },
+
+  clear: () => set({ messages: {}, sending: {}, notices: {} })
 }))

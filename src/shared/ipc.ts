@@ -35,5 +35,6 @@ export const IPC = {
 
 /** 主进程 → 渲染进程的事件推送 channel */
 export const EVENTS = {
-  messageStreamed: 'message:streamed'
+  messageStreamed: 'message:streamed',
+  messageNotice: 'message:notice'
 } as const

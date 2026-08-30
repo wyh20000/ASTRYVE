@@ -8,7 +8,8 @@ import type {
   ModelPreset,
   ReasoningEffort,
   PersistedTheme,
-  Message
+  Message,
+  MessageNotice
 } from '@shared/types'
 
 const api: AgentApi = {
@@ -36,6 +37,11 @@ const api: AgentApi = {
     const listener = (_e: unknown, m: Message): void => cb(m)
     ipcRenderer.on(EVENTS.messageStreamed, listener)
     return () => ipcRenderer.removeListener(EVENTS.messageStreamed, listener)
+  },
+  onMessageNotice: (cb: (notice: MessageNotice) => void) => {
+    const listener = (_e: unknown, notice: MessageNotice): void => cb(notice)
+    ipcRenderer.on(EVENTS.messageNotice, listener)
+    return () => ipcRenderer.removeListener(EVENTS.messageNotice, listener)
   },
   settings: {
     getTheme: () => ipcRenderer.invoke(IPC.settings.getTheme),

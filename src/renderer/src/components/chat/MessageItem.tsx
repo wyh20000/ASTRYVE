@@ -5,6 +5,7 @@ import { fullTime } from '../../lib/time'
 
 export function MessageItem({ message }: { message: Message }): JSX.Element {
   if (message.role === 'user') return <UserMessage message={message} />
+  if (message.status === 'error' && !message.content && !message.blocks?.length) return <></>
   return <AssistantMessage message={message} />
 }
 

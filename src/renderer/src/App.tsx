@@ -16,6 +16,7 @@ export default function App(): JSX.Element {
   const activeId = useSessionStore((s) => s.activeId)
   const load = useChatStore((s) => s.load)
   const upsertMessage = useChatStore((s) => s.upsertMessage)
+  const setNotice = useChatStore((s) => s.setNotice)
   const create = useSessionStore((s) => s.create)
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
@@ -32,6 +33,11 @@ export default function App(): JSX.Element {
     const unsub = window.agent.onMessageStreamed((m) => upsertMessage(m))
     return unsub
   }, [upsertMessage])
+
+  useEffect(() => {
+    const unsub = window.agent.onMessageNotice((notice) => setNotice(notice))
+    return unsub
+  }, [setNotice])
 
   useEffect(() => {
     if (activeId) void load(activeId)

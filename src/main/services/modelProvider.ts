@@ -27,6 +27,15 @@ export interface StreamEvent {
 
 type OnEvent = (ev: StreamEvent) => void | Promise<void>
 
+export const MODEL_RESOURCE_ERROR = 'MODEL_INSUFFICIENT_SYSTEM_RESOURCE'
+
+/** Node fetch/undici 在服务端中途关闭流时常见的可重试错误。 */
+export function isRetryableStreamError(error: unknown): boolean {
+  const e = error as { message?: string; code?: string; cause?: { code?: string; message?: string } }
+  const text = [e?.message, e?.code, e?.cause?.message, e?.cause?.code].filter(Boolean).join(' ').toLowerCase()
+  return /terminated|fetch failed|econnreset|und_err_socket|socket|network connection|premature close/.test(text)
+}
+
 export interface RuntimeModel {
   baseUrl: string
   apiKey: string
@@ -96,7 +105,11 @@ export async function streamChat(
       } catch {
         continue
       }
-      const delta = json?.choices?.[0]?.delta
+      const choice = json?.choices?.[0]
+      if (choice?.finish_reason === 'insufficient_system_resource') {
+        throw new Error(MODEL_RESOURCE_ERROR)
+      }
+      const delta = choice?.delta
       if (!delta) continue
       if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
         await onEvent({ reasoning: delta.reasoning_content })
@@ -192,7 +205,11 @@ export async function streamSearchChat(
       } catch {
         continue
       }
-      const delta = json?.choices?.[0]?.delta
+      const choice = json?.choices?.[0]
+      if (choice?.finish_reason === 'insufficient_system_resource') {
+        throw new Error(MODEL_RESOURCE_ERROR)
+      }
+      const delta = choice?.delta
       if (!delta) continue
       if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
         await onEvent({ reasoning: delta.reasoning_content })

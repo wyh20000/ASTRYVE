@@ -55,6 +55,14 @@ export interface Message {
   timestamp: number
 }
 
+/** 主进程异步回复过程中产生的非对话区提示 */
+export interface MessageNotice {
+  id: string
+  sessionId: string
+  message: string
+  level: 'warning' | 'error'
+}
+
 /** 附件（为 P3 识图预留） */
 export interface Attachment {
   id: string
@@ -96,10 +104,6 @@ export interface ModelPreset {
   model: string
   /** 发送给模型的上下文消息条数（多轮记忆长度） */
   contextMessages: number
-  /** 是否支持图片（多模态视觉）输入 */
-  supportsVision: boolean
-  /** 视觉模型名；缺省回退 model */
-  visionModel?: string
 }
 
 /** 模型配置（含多预设、当前激活项、推理等级） */
@@ -160,6 +164,7 @@ export interface AgentApi {
     test: (preset?: ModelPreset) => Promise<IpcResult<ModelTestResult>>
   }
   onMessageStreamed: (cb: (m: Message) => void) => () => void
+  onMessageNotice: (cb: (notice: MessageNotice) => void) => () => void
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>
     setTheme: (t: PersistedTheme) => Promise<IpcResult<PersistedTheme>>

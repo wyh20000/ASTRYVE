@@ -4,24 +4,28 @@ import { join } from 'path'
 import fs from 'fs'
 import type { ModelConfig, ModelPreset, ModelProvider, ReasoningEffort } from '@shared/types'
 
-/** 各提供方的默认 baseUrl / model / 视觉能力 */
-export const PROVIDER_PRESETS: Record<
-  ModelProvider,
-  { baseUrl: string; model: string; supportsVision: boolean; visionModel?: string }
-> = {
+/** 各提供方的默认 baseUrl / model */
+export const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
   deepseek: {
     baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-pro',
-    supportsVision: true,
-    visionModel: 'deepseek-v4-flash-vision-exp'
+    model: 'deepseek-v4-pro'
   },
   kimi: {
     baseUrl: 'https://api.moonshot.cn/v1',
-    model: 'moonshot-v1-8k',
-    supportsVision: true,
-    visionModel: 'moonshot-v1-8k-vision-preview'
+    model: 'moonshot-v1-8k'
   },
-  custom: { baseUrl: '', model: '', supportsVision: false }
+  custom: { baseUrl: '', model: '' }
+}
+
+export const MIN_CONTEXT_MESSAGES = 1
+export const MAX_CONTEXT_MESSAGES = 50
+export const DEFAULT_CONTEXT_MESSAGES = 20
+
+/** 上下文按“消息条数”配置；主进程强制收敛范围，不能只依赖 input 的 min/max。 */
+export function normalizeContextMessages(value: unknown): number {
+  const parsed = Math.trunc(Number(value))
+  if (!Number.isFinite(parsed)) return DEFAULT_CONTEXT_MESSAGES
+  return Math.min(MAX_CONTEXT_MESSAGES, Math.max(MIN_CONTEXT_MESSAGES, parsed))
 }
 
 function envProvider(): ModelProvider {
@@ -39,9 +43,7 @@ function makeDefaultPreset(): ModelPreset {
     baseUrl: process.env.MODEL_BASE_URL ?? preset.baseUrl,
     apiKey: process.env.DEEPSEEK_API_KEY ?? process.env.MOONSHOT_API_KEY ?? process.env.MODEL_API_KEY ?? '',
     model: process.env.MODEL ?? preset.model,
-    contextMessages: Number(process.env.CONTEXT_MESSAGES ?? 20) || 20,
-    supportsVision: preset.supportsVision,
-    visionModel: preset.visionModel
+    contextMessages: normalizeContextMessages(process.env.CONTEXT_MESSAGES ?? DEFAULT_CONTEXT_MESSAGES)
   }
 }
 
@@ -56,7 +58,7 @@ function configFile(): string {
   return join(app.getPath('userData'), 'ai-agent-config.json')
 }
 
-/** 规范化一个预设：补齐 supportsVision / visionModel 等缺省字段（兼容旧配置） */
+/** 规范化一个预设；旧的 supportsVision / visionModel 字段会在保存时自然移除。 */
 export function normalizePreset(p: Partial<ModelPreset>): ModelPreset {
   const provider = (p.provider as ModelProvider) ?? 'deepseek'
   const def = PROVIDER_PRESETS[provider] ?? PROVIDER_PRESETS.custom
@@ -67,9 +69,7 @@ export function normalizePreset(p: Partial<ModelPreset>): ModelPreset {
     baseUrl: p.baseUrl ?? '',
     apiKey: p.apiKey ?? '',
     model: p.model ?? '',
-    contextMessages: Number(p.contextMessages) || 20,
-    supportsVision: p.supportsVision ?? def.supportsVision,
-    visionModel: p.visionModel ?? def.visionModel
+    contextMessages: normalizeContextMessages(p.contextMessages ?? DEFAULT_CONTEXT_MESSAGES)
   }
 }
 
@@ -93,7 +93,7 @@ export function migrate(saved: Record<string, unknown>): ModelConfig {
         baseUrl: (saved.baseUrl as string) ?? '',
         apiKey: (saved.apiKey as string) ?? '',
         model: (saved.model as string) ?? '',
-        contextMessages: Number(saved.contextMessages) || 20
+        contextMessages: normalizeContextMessages(saved.contextMessages ?? DEFAULT_CONTEXT_MESSAGES)
       })
     )
   }
@@ -107,6 +107,8 @@ export function initModelConfig(): ModelConfig {
     if (fs.existsSync(configFile())) {
       const raw = fs.readFileSync(configFile(), 'utf-8')
       config = migrate(JSON.parse(raw))
+      // 将越界值与旧结构立即写回，避免下次启动继续加载异常配置。
+      persist()
     }
   } catch (e) {
     console.warn('[model] failed to load config:', e)
@@ -123,7 +125,11 @@ export function getActivePreset(): ModelPreset | null {
 }
 
 export function setModelConfig(cfg: Partial<ModelConfig>): ModelConfig {
-  config = { ...config, ...cfg }
+  const next = { ...config, ...cfg }
+  config = {
+    ...next,
+    presets: (next.presets ?? []).map(normalizePreset)
+  }
   if (!config.presets.some((p) => p.id === config.activePresetId)) {
     config.activePresetId = config.presets[0]?.id ?? ''
   }

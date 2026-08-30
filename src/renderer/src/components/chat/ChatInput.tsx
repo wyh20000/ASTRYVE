@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -10,6 +11,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
 import type { ReasoningEffort, Attachment } from '@shared/types'
+import { supportsImageInput } from '@shared/modelCapabilities'
 import { Icon } from '../ui/icons'
 import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
 
@@ -31,18 +33,39 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [search, setSearch] = useState(false)
   const send = useChatStore((s) => s.send)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
+  const streamNotice = useChatStore((s) => s.notices[sessionId])
+  const clearStreamNotice = useChatStore((s) => s.clearNotice)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const config = useModelStore((s) => s.config)
   const activePreset = config?.presets.find((p) => p.id === config.activePresetId)
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')
-  const visionBlocked = images.length > 0 && !activePreset?.supportsVision
+  const visionBlocked = images.length > 0 && !supportsImageInput(activePreset?.model ?? '')
   const canSend =
-    (value.trim().length > 0 || attachments.length > 0) && !!sessionId && !sending && !visionBlocked
+    (value.trim().length > 0 || attachments.length > 0) && !!sessionId && !sending
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!streamNotice) return
+    const timer = setTimeout(() => clearStreamNotice(sessionId, streamNotice.id), 5000)
+    return () => clearTimeout(timer)
+  }, [clearStreamNotice, sessionId, streamNotice])
+
+  const showNotice = (message: string): void => {
+    setNotice(message)
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = message ? setTimeout(() => setNotice(''), 3200) : null
+  }
 
   const addFiles = async (incoming: File[]): Promise<void> => {
     const ok: Attachment[] = []
@@ -57,27 +80,36 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       }
     }
     if (ok.length) setAttachments((prev) => [...prev, ...ok])
-    setNotice(errors[0] ?? '')
+    showNotice(errors[0] ?? '')
   }
 
   const removeAttachment = (id: string): void => {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
-  const doSend = (): void => {
+  const doSend = async (): Promise<void> => {
     const v = value.trim()
-    if ((!v && attachments.length === 0) || !sessionId || visionBlocked) return
-    void send(sessionId, v, attachments, search)
+    if ((!v && attachments.length === 0) || !sessionId) return
+    if (visionBlocked) {
+      showNotice('信息不能发送，此模型无法进行图片处理')
+      return
+    }
+    const result = await send(sessionId, v, attachments, search)
+    if (!result.ok) {
+      showNotice(result.error.message)
+      return
+    }
     setValue('')
     setAttachments([])
-    setNotice('')
+    showNotice('')
+    clearStreamNotice(sessionId)
     if (taRef.current) taRef.current.style.height = 'auto'
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      doSend()
+      void doSend()
     }
   }
 
@@ -110,7 +142,15 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
 
   return (
     <div className="shrink-0 px-4 pb-2 pt-3" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-      <div className="mx-auto max-w-[820px]">
+      <div className="relative mx-auto max-w-[820px]">
+        {(notice || streamNotice?.message) && (
+          <div
+            role="alert"
+            className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2 rounded-md border border-warn/40 bg-bg-raised px-3 py-2 text-[12px] text-warn shadow-xl"
+          >
+            {notice || streamNotice?.message}
+          </div>
+        )}
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
           {(images.length > 0 || files.length > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-2.5">
@@ -185,7 +225,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
               </button>
               <button
                 disabled={!canSend}
-                onClick={doSend}
+                onClick={() => void doSend()}
                 className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
                 title="发送"
               >
@@ -194,14 +234,6 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             </div>
           </div>
         </div>
-        {visionBlocked && (
-          <div className="mt-1.5 text-center text-[11px] text-warn">
-            当前模型不支持图片，请在「设置 → 模型设置」切换视觉模型后重试
-          </div>
-        )}
-        {notice && !visionBlocked && (
-          <div className="mt-1.5 text-center text-[11px] text-warn">{notice}</div>
-        )}
         <div className="mt-2 text-center text-[11px] text-txt-muted">
           AI 生成的内容可能不准确，请注意甄别
         </div>

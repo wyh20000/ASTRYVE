@@ -1,14 +1,30 @@
 import { randomUUID } from 'crypto'
 import { ipcMain, type WebContents } from 'electron'
 import { IPC, EVENTS } from '@shared/ipc'
-import type { SendMessageInput, Message, MessageBlock, Attachment, MessageStatus, ModelConfig } from '@shared/types'
+import type {
+  SendMessageInput,
+  Message,
+  MessageBlock,
+  Attachment,
+  MessageStatus,
+  ModelConfig,
+  MessageNotice
+} from '@shared/types'
 import { getStore } from '../db'
 import { buildMockReply } from '../services/mockAgent'
-import { streamChat, streamSearchChat, type ChatMessage, type StreamEvent } from '../services/modelProvider'
-import { getModelConfig, getActivePreset } from '../services/modelConfig'
+import {
+  MODEL_RESOURCE_ERROR,
+  isRetryableStreamError,
+  streamChat,
+  streamSearchChat,
+  type ChatMessage,
+  type StreamEvent
+} from '../services/modelProvider'
+import { getModelConfig, getActivePreset, normalizeContextMessages } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
 import { toChatMessage, injectDocuments } from '../services/history'
 import { ok, err } from './result'
+import { supportsImageInput } from '@shared/modelCapabilities'
 
 export function registerMessageIpc(): void {
   ipcMain.handle(IPC.message.list, async (_e, sessionId: string) => {
@@ -21,6 +37,11 @@ export function registerMessageIpc(): void {
 
   ipcMain.handle(IPC.message.send, async (event, input: SendMessageInput) => {
     try {
+      const hasImages = (input.attachments ?? []).some((attachment) => attachment.kind === 'image')
+      const activeModel = getActivePreset()?.model ?? ''
+      if (hasImages && !supportsImageInput(activeModel)) {
+        return err('VISION_UNSUPPORTED', '信息不能发送，此模型无法进行图片处理')
+      }
       // 图片保留 base64；文档在主进程提取文本，剥离原始 base64（避免落库膨胀）
       const { stored, docTexts } = await prepareAttachments(input.attachments ?? [])
       const user = await getStore().insertMessage({
@@ -92,10 +113,6 @@ async function runReply(
     return
   }
   const vision = attachments.some((a) => a.kind === 'image')
-  if (vision && !preset.supportsVision) {
-    await emitVisionUnsupported(wc, sessionId)
-    return
-  }
   const useSearch = search && preset.provider === 'kimi' && !vision
   await runModelReply(wc, preset, cfg.reasoningEffort, sessionId, vision, docTexts, useSearch)
 }
@@ -119,7 +136,7 @@ async function buildHistory(
   const history: ChatMessage[] = msgs
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
     .filter((m) => m.content.trim().length > 0 || (m.attachments ?? []).length > 0)
-    .slice(-(contextMessages || 20))
+    .slice(-normalizeContextMessages(contextMessages))
     .map((m) => toChatMessage(m, vision))
   return [{ role: 'system', content: AGENT_SYSTEM_PROMPT }, ...history]
 }
@@ -154,46 +171,65 @@ async function runModelReply(
     if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, msg)
   }
 
-  try {
+  await emit('streaming')
+  const history = await buildHistory(sessionId, preset.contextMessages, vision)
+  injectDocuments(history, docTexts)
+  const runtime = {
+    baseUrl: preset.baseUrl,
+    apiKey: preset.apiKey,
+    model: preset.model,
+    reasoningEffort,
+    vision
+  }
+  const onEvent = async (ev: StreamEvent): Promise<void> => {
+    if (ev.reasoning) reasoning += ev.reasoning
+    if (ev.content) content += ev.content
+    if (ev.done) return
     await emit('streaming')
-    const history = await buildHistory(sessionId, preset.contextMessages, vision)
-    injectDocuments(history, docTexts)
-    const runtime = {
-      baseUrl: preset.baseUrl,
-      apiKey: preset.apiKey,
-      model: vision ? (preset.visionModel ?? preset.model) : preset.model,
-      reasoningEffort,
-      vision
+  }
+
+  let retried = false
+  while (true) {
+    try {
+      if (search) await streamSearchChat(runtime, history, onEvent)
+      else await streamChat(runtime, history, onEvent)
+      await emit('done')
+      return
+    } catch (e) {
+      const retryable = isRetryableStreamError(e)
+      // 尚未产生最终正文时允许重试一次；清空首轮思考，避免重试后重复展示。
+      if (!search && retryable && !content && !retried) {
+        retried = true
+        reasoning = ''
+        console.warn('[model] stream interrupted before content, retrying once')
+        await emit('streaming')
+        continue
+      }
+
+      const detail = (e as Error)?.message ?? '网络错误'
+      console.warn('[model] chat error:', detail) // 不打印 prompt / 响应内容
+      await emit('error')
+      sendMessageNotice(wc, {
+        id: randomUUID(),
+        sessionId,
+        level: 'error',
+        message: modelErrorMessage(detail, retryable, retried, content.length > 0)
+      })
+      return
     }
-    const onEvent = async (ev: StreamEvent): Promise<void> => {
-      if (ev.reasoning) reasoning += ev.reasoning
-      if (ev.content) content += ev.content
-      if (ev.done) return
-      await emit('streaming')
-    }
-    if (search) await streamSearchChat(runtime, history, onEvent)
-    else await streamChat(runtime, history, onEvent)
-    await emit('done')
-  } catch (e) {
-    const detail = (e as Error)?.message ?? '网络错误'
-    content = content ? `${content}\n\n⚠️ 请求失败：${detail}` : `⚠️ 请求失败：${detail}`
-    console.warn('[model] chat error:', detail) // 不打印 prompt / 响应内容
-    await emit('done')
   }
 }
 
-/** 当前模型不支持图片时，插入一条明确的提示消息 */
-async function emitVisionUnsupported(wc: WebContents, sessionId: string): Promise<void> {
-  const msg: Message = {
-    id: randomUUID(),
-    sessionId,
-    role: 'assistant',
-    content: '当前模型不支持图片输入。请在「设置 → 模型设置」中切换到支持视觉的模型（如 Kimi 视觉）。',
-    status: 'done',
-    timestamp: Date.now()
-  }
-  await getStore().upsertMessage(msg)
-  if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, msg)
+function modelErrorMessage(detail: string, retryable: boolean, retried: boolean, hasContent: boolean): string {
+  if (detail === MODEL_RESOURCE_ERROR) return '模型当前资源不足，请稍后再试'
+  if (retryable && hasContent) return '模型连接中断，已保留生成内容；可发送“继续”继续分析'
+  if (retryable && retried) return '模型连接中断，自动重试后仍未恢复，请稍后再试'
+  if (retryable) return '模型连接中断，请稍后再试'
+  return '模型请求失败，请检查模型配置或稍后再试'
+}
+
+function sendMessageNotice(wc: WebContents, notice: MessageNotice): void {
+  if (!wc.isDestroyed()) wc.send(EVENTS.messageNotice, notice)
 }
 
 function scheduleMockReply(wc: WebContents, sessionId: string): void {

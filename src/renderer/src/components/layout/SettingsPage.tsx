@@ -8,23 +8,16 @@ import { Icon } from '../ui/icons'
 
 type Section = 'theme' | 'model'
 
-const PROVIDER_PRESETS: Record<
-  ModelProvider,
-  { baseUrl: string; model: string; supportsVision: boolean; visionModel?: string }
-> = {
+const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
   deepseek: {
     baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-pro',
-    supportsVision: true,
-    visionModel: 'deepseek-v4-flash-vision-exp'
+    model: 'deepseek-v4-pro'
   },
   kimi: {
     baseUrl: 'https://api.moonshot.cn/v1',
-    model: 'moonshot-v1-8k',
-    supportsVision: true,
-    visionModel: 'moonshot-v1-8k-vision-preview'
+    model: 'moonshot-v1-8k'
   },
-  custom: { baseUrl: '', model: '', supportsVision: false }
+  custom: { baseUrl: '', model: '' }
 }
 
 /** 设置页（独立页面）：左侧导航列 + 右侧内容面板 */
@@ -255,9 +248,7 @@ function ModelSection(): JSX.Element {
       baseUrl: PROVIDER_PRESETS.deepseek.baseUrl,
       apiKey: '',
       model: PROVIDER_PRESETS.deepseek.model,
-      contextMessages: 20,
-      supportsVision: false,
-      visionModel: undefined
+      contextMessages: 20
     })
     setIsNew(true)
   }
@@ -271,7 +262,8 @@ function ModelSection(): JSX.Element {
     const draft: ModelPreset = {
       ...editing,
       id: editing.id || crypto.randomUUID(),
-      name: editing.name || editing.model
+      name: editing.name || editing.model,
+      contextMessages: Math.min(50, Math.max(1, Math.trunc(editing.contextMessages || 20)))
     }
     const presets = isNew
       ? [...config.presets, draft]
@@ -316,12 +308,8 @@ function ModelSection(): JSX.Element {
                     if (p !== 'custom') {
                       set({
                         baseUrl: PROVIDER_PRESETS[p].baseUrl,
-                        model: PROVIDER_PRESETS[p].model,
-                        supportsVision: PROVIDER_PRESETS[p].supportsVision,
-                        visionModel: PROVIDER_PRESETS[p].visionModel
+                        model: PROVIDER_PRESETS[p].model
                       })
-                    } else {
-                      set({ supportsVision: false, visionModel: undefined })
                     }
                   }}
                   className={`rounded-md border px-3 py-1.5 text-[13px] ${
@@ -340,30 +328,22 @@ function ModelSection(): JSX.Element {
             </Field>
             <Field label="模型">
               <input className="input font-mono" value={editing.model} onChange={(e) => set({ model: e.target.value })} placeholder="deepseek-chat / moonshot-v1-8k" />
+              <p className="mt-1.5 text-[11px] leading-relaxed text-txt-muted">
+                图片能力由该模型本身决定。如需识图，请新增一个多模态模型预设，并在对话中切换后发送图片。
+              </p>
             </Field>
             <Field label="上下文消息数（多轮记忆）">
-              <input className="input font-mono" type="number" min={1} max={50} value={editing.contextMessages} onChange={(e) => set({ contextMessages: Number(e.target.value) || 20 })} />
+              <input
+                className="input font-mono"
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={editing.contextMessages}
+                onChange={(e) => set({ contextMessages: Number(e.target.value) || 20 })}
+                onBlur={() => set({ contextMessages: Math.min(50, Math.max(1, Math.trunc(editing.contextMessages || 20))) })}
+              />
             </Field>
-            <Field label="视觉能力">
-              <label className="flex cursor-pointer items-center gap-2 text-[13px] text-txt-secondary">
-                <input
-                  type="checkbox"
-                  checked={editing.supportsVision}
-                  onChange={(e) => set({ supportsVision: e.target.checked })}
-                />
-                支持图片（多模态视觉）
-              </label>
-            </Field>
-            {editing.supportsVision && (
-              <Field label="视觉模型名">
-                <input
-                  className="input font-mono"
-                  value={editing.visionModel ?? ''}
-                  onChange={(e) => set({ visionModel: e.target.value })}
-                  placeholder="moonshot-v1-8k-vision-preview / qwen-vl-plus 等"
-                />
-              </Field>
-            )}
           </div>
           <div className="mt-4 flex items-center gap-3">
             <button onClick={() => void commit()} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">保存</button>
@@ -388,7 +368,6 @@ function ModelSection(): JSX.Element {
                 <div className="flex items-center gap-2 text-[13px] text-txt-primary">
                   {p.name}
                   <span className="rounded bg-bg-active px-1.5 text-[10px] text-txt-muted">{p.provider}</span>
-                  {p.supportsVision && <span className="rounded bg-accent-dim/30 px-1.5 text-[10px] text-accent">视觉</span>}
                 </div>
                 <div className="truncate text-[11px] text-txt-muted">{p.model}</div>
               </div>
