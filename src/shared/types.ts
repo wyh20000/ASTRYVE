@@ -31,6 +31,7 @@ export type MessageBlock =
   | { kind: 'plan'; items: PlanItem[] }
   | { kind: 'files'; files: GeneratedFile[] }
   | { kind: 'code'; language: string; code: string; filename?: string }
+  | { kind: 'sources'; sources: SourceCitation[] }
 
 export interface PlanItem {
   order: number
@@ -41,6 +42,11 @@ export interface PlanItem {
 export interface GeneratedFile {
   path: string
   addedLines: number
+}
+
+export interface SourceCitation {
+  title: string
+  url: string
 }
 
 /** 消息 */
@@ -84,7 +90,7 @@ export interface SendMessageInput {
   sessionId: string
   content: string
   attachments?: Attachment[]
-  /** 是否启用联网搜索（Kimi $web_search） */
+  /** 是否启用当前提供方的内置联网搜索 */
   search?: boolean
 }
 

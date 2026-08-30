@@ -6,7 +6,9 @@ import {
   buildTheme,
   getTheme,
   DEFAULT_THEME_ID,
-  THEMES
+  THEMES,
+  contrastRatio,
+  ensureContrast
 } from './theme'
 
 describe('normalizeHex', () => {
@@ -79,5 +81,17 @@ describe('主题预设', () => {
 
   it('未知主题 id 回退到第一个主题', () => {
     expect(getTheme('not-exist').id).toBe(THEMES[0].id)
+  })
+
+  it('次要文字和弱文字在内容背景上满足 WCAG AA', () => {
+    for (const theme of THEMES) {
+      expect(contrastRatio(theme.textSecondary, theme.bgRaised)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(theme.textMuted, theme.bgRaised)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('自定义低对比度文字会被调整到可读范围', () => {
+    const adjusted = ensureContrast('#777777', '#777777')
+    expect(contrastRatio(adjusted, '#777777')).toBeGreaterThanOrEqual(4.5)
   })
 })

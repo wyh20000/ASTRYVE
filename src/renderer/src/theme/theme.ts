@@ -34,13 +34,13 @@ const darkBase = {
   borderStrong: '#2a3547',
   textPrimary: '#e6e9ef',
   textSecondary: '#98a1b3',
-  textMuted: '#5c6577'
+  textMuted: '#7f899b'
 }
 
 /** 推荐主题（整体搭配：背景 + 文字 + 强调色） */
 export const THEMES: ThemePreset[] = [
   { id: 'midnight', name: '午夜蓝', ...darkBase, accent: '#5271ff', accentDim: '#33427f' },
-  { id: 'obsidian', name: '黑曜石', light: false, accent: '#a78bfa', accentDim: '#5b3fa8', bgApp: '#0b0b0e', bgPanel: '#111116', bgRaised: '#17171d', bgActive: '#1d1d25', border: '#22222b', borderStrong: '#2e2e3a', textPrimary: '#eef0f4', textSecondary: '#a0a4ae', textMuted: '#62656f' },
+  { id: 'obsidian', name: '黑曜石', light: false, accent: '#a78bfa', accentDim: '#5b3fa8', bgApp: '#0b0b0e', bgPanel: '#111116', bgRaised: '#17171d', bgActive: '#1d1d25', border: '#22222b', borderStrong: '#2e2e3a', textPrimary: '#eef0f4', textSecondary: '#a0a4ae', textMuted: '#858995' },
   { id: 'forest', name: '深林绿', ...darkBase, accent: '#3fb950', accentDim: '#256f38' },
   { id: 'amber', name: '琥珀橙', ...darkBase, accent: '#e08a3c', accentDim: '#8a4f1f' },
   {
@@ -57,7 +57,7 @@ export const THEMES: ThemePreset[] = [
     borderStrong: '#c4cad2',
     textPrimary: '#1f2328',
     textSecondary: '#57606a',
-    textMuted: '#8b949e'
+    textMuted: '#626c76'
   }
 ]
 
@@ -89,6 +89,28 @@ export function luminanceHex(hex: string): number {
   return 0.2126 * lin(ch[0]) + 0.7152 * lin(ch[1]) + 0.0722 * lin(ch[2])
 }
 
+/** WCAG 对比度（1~21）。 */
+export function contrastRatio(foreground: string, background: string): number {
+  const lighter = Math.max(luminanceHex(foreground), luminanceHex(background))
+  const darker = Math.min(luminanceHex(foreground), luminanceHex(background))
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+/** 将文字色向黑或白调整，保证在指定背景上达到最低对比度。 */
+export function ensureContrast(foreground: string, background: string, minimum = 4.5): string {
+  const normalized = normalizeHex(foreground) ?? '#000000'
+  if (contrastRatio(normalized, background) >= minimum) return normalized
+
+  const blackRatio = contrastRatio('#000000', background)
+  const whiteRatio = contrastRatio('#ffffff', background)
+  const target = whiteRatio >= blackRatio ? '#ffffff' : '#000000'
+  for (let step = 1; step <= 20; step += 1) {
+    const candidate = mixHex(normalized, target, step / 20)
+    if (contrastRatio(candidate, background) >= minimum) return candidate
+  }
+  return target
+}
+
 /** 由强调色派生更暗的 dim 色 */
 export function accentDimFrom(hex: string): string {
   const n = normalizeHex(hex)
@@ -115,9 +137,9 @@ function deriveFromBg(base: string): Pick<
 
 function deriveFromText(text: string, bg: string): Pick<ThemePreset, 'textPrimary' | 'textSecondary' | 'textMuted'> {
   return {
-    textPrimary: text,
-    textSecondary: mixHex(text, bg, 0.28),
-    textMuted: mixHex(text, bg, 0.5)
+    textPrimary: ensureContrast(text, bg),
+    textSecondary: ensureContrast(mixHex(text, bg, 0.28), bg),
+    textMuted: ensureContrast(mixHex(text, bg, 0.42), bg)
   }
 }
 

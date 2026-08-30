@@ -8,7 +8,8 @@ import type {
   Attachment,
   MessageStatus,
   ModelConfig,
-  MessageNotice
+  MessageNotice,
+  SourceCitation
 } from '@shared/types'
 import { getStore } from '../db'
 import { buildMockReply } from '../services/mockAgent'
@@ -16,6 +17,7 @@ import {
   MODEL_RESOURCE_ERROR,
   isRetryableStreamError,
   streamChat,
+  streamDeepSeekSearch,
   streamSearchChat,
   type ChatMessage,
   type StreamEvent
@@ -24,7 +26,8 @@ import { getModelConfig, getActivePreset, normalizeContextMessages } from '../se
 import { extractDocumentText } from '../services/document'
 import { toChatMessage, injectDocuments } from '../services/history'
 import { ok, err } from './result'
-import { supportsImageInput } from '@shared/modelCapabilities'
+import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import { extractSourceCitations } from '@shared/searchSources'
 
 export function registerMessageIpc(): void {
   ipcMain.handle(IPC.message.list, async (_e, sessionId: string) => {
@@ -113,7 +116,7 @@ async function runReply(
     return
   }
   const vision = attachments.some((a) => a.kind === 'image')
-  const useSearch = search && preset.provider === 'kimi' && !vision
+  const useSearch = search && supportsBuiltInSearch(preset.provider) && !vision
   await runModelReply(wc, preset, cfg.reasoningEffort, sessionId, vision, docTexts, useSearch)
 }
 
@@ -124,6 +127,7 @@ const AGENT_SYSTEM_PROMPT = [
   '- 使用简体中文，简洁、准确、结构清晰（适当使用 markdown 标题 / 列表 / 表格）。',
   '- 分析图片时描述其内容并回答相关问题；分析文档或表格时先理解数据再作答。',
   '- 需要给出代码时，将代码放在 markdown 代码块并标注语言。',
+  '- 使用外部资料或联网信息时，必须在相关结论后给出可点击的 Markdown 来源链接。',
   '- 不编造事实；不确定时如实说明。'
 ].join('\n')
 
@@ -153,11 +157,15 @@ async function runModelReply(
   const id = randomUUID()
   let reasoning = ''
   let content = ''
+  let sources: SourceCitation[] = []
+  let activity = ''
 
   const emit = async (status: MessageStatus): Promise<void> => {
     const blocks: MessageBlock[] = []
-    if (reasoning) blocks.push({ kind: 'thinking', content: reasoning })
+    const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
+    if (thinking) blocks.push({ kind: 'thinking', content: thinking })
     if (content) blocks.push({ kind: 'text', content })
+    if (sources.length) blocks.push({ kind: 'sources', sources })
     const msg: Message = {
       id,
       sessionId,
@@ -183,22 +191,60 @@ async function runModelReply(
   }
   const onEvent = async (ev: StreamEvent): Promise<void> => {
     if (ev.reasoning) reasoning += ev.reasoning
-    if (ev.content) content += ev.content
+    if (ev.content) {
+      content += ev.content
+      activity = ''
+    }
+    if (ev.activity !== undefined) activity = ev.activity
+    if (ev.sources) {
+      const merged = new Map(sources.map((source) => [source.url, source]))
+      for (const source of ev.sources) merged.set(source.url, source)
+      sources = [...merged.values()].slice(0, 12)
+    }
     if (ev.done) return
     await emit('streaming')
   }
 
   let retried = false
+  let useSearch = search
+  let searchFallbackUsed = false
   while (true) {
     try {
-      if (search) await streamSearchChat(runtime, history, onEvent)
+      if (useSearch) {
+        if (preset.provider === 'deepseek') await streamDeepSeekSearch(runtime, history, onEvent)
+        else await streamSearchChat(runtime, history, onEvent)
+      }
       else await streamChat(runtime, history, onEvent)
+      if (useSearch) {
+        const extracted = extractSourceCitations(content)
+        const merged = new Map(sources.map((source) => [source.url, source]))
+        for (const source of extracted) merged.set(source.url, source)
+        sources = [...merged.values()].slice(0, 12)
+      }
       await emit('done')
       return
     } catch (e) {
+      if (useSearch && !searchFallbackUsed) {
+        searchFallbackUsed = true
+        useSearch = false
+        reasoning = ''
+        content = ''
+        sources = []
+        activity = ''
+        console.warn('[model] web search failed, falling back to ordinary chat')
+        sendMessageNotice(wc, {
+          id: randomUUID(),
+          sessionId,
+          level: 'warning',
+          message: '联网搜索失败，已自动切换为普通回答'
+        })
+        await emit('streaming')
+        continue
+      }
+
       const retryable = isRetryableStreamError(e)
       // 尚未产生最终正文时允许重试一次；清空首轮思考，避免重试后重复展示。
-      if (!search && retryable && !content && !retried) {
+      if (!useSearch && retryable && !content && !retried) {
         retried = true
         reasoning = ''
         console.warn('[model] stream interrupted before content, retrying once')

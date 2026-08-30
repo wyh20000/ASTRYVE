@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import hljs from 'highlight.js'
-import type { MessageBlock, MessageStatus } from '@shared/types'
+import type { MessageBlock, MessageStatus, SourceCitation } from '@shared/types'
 import MarkdownRenderer from './MarkdownRenderer'
 import { Icon } from '../ui/icons'
 import { escapeHtml } from '../../lib/escape'
@@ -58,6 +58,8 @@ function Block({ block, status }: { block: MessageBlock; status: MessageStatus }
       return <FilesBlock files={block.files} />
     case 'code':
       return <CodeBlock language={block.language} code={block.code} filename={block.filename} />
+    case 'sources':
+      return <SourcesBlock sources={block.sources} />
     default:
       return null
   }
@@ -114,22 +116,26 @@ function ThinkingBlock({
   seconds?: number
   status: MessageStatus
 }): JSX.Element {
-  const done = status === 'done'
-  const [open, setOpen] = useState(!done)
+  const finished = status === 'done' || status === 'error'
+  const streaming = status === 'streaming'
+  const [open, setOpen] = useState(!finished)
 
   // 思考结束后自动收起，用户可点击展开
   useEffect(() => {
-    if (done) setOpen(false)
-  }, [done])
+    if (finished) setOpen(false)
+  }, [finished])
 
   return (
     <div>
       {open ? (
         <div className="overflow-hidden rounded-md border border-border bg-bg-app">
           <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-            <Icon.Brain size={14} className="text-accent" />
-            <span className="text-[12px] font-medium text-txt-secondary">思考过程</span>
-            {done && seconds != null && <span className="text-[11px] text-txt-muted">{seconds}s</span>}
+            <Icon.Brain size={14} className={streaming ? 'animate-pulse text-accent' : 'text-accent'} />
+            <span className="text-[12px] font-medium text-txt-secondary">
+              {streaming ? '思考中' : '思考过程'}
+            </span>
+            {streaming && <span className="thinking-dots" aria-label="思考中"><i /><i /><i /></span>}
+            {finished && seconds != null && <span className="text-[11px] text-txt-muted">{seconds}s</span>}
             <button className="ml-auto btn-icon" title="收起" onClick={() => setOpen(false)}>
               <Icon.ChevronDown size={14} className="rotate-180" />
             </button>
@@ -147,9 +153,46 @@ function ThinkingBlock({
         >
           <Icon.Brain size={13} className="text-accent" />
           思考过程
-          {done && seconds != null && <span className="text-txt-muted">{seconds}s</span>}
+          {finished && seconds != null && <span className="text-txt-muted">{seconds}s</span>}
           <Icon.ChevronDown size={13} />
         </button>
+      )}
+    </div>
+  )
+}
+
+function SourcesBlock({ sources }: { sources: SourceCitation[] }): JSX.Element | null {
+  const [open, setOpen] = useState(true)
+  if (sources.length === 0) return null
+  return (
+    <div className="max-w-[680px] overflow-hidden rounded-md border border-border bg-bg-panel">
+      <button
+        className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[13px] font-medium text-txt-primary hover:bg-bg-raised"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <Icon.Link size={14} className="text-accent" />
+        引用来源
+        <span className="text-[11px] font-normal text-txt-muted">{sources.length}</span>
+        <Icon.ChevronDown size={13} className={`ml-auto text-txt-muted transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open && (
+        <ol className="space-y-1 px-3 py-2">
+          {sources.map((source, index) => (
+            <li key={source.url} className="flex min-w-0 items-start gap-2 text-[12px]">
+              <span className="shrink-0 text-txt-muted">{index + 1}.</span>
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="min-w-0 truncate text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+                title={source.url}
+              >
+                {source.title}
+              </a>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   )

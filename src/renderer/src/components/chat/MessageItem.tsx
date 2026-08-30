@@ -65,6 +65,8 @@ function UserMessage({ message }: { message: Message }): JSX.Element {
 }
 
 function AssistantMessage({ message }: { message: Message }): JSX.Element {
+  const hasThinking = message.blocks?.some((block) => block.kind === 'thinking') ?? false
+  const hasText = message.content.trim().length > 0
   return (
     <div className="flex gap-3">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -79,15 +81,14 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
         ) : (
           <RichText text={message.content} />
         )}
-        {message.status === 'streaming' && (
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-txt-muted">
-            正在生成
-            <span className="flex gap-0.5">
-              <span className="h-1 w-1 animate-bounce rounded-full bg-txt-muted [animation-delay:0ms]" />
-              <span className="h-1 w-1 animate-bounce rounded-full bg-txt-muted [animation-delay:150ms]" />
-              <span className="h-1 w-1 animate-bounce rounded-full bg-txt-muted [animation-delay:300ms]" />
-            </span>
-          </span>
+        {message.status === 'streaming' && hasText && (
+          <span className="stream-cursor" role="status" aria-label="正在生成" />
+        )}
+        {message.status === 'streaming' && !hasText && !hasThinking && (
+          <div className="w-full max-w-[420px] space-y-2" role="status" aria-label="正在生成回答">
+            <div className="h-3 w-4/5 animate-pulse rounded bg-bg-raised" />
+            <div className="h-3 w-3/5 animate-pulse rounded bg-bg-raised" />
+          </div>
         )}
       </div>
     </div>

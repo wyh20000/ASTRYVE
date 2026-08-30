@@ -1,4 +1,4 @@
-import type { ModelPreset, ReasoningEffort } from '@shared/types'
+import type { ModelPreset, ReasoningEffort, SourceCitation } from '@shared/types'
 
 /** 多模态内容片段（文本 / 图片） */
 export type ChatContentPart =
@@ -7,13 +7,13 @@ export type ChatContentPart =
 
 export interface ToolCall {
   id: string
-  type: 'function'
+  type: 'function' | 'builtin_function'
   function: { name: string; arguments: string }
 }
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | ChatContentPart[]
+  content: string | ChatContentPart[] | null
   tool_calls?: ToolCall[]
   tool_call_id?: string
   name?: string
@@ -22,6 +22,8 @@ export interface ChatMessage {
 export interface StreamEvent {
   reasoning?: string
   content?: string
+  sources?: SourceCitation[]
+  activity?: string
   done?: boolean
 }
 
@@ -137,11 +139,18 @@ export async function streamSearchChat(
   }
   const tools = [{ type: 'builtin_function', function: { name: '$web_search' } }]
   console.log('[model] search request model=' + runtime.model + ' url=' + base)
+  await onEvent({ activity: '正在联网检索…' })
 
   const r1 = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: runtime.model, messages, stream: false, tools })
+    body: JSON.stringify({
+      model: runtime.model,
+      messages,
+      stream: false,
+      tools,
+      thinking: { type: 'disabled' }
+    })
   })
   if (!r1.ok) {
     const text = await r1.text().catch(() => '')
@@ -157,7 +166,7 @@ export async function streamSearchChat(
   if (finish !== 'tool_calls' || !msg1 || !toolCalls || toolCalls.length === 0) {
     const c = msg1 && typeof msg1.content === 'string' ? msg1.content : ''
     if (c) await onEvent({ content: c })
-    await onEvent({ done: true })
+    await onEvent({ activity: '', done: true })
     return
   }
 
@@ -176,9 +185,11 @@ export async function streamSearchChat(
       model: runtime.model,
       messages: [...messages, msg1, ...toolMessages],
       stream: true,
-      tools
+      tools,
+      thinking: { type: 'disabled' }
     })
   })
+  await onEvent({ activity: '正在整理检索结果…' })
   console.log('[model] search round2 status=' + r2.status)
   if (!r2.ok || !r2.body) {
     const text = await r2.text().catch(() => '')
@@ -220,7 +231,159 @@ export async function streamSearchChat(
     }
   }
   console.log('[model] search done, elapse_ms=' + (Date.now() - started))
-  await onEvent({ done: true })
+  await onEvent({ activity: '', done: true })
+}
+
+interface ResponsesAnnotation {
+  type?: string
+  url?: string
+  title?: string
+}
+
+interface ResponsesOutputPart {
+  annotations?: ResponsesAnnotation[]
+}
+
+interface ResponsesOutputItem {
+  content?: ResponsesOutputPart[]
+}
+
+interface ResponsesCompletedBody {
+  output?: ResponsesOutputItem[]
+  error?: { message?: string } | null
+}
+
+function responseSources(response: ResponsesCompletedBody | undefined): SourceCitation[] {
+  const seen = new Map<string, SourceCitation>()
+  for (const item of response?.output ?? []) {
+    for (const part of item.content ?? []) {
+      for (const annotation of part.annotations ?? []) {
+        if (annotation.type !== 'url_citation' || !annotation.url || seen.has(annotation.url)) continue
+        seen.set(annotation.url, {
+          title: annotation.title?.trim() || annotation.url,
+          url: annotation.url
+        })
+      }
+    }
+  }
+  return [...seen.values()].slice(0, 12)
+}
+
+function deepSeekResponsesUrl(baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, '')
+  try {
+    const url = new URL(base)
+    if (url.hostname === 'api.deepseek.com' && url.pathname.replace(/\/+$/, '') === '/v1') {
+      return `${url.origin}/responses`
+    }
+  } catch {
+    // 自定义代理地址沿用用户配置的 base URL。
+  }
+  return `${base}/responses`
+}
+
+function responseInput(
+  messages: ChatMessage[]
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(
+      (message): message is ChatMessage & { role: 'system' | 'user' | 'assistant' } =>
+        message.role !== 'tool'
+    )
+    .map((message) => ({
+      role: message.role,
+      content:
+        typeof message.content === 'string'
+          ? message.content
+          : (message.content ?? [])
+              .filter(
+                (part): part is Extract<ChatContentPart, { type: 'text' }> => part.type === 'text'
+              )
+              .map((part) => part.text)
+              .join('\n')
+    }))
+}
+
+/** DeepSeek Responses API 内置 web_search；搜索与续推均由服务端完成。 */
+export async function streamDeepSeekSearch(
+  runtime: RuntimeModel,
+  messages: ChatMessage[],
+  onEvent: OnEvent
+): Promise<void> {
+  const endpoint = deepSeekResponsesUrl(runtime.baseUrl)
+  const started = Date.now()
+  const effort = runtime.reasoningEffort
+  const reasoningEffort = effort === 'low' ? 'low' : effort === 'high' ? 'max' : 'high'
+  console.log('[model] deepseek web search request model=' + runtime.model + ' url=' + endpoint)
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${runtime.apiKey}`
+    },
+    body: JSON.stringify({
+      model: runtime.model,
+      input: responseInput(messages),
+      stream: true,
+      tools: [{ type: 'web_search' }],
+      tool_choice: { type: 'web_search' },
+      reasoning: { effort: reasoningEffort }
+    })
+  })
+  console.log(
+    '[model] deepseek web search status=' + res.status + ' elapse_ms=' + (Date.now() - started)
+  )
+  if (!res.ok || !res.body) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`模型请求失败 HTTP ${res.status}${body ? `（${body.slice(0, 120)}）` : ''}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+      let event: {
+        type?: string
+        delta?: string
+        response?: ResponsesCompletedBody
+        error?: { message?: string }
+      }
+      try {
+        event = JSON.parse(trimmed.slice(5).trim())
+      } catch {
+        continue
+      }
+      if (event.type === 'response.reasoning_text.delta' && event.delta) {
+        await onEvent({ reasoning: event.delta })
+      } else if (event.type === 'response.output_text.delta' && event.delta) {
+        await onEvent({ content: event.delta })
+      } else if (
+        event.type === 'response.web_search_call.in_progress' ||
+        event.type === 'response.web_search_call.searching'
+      ) {
+        await onEvent({ activity: '正在联网检索…' })
+      } else if (event.type === 'response.web_search_call.completed') {
+        await onEvent({ activity: '正在整理检索结果…' })
+      } else if (event.type === 'response.completed') {
+        const sources = responseSources(event.response)
+        if (sources.length) await onEvent({ sources })
+      } else if (event.type === 'response.incomplete' || event.type === 'response.failed') {
+        const detail = event.error?.message ?? event.response?.error?.message ?? 'DeepSeek 联网响应未完成'
+        throw new Error(detail)
+      }
+    }
+  }
+  console.log('[model] deepseek web search done, elapse_ms=' + (Date.now() - started))
+  await onEvent({ activity: '', done: true })
 }
 
 /** 测试连通性：发一次最小请求。仅打印接口信息。 */

@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-agent-test' } }))
 
 import { migrate, normalizeContextMessages, normalizePreset, PROVIDER_PRESETS } from './modelConfig'
-import { supportsImageInput } from '@shared/modelCapabilities'
+import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 
 describe('normalizePreset', () => {
   it('Kimi 预设只使用当前模型，不附加备用视觉模型', () => {
@@ -134,5 +134,14 @@ describe('supportsImageInput', () => {
     'kimi-k3'
   ])('%s 被识别为多模态模型', (model) => {
     expect(supportsImageInput(model)).toBe(true)
+  })
+})
+
+describe('supportsBuiltInSearch', () => {
+  it('只为已适配内置搜索协议的提供方开放入口', () => {
+    expect(supportsBuiltInSearch('deepseek')).toBe(true)
+    expect(supportsBuiltInSearch('kimi')).toBe(true)
+    expect(supportsBuiltInSearch('custom')).toBe(false)
+    expect(supportsBuiltInSearch(undefined)).toBe(false)
   })
 })

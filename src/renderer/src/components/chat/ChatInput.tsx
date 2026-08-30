@@ -11,13 +11,18 @@ import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
 import type { ReasoningEffort, Attachment } from '@shared/types'
-import { supportsImageInput } from '@shared/modelCapabilities'
+import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { Icon } from '../ui/icons'
 import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
 
 const MAX_H = 200
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
 const EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high']
+interface ProcessingFile {
+  id: string
+  name: string
+  kind: 'image' | 'file'
+}
 
 function formatBytes(n?: number): string {
   if (n == null) return ''
@@ -29,6 +34,7 @@ function formatBytes(n?: number): string {
 export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([])
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState(false)
   const send = useChatStore((s) => s.send)
@@ -47,7 +53,10 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const files = attachments.filter((a) => a.kind === 'file')
   const visionBlocked = images.length > 0 && !supportsImageInput(activePreset?.model ?? '')
   const canSend =
-    (value.trim().length > 0 || attachments.length > 0) && !!sessionId && !sending
+    (value.trim().length > 0 || attachments.length > 0) &&
+    !!sessionId &&
+    !sending &&
+    processingFiles.length === 0
 
   useEffect(() => {
     return () => {
@@ -68,18 +77,29 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   }
 
   const addFiles = async (incoming: File[]): Promise<void> => {
-    const ok: Attachment[] = []
+    const jobs = incoming.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      name: file.name,
+      kind: isImageFile(file) ? ('image' as const) : ('file' as const)
+    }))
+    setProcessingFiles((prev) => [...prev, ...jobs.map(({ id, name, kind }) => ({ id, name, kind }))])
     const errors: string[] = []
-    for (const f of incoming) {
-      try {
-        if (isImageFile(f)) ok.push(await fileToImageAttachment(f))
-        else if (isDocumentFile(f)) ok.push(await fileToDocumentAttachment(f))
-        else errors.push(`不支持的文件：${f.name}`)
-      } catch (e) {
-        errors.push((e as Error)?.message ?? '读取失败')
-      }
-    }
-    if (ok.length) setAttachments((prev) => [...prev, ...ok])
+    await Promise.all(
+      jobs.map(async ({ id, file }) => {
+        try {
+          let attachment: Attachment
+          if (isImageFile(file)) attachment = await fileToImageAttachment(file)
+          else if (isDocumentFile(file)) attachment = await fileToDocumentAttachment(file)
+          else throw new Error(`不支持的文件：${file.name}`)
+          setAttachments((prev) => [...prev, attachment])
+        } catch (e) {
+          errors.push((e as Error)?.message ?? '读取失败')
+        } finally {
+          setProcessingFiles((prev) => prev.filter((item) => item.id !== id))
+        }
+      })
+    )
     showNotice(errors[0] ?? '')
   }
 
@@ -152,8 +172,23 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
           </div>
         )}
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
-          {(images.length > 0 || files.length > 0) && (
+          {(images.length > 0 || files.length > 0 || processingFiles.length > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-2.5">
+              {processingFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
+                  aria-live="polite"
+                >
+                  <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent" />
+                  <span className="min-w-0 truncate text-[12px] text-txt-secondary" title={file.name}>
+                    {file.name}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-txt-muted">
+                    {file.kind === 'image' ? '压缩中' : '读取中'}
+                  </span>
+                </div>
+              ))}
               {images.map((a) => (
                 <div
                   key={a.id}
@@ -201,20 +236,20 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder="向 AI Agent 发送消息..."
-            className="block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
+            className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
             style={{ height: 'auto' }}
           />
           <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
             <ModelSelector />
             <div className="ml-auto flex items-center gap-1">
-              {activePreset?.provider === 'kimi' && (
+              {supportsBuiltInSearch(activePreset?.provider) && activePreset && (
                 <button
                   onClick={() => setSearch((v) => !v)}
                   className={`chip border ${search ? 'border-accent bg-accent-dim/20 text-accent' : 'border-border text-txt-muted hover:text-txt-secondary'}`}
-                  title="联网搜索（Kimi）"
+                  title={`联网搜索（${activePreset.provider === 'deepseek' ? 'DeepSeek' : 'Kimi'}）`}
                 >
                   <Icon.Search size={12} />
-                  联网
+                  {search ? '联网已开' : '联网'}
                 </button>
               )}
               <button className="btn-icon" title="附件（PDF/Word/Excel/CSV）" onClick={() => docRef.current?.click()}>

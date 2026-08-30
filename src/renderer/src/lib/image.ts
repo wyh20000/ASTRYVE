@@ -11,7 +11,14 @@ export function isImageFile(f: File): boolean {
 const DOC_EXT = new Set(['pdf', 'docx', 'xlsx', 'xls', 'csv', 'txt', 'md', 'markdown', 'json', 'log'])
 
 /** 文档文件大小上限（避免 IPC / 解析过载） */
-const MAX_FILE_BYTES = 20 * 1024 * 1024
+export const MAX_FILE_BYTES = 20 * 1024 * 1024
+
+/** 在读取前同步拒绝超大文档，避免把大文件完整载入内存后才报错。 */
+export function assertDocumentSize(size: number, name: string): void {
+  if (size > MAX_FILE_BYTES) {
+    throw new Error(`文件过大（>${Math.round(MAX_FILE_BYTES / 1024 / 1024)}MB）：${name}`)
+  }
+}
 
 export function isDocumentFile(f: File): boolean {
   const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
@@ -29,7 +36,7 @@ function readAsDataURL(file: File): Promise<string> {
 
 /** 将文档文件读取为附件（base64 dataURL，交由主进程解析） */
 export async function fileToDocumentAttachment(file: File): Promise<Attachment> {
-  if (file.size > MAX_FILE_BYTES) throw new Error(`文件过大（>${Math.round(MAX_FILE_BYTES / 1024 / 1024)}MB）：${file.name}`)
+  assertDocumentSize(file.size, file.name)
   const dataRef = await readAsDataURL(file)
   return {
     id: crypto.randomUUID(),

@@ -17,3 +17,9 @@ export function supportsImageInput(model: string): boolean {
   const normalized = model.trim()
   return normalized.length > 0 && MULTIMODAL_MODEL_PATTERNS.some((pattern) => pattern.test(normalized))
 }
+
+/** 当前提供方是否有已适配的平台内置联网搜索协议。 */
+export function supportsBuiltInSearch(provider: ModelProvider | undefined): boolean {
+  return provider === 'kimi' || provider === 'deepseek'
+}
+import type { ModelProvider } from './types'
