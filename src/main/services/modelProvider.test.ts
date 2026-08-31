@@ -6,7 +6,7 @@ function sseResponse(lines: string[]): Response {
   return new Response(
     new ReadableStream({
       start(controller) {
-        for (const line of lines) controller.enqueue(encoder.encode(`${line}\n`))
+        for (const line of lines) controller.enqueue(encoder.encode(`${line}\n\n`))
         controller.close()
       }
     }),

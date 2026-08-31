@@ -90,6 +90,9 @@ export class MySqlStore implements DbStore {
 
   /** 连接并初始化：确保数据库存在、创建表结构。失败则抛出（由上层回退内存）。 */
   static async connect(cfg: MySqlConfig): Promise<MySqlStore> {
+    if (!/^[A-Za-z0-9_]+$/.test(cfg.database)) {
+      throw new Error('MySQL database name may only contain letters, numbers, and underscores')
+    }
     const admin = await mysql.createConnection({
       host: cfg.host,
       port: cfg.port,
@@ -98,7 +101,7 @@ export class MySqlStore implements DbStore {
       supportBigNumbers: true
     })
     try {
-      await admin.query(`CREATE DATABASE IF NOT EXISTS \`${cfg.database}\``)
+      await admin.query(`CREATE DATABASE IF NOT EXISTS ${mysql.escapeId(cfg.database)}`)
     } finally {
       await admin.end()
     }
@@ -121,8 +124,9 @@ export class MySqlStore implements DbStore {
     // 迁移：老库补 attachments 列（重复列错误忽略）
     try {
       await pool.query('ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL')
-    } catch {
-      /* column already exists */
+    } catch (error) {
+      const code = (error as { code?: string })?.code
+      if (code !== 'ER_DUP_FIELDNAME') throw error
     }
     await pool.query('SELECT 1')
     return new MySqlStore(pool)

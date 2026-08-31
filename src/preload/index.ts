@@ -24,7 +24,8 @@ const api: AgentApi = {
   },
   message: {
     list: (sessionId: string) => ipcRenderer.invoke(IPC.message.list, sessionId),
-    send: (input: SendMessageInput) => ipcRenderer.invoke(IPC.message.send, input)
+    send: (input: SendMessageInput) => ipcRenderer.invoke(IPC.message.send, input),
+    stop: (sessionId: string) => ipcRenderer.invoke(IPC.message.stop, sessionId)
   },
   model: {
     getConfig: () => ipcRenderer.invoke(IPC.model.getConfig),

@@ -1,5 +1,4 @@
-import { app } from 'electron'
-import { join } from 'path'
+import { dirname } from 'path'
 import fs from 'fs'
 import { randomUUID } from 'crypto'
 import type { Session, Message } from '@shared/types'
@@ -15,6 +14,7 @@ export class MemoryStore implements DbStore {
   private sessions = new Map<string, Session>()
   private messages = new Map<string, Message[]>()
   private filePath: string | null = null
+  private persistChain: Promise<void> = Promise.resolve()
 
   constructor(filePath?: string) {
     this.filePath = filePath ?? null
@@ -37,18 +37,30 @@ export class MemoryStore implements DbStore {
     }
   }
 
-  private persist(): void {
+  private async persist(): Promise<void> {
     if (!this.filePath) return
-    try {
-      fs.mkdirSync(app.getPath('userData'), { recursive: true })
-      const payload: FileShape = {
+    const target = this.filePath
+    const payload = JSON.stringify(
+      {
         sessions: [...this.sessions.values()],
         messages: [...this.messages.values()].flat()
+      } satisfies FileShape,
+      null,
+      2
+    )
+    const write = async (): Promise<void> => {
+      const temp = `${target}.${process.pid}.tmp`
+      try {
+        await fs.promises.mkdir(dirname(target), { recursive: true })
+        await fs.promises.writeFile(temp, payload, { encoding: 'utf-8', mode: 0o600 })
+        await fs.promises.rename(temp, target)
+      } catch (e) {
+        await fs.promises.rm(temp, { force: true }).catch(() => undefined)
+        console.warn('[db] save file failed:', e)
       }
-      fs.writeFileSync(this.filePath, JSON.stringify(payload, null, 2), 'utf-8')
-    } catch (e) {
-      console.warn('[db] save file failed:', e)
     }
+    this.persistChain = this.persistChain.then(write, write)
+    await this.persistChain
   }
 
   async listSessions(): Promise<Session[]> {
@@ -70,7 +82,7 @@ export class MemoryStore implements DbStore {
       updatedAt: now
     }
     this.sessions.set(s.id, s)
-    this.persist()
+    await this.persist()
     return s
   }
 
@@ -79,7 +91,7 @@ export class MemoryStore implements DbStore {
     if (!s) return null
     s.title = title
     s.updatedAt = Date.now()
-    this.persist()
+    await this.persist()
     return s
   }
 
@@ -87,14 +99,14 @@ export class MemoryStore implements DbStore {
     const s = this.sessions.get(id)
     if (!s) return null
     s.updatedAt = Date.now()
-    this.persist()
+    await this.persist()
     return s
   }
 
   async deleteSession(id: string): Promise<void> {
     this.sessions.delete(id)
     this.messages.delete(id)
-    this.persist()
+    await this.persist()
   }
 
   async listMessages(sessionId: string): Promise<Message[]> {
@@ -115,7 +127,7 @@ export class MemoryStore implements DbStore {
     const list = this.messages.get(m.sessionId) ?? []
     list.push(m)
     this.messages.set(m.sessionId, list)
-    this.persist()
+    await this.persist()
     return m
   }
 
@@ -125,7 +137,7 @@ export class MemoryStore implements DbStore {
     if (idx >= 0) list[idx] = msg
     else list.push(msg)
     this.messages.set(msg.sessionId, list)
-    this.persist()
+    await this.persist()
     return msg
   }
 }

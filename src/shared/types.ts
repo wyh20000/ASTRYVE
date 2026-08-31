@@ -107,9 +107,15 @@ export interface ModelPreset {
   provider: ModelProvider
   baseUrl: string
   apiKey: string
+  /** 仅供渲染进程显示密钥状态；主进程返回配置时 apiKey 始终为空。 */
+  hasApiKey?: boolean
   model: string
+  /** 显式能力声明；自定义兼容端点无法可靠地从模型名推断。 */
+  capabilities?: { imageInput: boolean }
   /** 发送给模型的上下文消息条数（多轮记忆长度） */
   contextMessages: number
+  /** 单次请求可使用的上下文预算（近似 token，已预留输出空间）。 */
+  contextTokens?: number
 }
 
 /** 模型配置（含多预设、当前激活项、推理等级） */
@@ -161,6 +167,7 @@ export interface AgentApi {
   message: {
     list: (sessionId: string) => Promise<IpcResult<Message[]>>
     send: (input: SendMessageInput) => Promise<IpcResult<Message>>
+    stop: (sessionId: string) => Promise<IpcResult<{ stopped: boolean }>>
   }
   model: {
     getConfig: () => Promise<IpcResult<ModelConfig>>

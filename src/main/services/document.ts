@@ -1,6 +1,6 @@
 import { PDFParse } from 'pdf-parse'
 import mammoth from 'mammoth/lib/index.js'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 
 /** 文档纯文本提取结果 */
 export interface ExtractedText {
@@ -34,11 +34,30 @@ async function extractDocx(buf: Buffer): Promise<string> {
   return r.value ?? ''
 }
 
-function extractXlsx(buf: Buffer): string {
-  const wb = XLSX.read(buf, { type: 'buffer' })
-  return wb.SheetNames.map((name) => `# ${name}\n` + XLSX.utils.sheet_to_csv(wb.Sheets[name])).join(
-    '\n\n'
-  )
+function cellText(value: ExcelJS.CellValue): string {
+  if (value == null) return ''
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'object') {
+    if ('text' in value && typeof value.text === 'string') return value.text
+    if ('result' in value) return String(value.result ?? '')
+    if ('richText' in value) return value.richText.map((part) => part.text).join('')
+  }
+  return String(value)
+}
+
+async function extractXlsx(buf: Buffer): Promise<string> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(buf as unknown as Parameters<typeof workbook.xlsx.load>[0])
+  return workbook.worksheets
+    .map((sheet) => {
+      const rows: string[] = []
+      sheet.eachRow({ includeEmpty: false }, (row) => {
+        const values = Array.isArray(row.values) ? row.values.slice(1) : []
+        rows.push(values.map((value) => cellText(value as ExcelJS.CellValue)).join(','))
+      })
+      return `# ${sheet.name}\n${rows.join('\n')}`
+    })
+    .join('\n\n')
 }
 
 const TEXT_EXTS = new Set(['csv', 'txt', 'md', 'markdown', 'json', 'log'])
@@ -56,8 +75,7 @@ export async function extractDocumentText(name: string, dataRef: string): Promis
       text = await extractDocx(buf)
       break
     case 'xlsx':
-    case 'xls':
-      text = extractXlsx(buf)
+      text = await extractXlsx(buf)
       break
     case 'csv':
     case 'txt':
@@ -82,7 +100,6 @@ export function isSupportedDocName(name: string): boolean {
     ext === 'pdf' ||
     ext === 'docx' ||
     ext === 'xlsx' ||
-    ext === 'xls' ||
     TEXT_EXTS.has(ext)
   )
 }

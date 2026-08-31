@@ -2,7 +2,13 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-agent-test' } }))
 
-import { migrate, normalizeContextMessages, normalizePreset, PROVIDER_PRESETS } from './modelConfig'
+import {
+  migrate,
+  normalizeContextMessages,
+  normalizePreset,
+  PROVIDER_PRESETS,
+  toPublicModelConfig
+} from './modelConfig'
 import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 
 describe('normalizePreset', () => {
@@ -117,6 +123,19 @@ describe('PROVIDER_PRESETS', () => {
     expect(PROVIDER_PRESETS.deepseek.model).toBe('deepseek-v4-pro')
     expect('visionModel' in PROVIDER_PRESETS.kimi).toBe(false)
     expect('visionModel' in PROVIDER_PRESETS.deepseek).toBe(false)
+  })
+})
+
+describe('toPublicModelConfig', () => {
+  it('不会把 API Key 暴露给 renderer', () => {
+    const preset = normalizePreset({ id: 'p1', provider: 'deepseek', apiKey: 'secret' })
+    const publicConfig = toPublicModelConfig({
+      presets: [preset],
+      activePresetId: 'p1',
+      reasoningEffort: 'medium'
+    })
+    expect(publicConfig.presets[0].apiKey).toBe('')
+    expect(publicConfig.presets[0].hasApiKey).toBe(true)
   })
 })
 

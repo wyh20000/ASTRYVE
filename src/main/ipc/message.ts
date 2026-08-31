@@ -14,7 +14,9 @@ import type {
 import { getStore } from '../db'
 import { buildMockReply } from '../services/mockAgent'
 import {
+  CONNECT_TIMEOUT_MESSAGE,
   MODEL_RESOURCE_ERROR,
+  REQUEST_TIMEOUT_MESSAGE,
   isRetryableStreamError,
   streamChat,
   streamDeepSeekSearch,
@@ -24,25 +26,44 @@ import {
 } from '../services/modelProvider'
 import { getModelConfig, getActivePreset, normalizeContextMessages } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
-import { toChatMessage, injectDocuments } from '../services/history'
+import { fitHistoryToTokenBudget, toChatMessage, injectDocuments } from '../services/history'
 import { ok, err } from './result'
 import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { extractSourceCitations } from '@shared/searchSources'
+import {
+  addGenerationTimer,
+  beginGeneration,
+  cancelGeneration,
+  finishGeneration,
+  isCurrentGeneration
+} from '../services/generationTasks'
+import {
+  assertTrustedIpcSender,
+  validateSendMessageInput,
+  validateSessionId,
+  validationErrorMessage
+} from './validation'
 
 export function registerMessageIpc(): void {
-  ipcMain.handle(IPC.message.list, async (_e, sessionId: string) => {
+  ipcMain.handle(IPC.message.list, async (event, sessionId: string) => {
     try {
+      assertTrustedIpcSender(event)
+      validateSessionId(sessionId)
+      if (!(await getStore().getSession(sessionId))) return err('NOT_FOUND', '会话不存在')
       return ok(await getStore().listMessages(sessionId))
     } catch (e) {
-      return err('DB_ERR', String(e))
+      return err('INVALID_INPUT', validationErrorMessage(e))
     }
   })
 
   ipcMain.handle(IPC.message.send, async (event, input: SendMessageInput) => {
     try {
+      assertTrustedIpcSender(event)
+      input = validateSendMessageInput(input)
+      if (!(await getStore().getSession(input.sessionId))) return err('NOT_FOUND', '会话不存在')
       const hasImages = (input.attachments ?? []).some((attachment) => attachment.kind === 'image')
-      const activeModel = getActivePreset()?.model ?? ''
-      if (hasImages && !supportsImageInput(activeModel)) {
+      const activeModel = getActivePreset()
+      if (hasImages && (!activeModel || !supportsImageInput(activeModel))) {
         return err('VISION_UNSUPPORTED', '信息不能发送，此模型无法进行图片处理')
       }
       // 图片保留 base64；文档在主进程提取文本，剥离原始 base64（避免落库膨胀）
@@ -59,7 +80,17 @@ export function registerMessageIpc(): void {
       void runReply(event.sender, input.sessionId, stored, docTexts, input.search === true)
       return ok(user)
     } catch (e) {
-      return err('DB_ERR', String(e))
+      return err('INVALID_INPUT', validationErrorMessage(e))
+    }
+  })
+
+  ipcMain.handle(IPC.message.stop, (event, sessionId: string) => {
+    try {
+      assertTrustedIpcSender(event)
+      validateSessionId(sessionId)
+      return ok({ stopped: cancelGeneration(sessionId, 'user') })
+    } catch (e) {
+      return err('STOP_ERR', String(e))
     }
   })
 }
@@ -109,15 +140,29 @@ async function runReply(
   docTexts: string[],
   search: boolean
 ): Promise<void> {
+  const task = beginGeneration(sessionId, wc.id)
   const cfg = getModelConfig()
   const preset = getActivePreset()
   if (!preset || !preset.apiKey || !preset.baseUrl || !preset.model) {
-    scheduleMockReply(wc, sessionId)
+    scheduleMockReply(wc, sessionId, task)
     return
   }
   const vision = attachments.some((a) => a.kind === 'image')
   const useSearch = search && supportsBuiltInSearch(preset.provider) && !vision
-  await runModelReply(wc, preset, cfg.reasoningEffort, sessionId, vision, docTexts, useSearch)
+  try {
+    await runModelReply(
+      wc,
+      preset,
+      cfg.reasoningEffort,
+      sessionId,
+      vision,
+      docTexts,
+      useSearch,
+      task.controller.signal
+    )
+  } finally {
+    finishGeneration(sessionId, task)
+  }
 }
 
 /** Agent 系统提示：通用助手，具备识图/文档/数据分析/文本处理能力 */
@@ -134,7 +179,9 @@ const AGENT_SYSTEM_PROMPT = [
 async function buildHistory(
   sessionId: string,
   contextMessages: number,
-  vision: boolean
+  vision: boolean,
+  docTexts: string[],
+  contextTokens: number
 ): Promise<ChatMessage[]> {
   const msgs = await getStore().listMessages(sessionId)
   const history: ChatMessage[] = msgs
@@ -142,7 +189,9 @@ async function buildHistory(
     .filter((m) => m.content.trim().length > 0 || (m.attachments ?? []).length > 0)
     .slice(-normalizeContextMessages(contextMessages))
     .map((m) => toChatMessage(m, vision))
-  return [{ role: 'system', content: AGENT_SYSTEM_PROMPT }, ...history]
+  const combined = [{ role: 'system' as const, content: AGENT_SYSTEM_PROMPT }, ...history]
+  injectDocuments(combined, docTexts)
+  return fitHistoryToTokenBudget(combined, contextTokens)
 }
 
 async function runModelReply(
@@ -152,13 +201,49 @@ async function runModelReply(
   sessionId: string,
   vision: boolean,
   docTexts: string[],
-  search: boolean
+  search: boolean,
+  signal: AbortSignal
 ): Promise<void> {
   const id = randomUUID()
+  const timestamp = Date.now()
   let reasoning = ''
   let content = ''
   let sources: SourceCitation[] = []
   let activity = ''
+  let pendingPersist: Message | null = null
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
+  let persistChain: Promise<void> = Promise.resolve()
+  let hasPersisted = false
+
+  const persistNow = async (): Promise<void> => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    const msg = pendingPersist
+    pendingPersist = null
+    if (!msg) return
+    persistChain = persistChain.then(async () => {
+      if (signal.aborted && String(signal.reason ?? '') !== 'user') return
+      await getStore().upsertMessage(msg)
+      hasPersisted = true
+    })
+    await persistChain
+  }
+
+  const queuePersist = async (msg: Message, force: boolean): Promise<void> => {
+    pendingPersist = msg
+    if (force || !hasPersisted) {
+      await persistNow()
+      return
+    }
+    if (!persistTimer) {
+      persistTimer = setTimeout(() => {
+        persistTimer = null
+        void persistNow().catch((e) => console.warn('[model] throttled persist failed:', e))
+      }, 200)
+    }
+  }
 
   const emit = async (status: MessageStatus): Promise<void> => {
     const blocks: MessageBlock[] = []
@@ -173,21 +258,27 @@ async function runModelReply(
       content,
       blocks: blocks.length ? blocks : undefined,
       status,
-      timestamp: Date.now()
+      timestamp
     }
-    await getStore().upsertMessage(msg)
     if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, msg)
+    await queuePersist(msg, status !== 'streaming')
   }
 
   await emit('streaming')
-  const history = await buildHistory(sessionId, preset.contextMessages, vision)
-  injectDocuments(history, docTexts)
+  const history = await buildHistory(
+    sessionId,
+    preset.contextMessages,
+    vision,
+    docTexts,
+    preset.contextTokens ?? 128_000
+  )
   const runtime = {
     baseUrl: preset.baseUrl,
     apiKey: preset.apiKey,
     model: preset.model,
     reasoningEffort,
-    vision
+    vision,
+    signal
   }
   const onEvent = async (ev: StreamEvent): Promise<void> => {
     if (ev.reasoning) reasoning += ev.reasoning
@@ -224,6 +315,20 @@ async function runModelReply(
       await emit('done')
       return
     } catch (e) {
+      if (signal.aborted) {
+        if (persistTimer) clearTimeout(persistTimer)
+        const reason = String(signal.reason ?? 'user')
+        if (reason === 'user') {
+          await emit('done')
+          sendMessageNotice(wc, {
+            id: randomUUID(),
+            sessionId,
+            level: 'warning',
+            message: '已停止生成'
+          })
+        }
+        return
+      }
       if (useSearch && !searchFallbackUsed) {
         searchFallbackUsed = true
         useSearch = false
@@ -268,6 +373,8 @@ async function runModelReply(
 
 function modelErrorMessage(detail: string, retryable: boolean, retried: boolean, hasContent: boolean): string {
   if (detail === MODEL_RESOURCE_ERROR) return '模型当前资源不足，请稍后再试'
+  if (detail === CONNECT_TIMEOUT_MESSAGE) return '连接模型超时，请检查网络或模型地址'
+  if (detail === REQUEST_TIMEOUT_MESSAGE) return '模型响应超时，已停止本次生成'
   if (retryable && hasContent) return '模型连接中断，已保留生成内容；可发送“继续”继续分析'
   if (retryable && retried) return '模型连接中断，自动重试后仍未恢复，请稍后再试'
   if (retryable) return '模型连接中断，请稍后再试'
@@ -278,14 +385,21 @@ function sendMessageNotice(wc: WebContents, notice: MessageNotice): void {
   if (!wc.isDestroyed()) wc.send(EVENTS.messageNotice, notice)
 }
 
-function scheduleMockReply(wc: WebContents, sessionId: string): void {
+function scheduleMockReply(
+  wc: WebContents,
+  sessionId: string,
+  task: ReturnType<typeof beginGeneration>
+): void {
   const steps = buildMockReply(sessionId)
-  for (const step of steps) {
-    setTimeout(() => {
-      if (wc.isDestroyed()) return
+  for (const [index, step] of steps.entries()) {
+    addGenerationTimer(task, () => {
+      if (wc.isDestroyed() || !isCurrentGeneration(sessionId, task)) return
       void getStore()
         .upsertMessage(step.message)
-        .then(() => wc.send(EVENTS.messageStreamed, step.message))
+        .then(() => {
+          wc.send(EVENTS.messageStreamed, step.message)
+          if (index === steps.length - 1) finishGeneration(sessionId, task)
+        })
         .catch((e) => console.warn('[mock] upsert failed:', e))
     }, step.delayMs)
   }

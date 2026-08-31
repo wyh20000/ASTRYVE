@@ -31,3 +31,44 @@ export function injectDocuments(history: ChatMessage[], docTexts: string[]): voi
     history.push({ role: 'user', content: docTexts.join('\n\n') })
   }
 }
+
+export function estimateTextTokens(text: string): number {
+  let tokens = 0
+  for (const char of text) tokens += char.charCodeAt(0) > 0x7f ? 1 : 0.25
+  return Math.ceil(tokens)
+}
+
+export function estimateMessageTokens(message: ChatMessage): number {
+  if (typeof message.content === 'string') return 4 + estimateTextTokens(message.content)
+  return (
+    4 +
+    (message.content ?? []).reduce(
+      (sum, part) => sum + (part.type === 'text' ? estimateTextTokens(part.text) : 1024),
+      0
+    )
+  )
+}
+
+/** 保留系统提示和最新消息，按近似 token 预算从新到旧装入上下文。 */
+export function fitHistoryToTokenBudget(history: ChatMessage[], maxTokens: number): ChatMessage[] {
+  if (history.length <= 1) return history
+  const system = history[0]?.role === 'system' ? history[0] : null
+  const budget = Math.max(1_000, Math.trunc(maxTokens) - 4_096)
+  let used = system ? estimateMessageTokens(system) : 0
+  const selected: ChatMessage[] = []
+  const candidates = system ? history.slice(1) : history
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const message = candidates[index]
+    const cost = estimateMessageTokens(message)
+    if (used + cost > budget && selected.length > 0) continue
+    if (used + cost > budget && typeof message.content === 'string') {
+      const remaining = Math.max(256, budget - used)
+      message.content = message.content.slice(0, remaining * 2)
+    }
+    selected.push(message)
+    used += Math.min(cost, budget - used)
+    if (used >= budget) break
+  }
+  selected.reverse()
+  return system ? [system, ...selected] : selected
+}

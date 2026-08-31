@@ -1,4 +1,10 @@
 import type { ModelPreset, ReasoningEffort, SourceCitation } from '@shared/types'
+import { readSseStream } from './sse'
+import {
+  CONNECT_TIMEOUT_MESSAGE,
+  REQUEST_TIMEOUT_MESSAGE,
+  fetchWithRequestTimeout
+} from './requestTimeout'
 
 /** 多模态内容片段（文本 / 图片） */
 export type ChatContentPart =
@@ -30,6 +36,7 @@ export interface StreamEvent {
 type OnEvent = (ev: StreamEvent) => void | Promise<void>
 
 export const MODEL_RESOURCE_ERROR = 'MODEL_INSUFFICIENT_SYSTEM_RESOURCE'
+export { CONNECT_TIMEOUT_MESSAGE, REQUEST_TIMEOUT_MESSAGE }
 
 /** Node fetch/undici 在服务端中途关闭流时常见的可重试错误。 */
 export function isRetryableStreamError(error: unknown): boolean {
@@ -45,6 +52,32 @@ export interface RuntimeModel {
   reasoningEffort?: ReasoningEffort
   /** 是否为视觉（图片）请求；为 true 时跳过 thinking/reasoning_effort（视觉模型通常不支持） */
   vision?: boolean
+  signal?: AbortSignal
+}
+
+async function handleChatCompletionEvent(payload: string, onEvent: OnEvent): Promise<void> {
+  if (payload === '[DONE]') {
+    await onEvent({ done: true })
+    return
+  }
+  let json: any
+  try {
+    json = JSON.parse(payload)
+  } catch {
+    return
+  }
+  const choice = json?.choices?.[0]
+  if (choice?.finish_reason === 'insufficient_system_resource') {
+    throw new Error(MODEL_RESOURCE_ERROR)
+  }
+  const delta = choice?.delta
+  if (!delta) return
+  if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+    await onEvent({ reasoning: delta.reasoning_content })
+  }
+  if (typeof delta.content === 'string' && delta.content) {
+    await onEvent({ content: delta.content })
+  }
 }
 
 /** 调用 OpenAI 兼容流式接口（DeepSeek / Kimi 通用）。仅打印接口信息（模型/URL/状态/耗时），不打印 prompt 与响应内容。 */
@@ -68,61 +101,31 @@ export async function streamChat(
       body.temperature = 0.7
     }
   }
-  const res = await fetch(`${base}/chat/completions`, {
+  const request = await fetchWithRequestTimeout(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${runtime.apiKey}`
     },
     body: JSON.stringify(body)
-  })
+  }, runtime.signal)
+  const res = request.response
   console.log('[model] response status=' + res.status + ' elapse_ms=' + (Date.now() - started))
 
-  if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`模型请求失败 HTTP ${res.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
-  }
-
-  const decoder = new TextDecoder()
-  const reader = res.body.getReader()
-  let buf = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const payload = trimmed.slice(5).trim()
-      if (payload === '[DONE]') {
-        await onEvent({ done: true })
-        continue
-      }
-      let json: any
-      try {
-        json = JSON.parse(payload)
-      } catch {
-        continue
-      }
-      const choice = json?.choices?.[0]
-      if (choice?.finish_reason === 'insufficient_system_resource') {
-        throw new Error(MODEL_RESOURCE_ERROR)
-      }
-      const delta = choice?.delta
-      if (!delta) continue
-      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
-        await onEvent({ reasoning: delta.reasoning_content })
-      }
-      if (typeof delta.content === 'string' && delta.content) {
-        await onEvent({ content: delta.content })
-      }
+  try {
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`模型请求失败 HTTP ${res.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
     }
+    await readSseStream(res.body, ({ data }) => handleChatCompletionEvent(data, onEvent))
+    console.log('[model] stream done, elapse_ms=' + (Date.now() - started))
+    await onEvent({ done: true })
+  } catch (error) {
+    request.throwIfAborted()
+    throw error
+  } finally {
+    request.dispose()
   }
-  console.log('[model] stream done, elapse_ms=' + (Date.now() - started))
-  await onEvent({ done: true })
 }
 
 /** 联网搜索（Kimi 内置 $web_search）：两轮工具调用，第二轮流式输出最终答案 */
@@ -141,7 +144,7 @@ export async function streamSearchChat(
   console.log('[model] search request model=' + runtime.model + ' url=' + base)
   await onEvent({ activity: '正在联网检索…' })
 
-  const r1 = await fetch(`${base}/chat/completions`, {
+  const request1 = await fetchWithRequestTimeout(`${base}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -151,13 +154,20 @@ export async function streamSearchChat(
       tools,
       thinking: { type: 'disabled' }
     })
-  })
-  if (!r1.ok) {
-    const text = await r1.text().catch(() => '')
-    throw new Error(`模型请求失败 HTTP ${r1.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
-  }
-  const data1 = (await r1.json()) as {
-    choices?: Array<{ message?: ChatMessage; finish_reason?: string | null }>
+  }, runtime.signal)
+  const r1 = request1.response
+  let data1: { choices?: Array<{ message?: ChatMessage; finish_reason?: string | null }> }
+  try {
+    if (!r1.ok) {
+      const text = await r1.text().catch(() => '')
+      throw new Error(`模型请求失败 HTTP ${r1.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
+    }
+    data1 = (await r1.json()) as typeof data1
+  } catch (error) {
+    request1.throwIfAborted()
+    throw error
+  } finally {
+    request1.dispose()
   }
   const msg1 = data1.choices?.[0]?.message
   const finish = data1.choices?.[0]?.finish_reason
@@ -178,7 +188,7 @@ export async function streamSearchChat(
     content: tc.function.name === '$web_search' ? (tc.function.arguments ?? '{}') : ''
   }))
 
-  const r2 = await fetch(`${base}/chat/completions`, {
+  const request2 = await fetchWithRequestTimeout(`${base}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -188,50 +198,24 @@ export async function streamSearchChat(
       tools,
       thinking: { type: 'disabled' }
     })
-  })
+  }, runtime.signal)
+  const r2 = request2.response
   await onEvent({ activity: '正在整理检索结果…' })
   console.log('[model] search round2 status=' + r2.status)
-  if (!r2.ok || !r2.body) {
-    const text = await r2.text().catch(() => '')
-    throw new Error(`模型请求失败 HTTP ${r2.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
-  }
-
-  const decoder = new TextDecoder()
-  const reader = r2.body.getReader()
-  let buf = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      const t = line.trim()
-      if (!t.startsWith('data:')) continue
-      const payload = t.slice(5).trim()
-      if (payload === '[DONE]') continue
-      let json: any
-      try {
-        json = JSON.parse(payload)
-      } catch {
-        continue
-      }
-      const choice = json?.choices?.[0]
-      if (choice?.finish_reason === 'insufficient_system_resource') {
-        throw new Error(MODEL_RESOURCE_ERROR)
-      }
-      const delta = choice?.delta
-      if (!delta) continue
-      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
-        await onEvent({ reasoning: delta.reasoning_content })
-      }
-      if (typeof delta.content === 'string' && delta.content) {
-        await onEvent({ content: delta.content })
-      }
+  try {
+    if (!r2.ok || !r2.body) {
+      const text = await r2.text().catch(() => '')
+      throw new Error(`模型请求失败 HTTP ${r2.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
     }
+    await readSseStream(r2.body, ({ data }) => handleChatCompletionEvent(data, onEvent))
+    console.log('[model] search done, elapse_ms=' + (Date.now() - started))
+    await onEvent({ activity: '', done: true })
+  } catch (error) {
+    request2.throwIfAborted()
+    throw error
+  } finally {
+    request2.dispose()
   }
-  console.log('[model] search done, elapse_ms=' + (Date.now() - started))
-  await onEvent({ activity: '', done: true })
 }
 
 interface ResponsesAnnotation {
@@ -316,7 +300,7 @@ export async function streamDeepSeekSearch(
   const reasoningEffort = effort === 'low' ? 'low' : effort === 'high' ? 'max' : 'high'
   console.log('[model] deepseek web search request model=' + runtime.model + ' url=' + endpoint)
 
-  const res = await fetch(endpoint, {
+  const request = await fetchWithRequestTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -330,27 +314,18 @@ export async function streamDeepSeekSearch(
       tool_choice: { type: 'web_search' },
       reasoning: { effort: reasoningEffort }
     })
-  })
+  }, runtime.signal)
+  const res = request.response
   console.log(
     '[model] deepseek web search status=' + res.status + ' elapse_ms=' + (Date.now() - started)
   )
-  if (!res.ok || !res.body) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`模型请求失败 HTTP ${res.status}${body ? `（${body.slice(0, 120)}）` : ''}`)
-  }
+  try {
+    if (!res.ok || !res.body) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`模型请求失败 HTTP ${res.status}${body ? `（${body.slice(0, 120)}）` : ''}`)
+    }
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
+    await readSseStream(res.body, async ({ data }) => {
       let event: {
         type?: string
         delta?: string
@@ -358,9 +333,9 @@ export async function streamDeepSeekSearch(
         error?: { message?: string }
       }
       try {
-        event = JSON.parse(trimmed.slice(5).trim())
+        event = JSON.parse(data)
       } catch {
-        continue
+        return
       }
       if (event.type === 'response.reasoning_text.delta' && event.delta) {
         await onEvent({ reasoning: event.delta })
@@ -380,10 +355,15 @@ export async function streamDeepSeekSearch(
         const detail = event.error?.message ?? event.response?.error?.message ?? 'DeepSeek 联网响应未完成'
         throw new Error(detail)
       }
-    }
+    })
+    console.log('[model] deepseek web search done, elapse_ms=' + (Date.now() - started))
+    await onEvent({ activity: '', done: true })
+  } catch (error) {
+    request.throwIfAborted()
+    throw error
+  } finally {
+    request.dispose()
   }
-  console.log('[model] deepseek web search done, elapse_ms=' + (Date.now() - started))
-  await onEvent({ activity: '', done: true })
 }
 
 /** 测试连通性：发一次最小请求。仅打印接口信息。 */
@@ -395,20 +375,28 @@ export async function testChat(
   }
   const base = preset.baseUrl.replace(/\/+$/, '')
   try {
-    const res = await fetch(`${base}/chat/completions`, {
+    const request = await fetchWithRequestTimeout(`${base}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${preset.apiKey}`
       },
       body: JSON.stringify({ model: preset.model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 5 })
-    })
-    console.log('[model] test status=' + res.status)
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      return { success: false, message: `HTTP ${res.status}${text ? `（${text.slice(0, 120)}）` : ''}` }
+    }, undefined, 10_000, 30_000)
+    try {
+      const res = request.response
+      console.log('[model] test status=' + res.status)
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        return { success: false, message: `HTTP ${res.status}${text ? `（${text.slice(0, 120)}）` : ''}` }
+      }
+      return { success: true, message: '连接成功' }
+    } catch (error) {
+      request.throwIfAborted()
+      throw error
+    } finally {
+      request.dispose()
     }
-    return { success: true, message: '连接成功' }
   } catch (e) {
     console.warn('[model] test failed: ' + ((e as Error)?.message ?? '网络错误'))
     return { success: false, message: `连接失败：${(e as Error)?.message ?? '网络错误'}` }

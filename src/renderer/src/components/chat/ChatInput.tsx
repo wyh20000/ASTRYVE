@@ -38,6 +38,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState(false)
   const send = useChatStore((s) => s.send)
+  const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
   const streamNotice = useChatStore((s) => s.notices[sessionId])
   const clearStreamNotice = useChatStore((s) => s.clearNotice)
@@ -51,7 +52,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')
-  const visionBlocked = images.length > 0 && !supportsImageInput(activePreset?.model ?? '')
+  const visionBlocked = images.length > 0 && (!activePreset || !supportsImageInput(activePreset))
   const canSend =
     (value.trim().length > 0 || attachments.length > 0) &&
     !!sessionId &&
@@ -258,14 +259,24 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
               <button className="btn-icon" title="图片（粘贴 / 拖拽 / 选择）" onClick={() => imgRef.current?.click()}>
                 <Icon.Image size={16} />
               </button>
-              <button
-                disabled={!canSend}
-                onClick={() => void doSend()}
-                className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
-                title="发送"
-              >
-                <Icon.SendRound size={15} />
-              </button>
+              {sending ? (
+                <button
+                  onClick={() => void stop(sessionId)}
+                  className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
+                  title="停止生成"
+                >
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-white" />
+                </button>
+              ) : (
+                <button
+                  disabled={!canSend}
+                  onClick={() => void doSend()}
+                  className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
+                  title="发送"
+                >
+                  <Icon.SendRound size={15} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -277,7 +288,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       <input
         ref={docRef}
         type="file"
-        accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.markdown,.json,.log"
+        accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.markdown,.json,.log"
         multiple
         className="hidden"
         onChange={onPick}

@@ -15,7 +15,8 @@ export const IPC = {
   },
   message: {
     list: 'message:list',
-    send: 'message:send'
+    send: 'message:send',
+    stop: 'message:stop'
   },
   model: {
     getConfig: 'model:get-config',

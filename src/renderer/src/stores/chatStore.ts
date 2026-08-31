@@ -16,6 +16,7 @@ interface ChatState {
     attachments?: Attachment[],
     search?: boolean
   ) => Promise<IpcResult<Message>>
+  stop: (sessionId: string) => Promise<void>
   /** 从主进程流式事件合并一条消息 */
   upsertMessage: (msg: Message) => void
   setNotice: (notice: MessageNotice) => void
@@ -59,6 +60,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 主进程可能已自动生成会话标题，刷新一次以同步侧栏
     void useSessionStore.getState().touch(sessionId)
     return res
+  },
+
+  stop: async (sessionId) => {
+    await window.agent.message.stop(sessionId)
+    set((s) => ({ sending: { ...s.sending, [sessionId]: false } }))
   },
 
   upsertMessage: (msg) => {

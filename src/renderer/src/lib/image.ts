@@ -8,7 +8,7 @@ export function isImageFile(f: File): boolean {
 }
 
 /** 可解析的文档/表格扩展名（与主进程 document.ts 保持一致） */
-const DOC_EXT = new Set(['pdf', 'docx', 'xlsx', 'xls', 'csv', 'txt', 'md', 'markdown', 'json', 'log'])
+const DOC_EXT = new Set(['pdf', 'docx', 'xlsx', 'csv', 'txt', 'md', 'markdown', 'json', 'log'])
 
 /** 文档文件大小上限（避免 IPC / 解析过载） */
 export const MAX_FILE_BYTES = 20 * 1024 * 1024

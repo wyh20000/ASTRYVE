@@ -248,7 +248,9 @@ function ModelSection(): JSX.Element {
       baseUrl: PROVIDER_PRESETS.deepseek.baseUrl,
       apiKey: '',
       model: PROVIDER_PRESETS.deepseek.model,
-      contextMessages: 20
+      capabilities: { imageInput: false },
+      contextMessages: 20,
+      contextTokens: 128000
     })
     setIsNew(true)
   }
@@ -324,7 +326,21 @@ function ModelSection(): JSX.Element {
               <input className="input font-mono" value={editing.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder="https://.../v1" />
             </Field>
             <Field label="API Key">
-              <input className="input font-mono" type="password" value={editing.apiKey} onChange={(e) => set({ apiKey: e.target.value })} placeholder="sk-..." />
+              <input
+                className="input font-mono"
+                type="password"
+                value={editing.apiKey}
+                onChange={(e) => set({ apiKey: e.target.value, hasApiKey: e.target.value ? true : editing.hasApiKey })}
+                placeholder={editing.hasApiKey ? '已安全保存；留空保持不变' : 'sk-...'}
+              />
+              {editing.hasApiKey && !editing.apiKey && (
+                <button
+                  className="mt-1 text-[11px] text-txt-muted hover:text-warn"
+                  onClick={() => set({ hasApiKey: false, apiKey: '' })}
+                >
+                  清除已保存的密钥
+                </button>
+              )}
             </Field>
             <Field label="模型">
               <input className="input font-mono" value={editing.model} onChange={(e) => set({ model: e.target.value })} placeholder="deepseek-chat / moonshot-v1-8k" />
@@ -332,6 +348,14 @@ function ModelSection(): JSX.Element {
                 图片能力由该模型本身决定。如需识图，请新增一个多模态模型预设，并在对话中切换后发送图片。
               </p>
             </Field>
+            <label className="flex items-center gap-2 text-[12px] text-txt-secondary">
+              <input
+                type="checkbox"
+                checked={editing.capabilities?.imageInput ?? false}
+                onChange={(e) => set({ capabilities: { imageInput: e.target.checked } })}
+              />
+              此模型支持图片输入
+            </label>
             <Field label="上下文消息数（多轮记忆）">
               <input
                 className="input font-mono"
@@ -342,6 +366,17 @@ function ModelSection(): JSX.Element {
                 value={editing.contextMessages}
                 onChange={(e) => set({ contextMessages: Number(e.target.value) || 20 })}
                 onBlur={() => set({ contextMessages: Math.min(50, Math.max(1, Math.trunc(editing.contextMessages || 20))) })}
+              />
+            </Field>
+            <Field label="上下文预算（tokens）">
+              <input
+                className="input font-mono"
+                type="number"
+                min={8000}
+                max={1000000}
+                step={1000}
+                value={editing.contextTokens ?? 128000}
+                onChange={(e) => set({ contextTokens: Number(e.target.value) || 128000 })}
               />
             </Field>
           </div>

@@ -11,9 +11,19 @@ vi.mock('pdf-parse', () => ({
 vi.mock('mammoth/lib/index.js', () => ({
   default: { extractRawText: async (): Promise<{ value: string }> => ({ value: 'docx 文本内容' }) }
 }))
-vi.mock('xlsx', () => ({
-  read: () => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } }),
-  utils: { sheet_to_csv: () => 'a,b\n1,2' }
+vi.mock('exceljs', () => ({
+  default: {
+    Workbook: class {
+      worksheets = [
+        {
+          name: 'Sheet1',
+          eachRow: (_opts: unknown, callback: (row: { values: unknown[] }) => void) =>
+            callback({ values: [undefined, 'a', 'b'] })
+        }
+      ]
+      xlsx = { load: async () => undefined }
+    }
+  }
 }))
 
 import { extractDocumentText, isSupportedDocName } from './document'
@@ -22,7 +32,7 @@ const dataUrl = (s: string): string => `data:text/plain;base64,${Buffer.from(s, 
 
 describe('isSupportedDocName', () => {
   it('识别支持的扩展名', () => {
-    for (const name of ['a.pdf', 'a.docx', 'a.xlsx', 'a.xls', 'a.csv', 'a.txt', 'a.md', 'a.json']) {
+    for (const name of ['a.pdf', 'a.docx', 'a.xlsx', 'a.csv', 'a.txt', 'a.md', 'a.json']) {
       expect(isSupportedDocName(name)).toBe(true)
     }
   })
@@ -30,6 +40,7 @@ describe('isSupportedDocName', () => {
   it('拒绝不支持的扩展名', () => {
     expect(isSupportedDocName('a.exe')).toBe(false)
     expect(isSupportedDocName('a.png')).toBe(false)
+    expect(isSupportedDocName('a.xls')).toBe(false)
   })
 })
 
@@ -55,7 +66,7 @@ describe('extractDocumentText', () => {
     expect(r.text).toBe('docx 文本内容')
   })
 
-  it('XLSX 走 xlsx（mock）并保留 sheet 标题', async () => {
+  it('XLSX 走 exceljs（mock）并保留 sheet 标题', async () => {
     const r = await extractDocumentText('d.xlsx', dataUrl('ignored'))
     expect(r.text).toContain('a,b')
   })

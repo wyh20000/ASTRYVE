@@ -1,3 +1,5 @@
+import type { ModelPreset, ModelProvider } from './types'
+
 /**
  * OpenAI 兼容接口没有统一的模型能力发现协议，因此只能根据模型标识判断图片能力。
  * 新增多模态模型时应将它作为独立预设保存，并在对话中显式切换到该预设。
@@ -12,8 +14,12 @@ const MULTIMODAL_MODEL_PATTERNS = [
   /^kimi-k3(?:$|[-_.])/i
 ]
 
-/** 当前所选模型本身是否支持图片输入。 */
-export function supportsImageInput(model: string): boolean {
+/** 当前所选模型本身是否支持图片输入；显式配置优先，字符串仅用于旧配置迁移。 */
+export function supportsImageInput(
+  value: string | Pick<ModelPreset, 'model' | 'capabilities'>
+): boolean {
+  if (typeof value !== 'string' && value.capabilities) return value.capabilities.imageInput
+  const model = typeof value === 'string' ? value : value.model
   const normalized = model.trim()
   return normalized.length > 0 && MULTIMODAL_MODEL_PATTERNS.some((pattern) => pattern.test(normalized))
 }
@@ -22,4 +28,3 @@ export function supportsImageInput(model: string): boolean {
 export function supportsBuiltInSearch(provider: ModelProvider | undefined): boolean {
   return provider === 'kimi' || provider === 'deepseek'
 }
-import type { ModelProvider } from './types'

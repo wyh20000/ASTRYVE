@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest'
-import { toChatMessage, injectDocuments } from './history'
+import { describe, expect, it } from 'vitest'
+import {
+  estimateTextTokens,
+  fitHistoryToTokenBudget,
+  injectDocuments,
+  toChatMessage
+} from './history'
 import type { Message } from '@shared/types'
 import type { ChatMessage } from './modelProvider'
 
@@ -76,5 +81,24 @@ describe('injectDocuments', () => {
     const history: ChatMessage[] = [{ role: 'user', content: 'q' }]
     injectDocuments(history, [])
     expect(history).toHaveLength(1)
+  })
+})
+
+describe('context token budget', () => {
+  it('estimates CJK more conservatively than ASCII', () => {
+    expect(estimateTextTokens('中文中文')).toBeGreaterThan(estimateTextTokens('abcd'))
+  })
+
+  it('keeps the system prompt and newest messages under a constrained budget', () => {
+    const history = [
+      { role: 'system' as const, content: 'system' },
+      { role: 'user' as const, content: 'old '.repeat(4_000) },
+      { role: 'assistant' as const, content: 'old reply '.repeat(4_000) },
+      { role: 'user' as const, content: 'new question' }
+    ]
+    const result = fitHistoryToTokenBudget(history, 8_000)
+    expect(result[0]).toEqual(history[0])
+    expect(result.at(-1)?.content).toBe('new question')
+    expect(result.length).toBeLessThan(history.length)
   })
 })

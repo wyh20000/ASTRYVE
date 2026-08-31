@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { extractDocumentText } from './document'
 
 const dataRef = (mime: string, bytes: Buffer): string =>
@@ -66,13 +66,10 @@ describe('真实文档解析器', () => {
   })
 
   it('从真实 XLSX 工作簿提取表格和工作表名', async () => {
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.aoa_to_sheet([['name', 'score'], ['Luna', 100]]),
-      'Results'
-    )
-    const bytes = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet('Results')
+    sheet.addRows([['name', 'score'], ['Luna', 100]])
+    const bytes = Buffer.from(await workbook.xlsx.writeBuffer())
     const result = await extractDocumentText(
       'fixture.xlsx',
       dataRef('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', bytes)

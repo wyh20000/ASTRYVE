@@ -6,47 +6,68 @@ import {
   setModelConfig,
   setActivePreset,
   setReasoningEffort,
-  getActivePreset
+  getActivePreset,
+  toPublicModelConfig
 } from '../services/modelConfig'
 import { testChat } from '../services/modelProvider'
 import { ok, err } from './result'
+import {
+  assertTrustedIpcSender,
+  validateModelConfigPatch,
+  validateSessionId,
+  validationErrorMessage
+} from './validation'
 
 export function registerModelIpc(): void {
-  ipcMain.handle(IPC.model.getConfig, () => {
+  ipcMain.handle(IPC.model.getConfig, (event) => {
     try {
-      return ok(getModelConfig())
+      assertTrustedIpcSender(event)
+      return ok(toPublicModelConfig(getModelConfig()))
     } catch (e) {
       return err('CFG_ERR', String(e))
     }
   })
 
-  ipcMain.handle(IPC.model.setConfig, (_e, cfg?: Partial<ModelConfig>) => {
+  ipcMain.handle(IPC.model.setConfig, (event, cfg?: Partial<ModelConfig>) => {
     try {
-      return ok(setModelConfig(cfg ?? {}))
+      assertTrustedIpcSender(event)
+      return ok(toPublicModelConfig(setModelConfig(validateModelConfigPatch(cfg ?? {}))))
     } catch (e) {
       return err('CFG_ERR', String(e))
     }
   })
 
-  ipcMain.handle(IPC.model.setActive, (_e, id: string) => {
+  ipcMain.handle(IPC.model.setActive, (event, id: string) => {
     try {
-      return ok(setActivePreset(id))
+      assertTrustedIpcSender(event)
+      validateSessionId(id)
+      return ok(toPublicModelConfig(setActivePreset(id)))
     } catch (e) {
       return err('CFG_ERR', String(e))
     }
   })
 
-  ipcMain.handle(IPC.model.setReasoning, (_e, effort: ReasoningEffort) => {
+  ipcMain.handle(IPC.model.setReasoning, (event, effort: ReasoningEffort) => {
     try {
-      return ok(setReasoningEffort(effort))
+      assertTrustedIpcSender(event)
+      if (effort !== 'low' && effort !== 'medium' && effort !== 'high') {
+        return err('INVALID_INPUT', '推理等级无效')
+      }
+      return ok(toPublicModelConfig(setReasoningEffort(effort)))
     } catch (e) {
       return err('CFG_ERR', String(e))
     }
   })
 
-  ipcMain.handle(IPC.model.test, async (_e, preset?: ModelPreset) => {
+  ipcMain.handle(IPC.model.test, async (event, preset?: ModelPreset) => {
     try {
-      const p = preset ?? getActivePreset()
+      assertTrustedIpcSender(event)
+      if (preset) validateModelConfigPatch({ presets: [preset] })
+      const active = getActivePreset()
+      const stored = preset ? getModelConfig().presets.find((item) => item.id === preset.id) : null
+      const p = preset
+        ? { ...preset, apiKey: preset.apiKey || stored?.apiKey || '' }
+        : active
       if (!p) return ok({ success: false, message: '无可用模型' })
       const r = await testChat(p)
       return ok(r)

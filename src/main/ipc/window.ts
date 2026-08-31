@@ -1,10 +1,18 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC } from '@shared/ipc'
 import { ok, err } from './result'
+import { assertTrustedIpcSender } from './validation'
 
 export function registerWindowIpc(): void {
   ipcMain.handle(IPC.window.setTitleBarOverlay, (event, opts?: { color: string; symbolColor: string }) => {
     try {
+      assertTrustedIpcSender(event)
+      if (
+        opts &&
+        (!/^#[0-9a-f]{6}$/i.test(opts.color) || !/^#[0-9a-f]{6}$/i.test(opts.symbolColor))
+      ) {
+        return err('INVALID_INPUT', '标题栏颜色无效')
+      }
       const win = BrowserWindow.fromWebContents(event.sender)
       if (win && process.platform === 'win32') {
         win.setTitleBarOverlay({ color: opts?.color ?? '#0a0e17', symbolColor: opts?.symbolColor ?? '#a7b0c0', height: 32 })
