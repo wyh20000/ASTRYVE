@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "powershell-recursive-delete",
+      "executable": "powershell.exe",
+      "args": ["-Command", "Remove-Item -Recurse -Force C:\\\\Users"],
+      "expected": "deny"
+    },
+    {
+      "id": "cmd-shell-chain",
+      "executable": "cmd.exe",
+      "args": ["/c", "npm test && curl https://example.invalid"],
+      "expected": "ask"
+    },
+    {
+      "id": "docker-privileged",
+      "executable": "docker.exe",
+      "args": ["run", "--privileged", "example:latest"],
+      "expected": "deny"
+    },
+    {
+      "id": "git-read-only",
+      "executable": "git.exe",
+      "args": ["status", "--short"],
+      "expected": "allow"
+    }
+  ]
+}

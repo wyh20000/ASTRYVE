@@ -59,6 +59,13 @@ describe('MemoryStore（无文件路径，纯内存）', () => {
     expect(m.status).toBe('done')
   })
 
+  it('为会话持久化当前项目路径', async () => {
+    const session = await store.createSession('workspace')
+    const updated = await store.setSessionProjectPath(session.id, 'D:\\project')
+    expect(updated?.projectPath).toBe('D:\\project')
+    expect((await store.getSession(session.id))?.projectPath).toBe('D:\\project')
+  })
+
   it('附件随消息持久化', async () => {
     const s = await store.createSession('s')
     await store.insertMessage({

@@ -2,6 +2,17 @@
  * 主进程 / 预加载 / 渲染进程共享的类型定义。
  * 单一来源（single source of truth）：任何跨层数据结构都在此声明。
  */
+import type {
+  ActivateWorkspaceInput,
+  WorkspaceFileContent,
+  WorkspaceFileEntry,
+  WorkspaceListInput,
+  WorkspaceReadInput,
+  WorkspaceReadManyInput,
+  WorkspaceSearchInput,
+  WorkspaceSearchMatch,
+  WorkspaceSummary
+} from './agent'
 
 /** IPC 统一返回结构（不裸抛异常） */
 export type IpcResult<T> =
@@ -168,6 +179,17 @@ export interface AgentApi {
     list: (sessionId: string) => Promise<IpcResult<Message[]>>
     send: (input: SendMessageInput) => Promise<IpcResult<Message>>
     stop: (sessionId: string) => Promise<IpcResult<{ stopped: boolean }>>
+  }
+  workspace: {
+    listRecent: () => Promise<IpcResult<WorkspaceSummary[]>>
+    select: () => Promise<IpcResult<WorkspaceSummary | null>>
+    activate: (
+      input: ActivateWorkspaceInput
+    ) => Promise<IpcResult<{ workspace: WorkspaceSummary; session: Session }>>
+    listFiles: (input: WorkspaceListInput) => Promise<IpcResult<WorkspaceFileEntry[]>>
+    readFile: (input: WorkspaceReadInput) => Promise<IpcResult<WorkspaceFileContent>>
+    readMany: (input: WorkspaceReadManyInput) => Promise<IpcResult<WorkspaceFileContent[]>>
+    searchText: (input: WorkspaceSearchInput) => Promise<IpcResult<WorkspaceSearchMatch[]>>
   }
   model: {
     getConfig: () => Promise<IpcResult<ModelConfig>>

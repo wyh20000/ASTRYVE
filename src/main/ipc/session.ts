@@ -4,6 +4,7 @@ import type { CreateSessionInput } from '@shared/types'
 import { getStore } from '../db'
 import { ok, err } from './result'
 import { cancelGeneration } from '../services/generationTasks'
+import { clearSessionWorkspace } from '../services/agent/workspaceManager'
 import {
   assertTrustedIpcSender,
   validateCreateSessionInput,
@@ -50,6 +51,7 @@ export function registerSessionIpc(): void {
       assertTrustedIpcSender(event)
       validateSessionId(id)
       cancelGeneration(id, 'session_deleted')
+      clearSessionWorkspace(id)
       await getStore().deleteSession(id)
       return ok({ id })
     } catch (e) {

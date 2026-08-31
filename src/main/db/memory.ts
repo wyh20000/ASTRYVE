@@ -95,6 +95,15 @@ export class MemoryStore implements DbStore {
     return s
   }
 
+  async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
+    const session = this.sessions.get(id)
+    if (!session) return null
+    session.projectPath = projectPath
+    session.updatedAt = Date.now()
+    await this.persist()
+    return session
+  }
+
   async touchSession(id: string): Promise<Session | null> {
     const s = this.sessions.get(id)
     if (!s) return null

@@ -165,6 +165,15 @@ export class MySqlStore implements DbStore {
     return this.getSession(id)
   }
 
+  async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
+    await this.pool.query('UPDATE sessions SET project_path = ?, updated_at = ? WHERE id = ?', [
+      projectPath,
+      Date.now(),
+      id
+    ])
+    return this.getSession(id)
+  }
+
   async touchSession(id: string): Promise<Session | null> {
     await this.pool.query('UPDATE sessions SET updated_at = ? WHERE id = ?', [Date.now(), id])
     return this.getSession(id)

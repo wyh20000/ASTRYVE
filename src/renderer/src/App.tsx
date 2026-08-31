@@ -10,6 +10,7 @@ import { useChatStore } from './stores/chatStore'
 import { useUiStore } from './stores/uiStore'
 import { useModelStore } from './stores/modelStore'
 import { useThemeStore } from './stores/themeStore'
+import { useWorkspaceStore } from './stores/workspaceStore'
 
 export default function App(): JSX.Element {
   const init = useSessionStore((s) => s.init)
@@ -22,12 +23,14 @@ export default function App(): JSX.Element {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
   const loadModel = useModelStore((s) => s.load)
+  const loadWorkspaces = useWorkspaceStore((s) => s.load)
 
   useEffect(() => {
     void init()
     void loadModel()
+    void loadWorkspaces()
     void useThemeStore.getState().hydrate()
-  }, [init, loadModel])
+  }, [init, loadModel, loadWorkspaces])
 
   useEffect(() => {
     const unsub = window.agent.onMessageStreamed((m) => upsertMessage(m))

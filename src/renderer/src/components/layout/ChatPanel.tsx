@@ -3,6 +3,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { MessageList } from '../chat/MessageList'
 import { ChatInput } from '../chat/ChatInput'
 import { Icon } from '../ui/icons'
+import { WorkspacePicker } from '../chat/WorkspacePicker'
 
 export default function ChatPanel(): JSX.Element {
   const activeId = useSessionStore((s) => s.activeId)
@@ -37,7 +38,10 @@ export default function ChatPanel(): JSX.Element {
         <span className="selectable text-[13px] font-medium text-txt-primary">
           {active?.title || '新对话'}
         </span>
-        <span className="chip border border-accent bg-accent-dim/20 text-accent">智能模式</span>
+        <div className="flex items-center gap-2">
+          {active && <WorkspacePicker sessionId={active.id} projectPath={active.projectPath} />}
+          <span className="chip border border-accent bg-accent-dim/20 text-accent">智能模式</span>
+        </div>
       </div>
 
       <MessageList messages={messages ?? []} />

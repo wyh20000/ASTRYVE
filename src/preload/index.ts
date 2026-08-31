@@ -11,6 +11,13 @@ import type {
   Message,
   MessageNotice
 } from '@shared/types'
+import type {
+  ActivateWorkspaceInput,
+  WorkspaceListInput,
+  WorkspaceReadInput,
+  WorkspaceReadManyInput,
+  WorkspaceSearchInput
+} from '@shared/agent'
 
 const api: AgentApi = {
   platform: process.platform,
@@ -26,6 +33,15 @@ const api: AgentApi = {
     list: (sessionId: string) => ipcRenderer.invoke(IPC.message.list, sessionId),
     send: (input: SendMessageInput) => ipcRenderer.invoke(IPC.message.send, input),
     stop: (sessionId: string) => ipcRenderer.invoke(IPC.message.stop, sessionId)
+  },
+  workspace: {
+    listRecent: () => ipcRenderer.invoke(IPC.workspace.recent),
+    select: () => ipcRenderer.invoke(IPC.workspace.select),
+    activate: (input: ActivateWorkspaceInput) => ipcRenderer.invoke(IPC.workspace.activate, input),
+    listFiles: (input: WorkspaceListInput) => ipcRenderer.invoke(IPC.workspace.listFiles, input),
+    readFile: (input: WorkspaceReadInput) => ipcRenderer.invoke(IPC.workspace.readFile, input),
+    readMany: (input: WorkspaceReadManyInput) => ipcRenderer.invoke(IPC.workspace.readMany, input),
+    searchText: (input: WorkspaceSearchInput) => ipcRenderer.invoke(IPC.workspace.searchText, input)
   },
   model: {
     getConfig: () => ipcRenderer.invoke(IPC.model.getConfig),

@@ -12,6 +12,7 @@ interface SessionState {
   rename: (id: string, title: string) => Promise<void>
   remove: (id: string) => Promise<void>
   touch: (id: string) => Promise<void>
+  update: (session: Session) => void
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -77,5 +78,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         .map((x) => (x.id === id ? res.data : x))
         .sort((a, b) => b.updatedAt - a.updatedAt)
     }))
-  }
+  },
+
+  update: (session) =>
+    set((state) => ({
+      sessions: state.sessions
+        .map((item) => (item.id === session.id ? session : item))
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+    }))
 }))

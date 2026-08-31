@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1 完成；P2（识图 / 文档解析 / 联网搜索 / 回复样式优化）已实现
+- **当前阶段**：P1/P2 已完成；P3（安全执行内核 / Coding / Docker / Skills）已完成计划，准备实施
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
 
@@ -37,7 +37,7 @@ npm start
 - 兼容 **DeepSeek / Kimi（OpenAI 兼容）** 的**流式对话**，真实回复（含思考态 + 流式文本展示）。
 - **设置 → 模型设置**：选择提供方（DeepSeek/Kimi/自定义）、填 Base URL / API Key / 模型名，保存并「测试连接」。
 - 也支持环境变量（无需 UI）：`DEEPSEEK_API_KEY`、`MOONSHOT_API_KEY`、`MODEL_BASE_URL`、`MODEL`、`MODEL_PROVIDER`、`CONTEXT_MESSAGES`。
-- 配置保存到 `%APPDATA%\ai-agent\ai-agent-config.json`；**未配置时自动回退本地演示（Mock）**，应用始终可用。
+- 非敏感配置保存到 `%APPDATA%\ai-agent\ai-agent-config.json`，API Key 使用 Electron `safeStorage` 单独加密；**未配置时自动回退本地演示（Mock）**。
 - **多轮记忆 + 上下文长度**：按会话历史发送最近 N 条消息（默认 20，可在模型设置中调整）。
 - **会话标题自动生成**：首条消息自动给会话命名，侧栏即时更新。
 - **接口信息可看**：主进程控制台打印 `[model] request/response/stream done`（模型 / URL / HTTP 状态 / 耗时），**不含 prompt 与响应内容**。注意：请求是从**主进程**发起的，所以在渲染进程的 DevTools 网络面板里看不到，要看请求请去运行 `npm run dev` 的终端。
@@ -53,6 +53,8 @@ npm start
 | [docs/03-设计稿还原分析.md](docs/03-设计稿还原分析.md) | 设计稿逐组件拆解与还原要点 |
 | [docs/04-第二阶段计划.md](docs/04-第二阶段计划.md) | P2 范围、实现与验收标准 |
 | [docs/05-二阶段未完成项.md](docs/05-二阶段未完成项.md) | P2 收口结果与外部联调项 |
+| [docs/06-安全加固与沙盒设计.md](docs/06-安全加固与沙盒设计.md) | P2 后安全加固与 renderer sandbox 设计 |
+| [docs/07-第三阶段计划.md](docs/07-第三阶段计划.md) | P3 Agent 执行内核、Coding、权限、Docker 与 Skills 计划 |
 
 ## P1 已实现（M0–M6）
 

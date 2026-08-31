@@ -32,6 +32,17 @@ export function validateSessionId(value: unknown): string {
   return value
 }
 
+export function validateWorkspaceId(value: unknown): string {
+  if (typeof value !== 'string' || !ID_PATTERN.test(value)) invalid('工作区 ID 无效')
+  return value
+}
+
+export function validateWorkspaceRelativePath(value: unknown, allowRoot = false): string {
+  if (value == null && allowRoot) return ''
+  if (typeof value !== 'string' || value.length > 4096) invalid('工作区路径无效')
+  return value
+}
+
 export function validateCreateSessionInput(value: unknown): CreateSessionInput {
   if (value == null) return {}
   if (typeof value !== 'object') invalid('会话参数无效')
@@ -39,12 +50,7 @@ export function validateCreateSessionInput(value: unknown): CreateSessionInput {
   if (input.title != null && (typeof input.title !== 'string' || input.title.length > 512)) {
     invalid('会话标题过长')
   }
-  if (
-    input.projectPath != null &&
-    (typeof input.projectPath !== 'string' || input.projectPath.length > 1024)
-  ) {
-    invalid('项目路径无效')
-  }
+  if (input.projectPath != null) invalid('项目只能通过受信任的工作区选择器关联')
   return input
 }
 

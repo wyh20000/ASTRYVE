@@ -4,6 +4,7 @@ import { initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
 import { initSettings } from './services/settings'
 import { registerIpcHandlers } from './ipc'
+import { initWorkspaceService } from './services/agent/workspaceManager'
 import {
   cancelAllGenerations,
   cancelGenerationsForWebContents
@@ -71,6 +72,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   initSettings()
+  initWorkspaceService()
   await initStore()
   initModelConfig()
   registerIpcHandlers()

@@ -18,6 +18,15 @@ export const IPC = {
     send: 'message:send',
     stop: 'message:stop'
   },
+  workspace: {
+    recent: 'workspace:recent',
+    select: 'workspace:select',
+    activate: 'workspace:activate',
+    listFiles: 'workspace:list-files',
+    readFile: 'workspace:read-file',
+    readMany: 'workspace:read-many',
+    searchText: 'workspace:search-text'
+  },
   model: {
     getConfig: 'model:get-config',
     setConfig: 'model:set-config',
