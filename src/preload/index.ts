@@ -9,7 +9,8 @@ import type {
   ReasoningEffort,
   PersistedTheme,
   Message,
-  MessageNotice
+  MessageNotice,
+  AgentProjectPreferences
 } from '@shared/types'
 import type {
   ActivateWorkspaceInput,
@@ -62,7 +63,11 @@ const api: AgentApi = {
   },
   settings: {
     getTheme: () => ipcRenderer.invoke(IPC.settings.getTheme),
-    setTheme: (t: PersistedTheme) => ipcRenderer.invoke(IPC.settings.setTheme, t)
+    setTheme: (t: PersistedTheme) => ipcRenderer.invoke(IPC.settings.setTheme, t),
+    getAgentProject: (workspaceId: string) =>
+      ipcRenderer.invoke(IPC.settings.getAgentProject, workspaceId),
+    setAgentProject: (preferences: AgentProjectPreferences) =>
+      ipcRenderer.invoke(IPC.settings.setAgentProject, preferences)
   },
   window: {
     setTitleBarOverlay: (opts) => ipcRenderer.invoke(IPC.window.setTitleBarOverlay, opts)

@@ -36,7 +36,9 @@ export const IPC = {
   },
   settings: {
     getTheme: 'settings:get-theme',
-    setTheme: 'settings:set-theme'
+    setTheme: 'settings:set-theme',
+    getAgentProject: 'settings:get-agent-project',
+    setAgentProject: 'settings:set-agent-project'
   },
   window: {
     setTitleBarOverlay: 'window:set-title-bar-overlay'

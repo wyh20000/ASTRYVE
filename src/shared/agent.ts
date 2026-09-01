@@ -18,11 +18,12 @@ export const TASK_STATUSES = [
   'stopping',
   'completed',
   'failed',
-  'cancelled'
+  'cancelled',
+  'stale'
 ] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
-export const TERMINAL_TASK_STATUSES = ['completed', 'failed', 'cancelled'] as const
+export const TERMINAL_TASK_STATUSES = ['completed', 'failed', 'cancelled', 'stale'] as const
 export type TerminalTaskStatus = (typeof TERMINAL_TASK_STATUSES)[number]
 
 export const OPERATION_KINDS = [
@@ -114,6 +115,7 @@ export interface ToolInvocation {
   args: unknown
   workspaceId: string
   environment: ExecutionEnvironment
+  permissionMode: PermissionMode
 }
 
 export interface ToolResult<TResult = unknown> {
@@ -122,10 +124,28 @@ export interface ToolResult<TResult = unknown> {
   error?: { code: string; message: string }
 }
 
+/** 可发送给模型的受限 JSON Schema；工具入参首版统一为封闭对象。 */
+export interface ToolInputSchema {
+  type: 'object'
+  properties: Record<string, unknown>
+  required?: string[]
+  additionalProperties: false
+}
+
+export interface NativeFunctionToolDefinition {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: ToolInputSchema
+  }
+}
+
 export interface ToolDefinition<TArgs = unknown, TResult = unknown> {
   name: string
   operation: OperationKind
   description: string
+  parameters: ToolInputSchema
   validateArgs: (input: unknown) => input is TArgs
   execute: (input: TArgs, context: ToolExecutionContext) => Promise<ToolResult<TResult>>
 }
@@ -135,6 +155,7 @@ export interface ToolExecutionContext {
   callId: string
   workspace: WorkspaceGrant
   environment: ExecutionEnvironment
+  permissionMode: PermissionMode
   signal: AbortSignal
 }
 
@@ -143,7 +164,59 @@ export interface PolicyContext {
   workspace: WorkspaceGrant
   invocation: ToolInvocation
   operation: OperationKind
+  target: NormalizedOperationTarget
 }
+
+export interface NormalizedCommand {
+  executable: string
+  args: string[]
+  cwd: string
+  env: Record<string, string>
+  timeoutMs: number
+}
+
+export interface CommandRiskSignals {
+  shellSyntax: boolean
+  shellInterpreter: boolean
+  destructive: boolean
+  dependencyChange: boolean
+  longRunning: boolean
+  credentialAccess: boolean
+  projectScript: boolean
+  deterministicCheck: boolean
+}
+
+export type NormalizedOperationTarget =
+  | {
+      type: 'file'
+      path: string
+      outsideWorkspace: boolean
+      sensitive: boolean
+      destructive: boolean
+      binary: boolean
+    }
+  | {
+      type: 'command'
+      command: NormalizedCommand
+      signals: CommandRiskSignals
+      commandPrefix: string[]
+    }
+  | {
+      type: 'network'
+      protocol: 'http:' | 'https:' | 'other'
+      host: string
+    }
+  | {
+      type: 'git'
+      action: string
+      write: boolean
+    }
+  | {
+      type: 'host-patch'
+      paths: string[]
+      patchHash: string
+      outsideWorkspace: boolean
+    }
 
 export interface PolicyDecision {
   outcome: PolicyOutcome
@@ -164,6 +237,9 @@ export interface ApprovalRequest {
   workspaceId: string
   environment: ExecutionEnvironment
   operation: OperationKind
+  normalizedTarget: string
+  bindingHash: string
+  commandPrefix?: string[]
   summary: string
   risk: RiskLevel
   scopeOptions: ApprovalScope[]
@@ -178,9 +254,28 @@ export interface ApprovalDecision {
   decidedAt: number
 }
 
+export interface ApprovalGrant {
+  token: string
+  requestId: string
+  scope: ApprovalScope
+  expiresAt: number
+}
+
+export interface ApprovalBinding {
+  taskId: string
+  callId: string
+  workspaceId: string
+  environment: ExecutionEnvironment
+  operation: OperationKind
+  normalizedTarget: string
+  commandPrefix?: string[]
+}
+
 export interface ApprovalService {
   create: (request: ApprovalRequest) => void
-  consume: (decision: ApprovalDecision) => ApprovalRequest
+  decide: (decision: ApprovalDecision) => ApprovalGrant | undefined
+  consume: (token: string, binding: ApprovalBinding) => ApprovalRequest
+  isTaskPrefixApproved: (binding: ApprovalBinding) => boolean
   revokeTask: (taskId: string) => void
 }
 
@@ -226,6 +321,13 @@ export type TaskEventType =
   | 'approval.required'
   | 'task.notice'
 
+export type TaskOutputStream = 'model' | 'reasoning' | 'stdout' | 'stderr'
+
+export interface TaskOutputPayload {
+  stream: TaskOutputStream
+  chunk: string
+}
+
 export interface TaskEvent<TPayload = unknown> {
   taskId: string
   sessionId: string
@@ -239,6 +341,7 @@ export interface TaskSnapshot {
   id: string
   sessionId: string
   workspaceId: string
+  ownerWebContentsId: number
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
   status: TaskStatus

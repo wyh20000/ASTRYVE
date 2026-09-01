@@ -1,13 +1,18 @@
 import { app } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
-import type { PersistedTheme, DbConfig } from '@shared/types'
-import type { WorkspaceGrant } from '@shared/agent'
+import type { AgentProjectPreferences, PersistedTheme, DbConfig } from '@shared/types'
+import {
+  EXECUTION_ENVIRONMENTS,
+  PERMISSION_MODES,
+  type WorkspaceGrant
+} from '@shared/agent'
 
 interface SettingsFile {
   theme?: PersistedTheme
   db?: DbConfig
   workspaces?: WorkspaceGrant[]
+  agentProjects?: Record<string, AgentProjectPreferences>
 }
 
 const DEFAULTS: { theme: PersistedTheme; db: DbConfig } = {
@@ -15,10 +20,16 @@ const DEFAULTS: { theme: PersistedTheme; db: DbConfig } = {
   db: { host: '127.0.0.1', port: 3306, user: 'root', password: '', database: 'ai_agent' }
 }
 
-let data: { theme: PersistedTheme; db: DbConfig; workspaces: WorkspaceGrant[] } = {
+let data: {
+  theme: PersistedTheme
+  db: DbConfig
+  workspaces: WorkspaceGrant[]
+  agentProjects: Record<string, AgentProjectPreferences>
+} = {
   theme: { ...DEFAULTS.theme, overrides: { ...DEFAULTS.theme.overrides } },
   db: { ...DEFAULTS.db },
-  workspaces: []
+  workspaces: [],
+  agentProjects: {}
 }
 
 function file(): string {
@@ -34,6 +45,14 @@ export function initSettings(): void {
       if (raw.theme) data.theme = { ...data.theme, ...raw.theme }
       if (raw.db) data.db = { ...data.db, ...raw.db }
       if (Array.isArray(raw.workspaces)) data.workspaces = raw.workspaces
+      if (raw.agentProjects && typeof raw.agentProjects === 'object') {
+        data.agentProjects = Object.fromEntries(
+          Object.entries(raw.agentProjects).filter(
+            ([workspaceId, value]) =>
+              isAgentProjectPreferences(value) && value.workspaceId === workspaceId
+          )
+        )
+      }
     }
   } catch (e) {
     console.warn('[settings] load failed:', e)
@@ -84,4 +103,27 @@ export function getWorkspaceGrants(): WorkspaceGrant[] {
 export function setWorkspaceGrants(grants: WorkspaceGrant[]): void {
   data.workspaces = grants.map((grant) => ({ ...grant }))
   persist()
+}
+
+export function getAgentProjectPreferences(workspaceId: string): AgentProjectPreferences | undefined {
+  const preferences = data.agentProjects[workspaceId]
+  return preferences ? { ...preferences } : undefined
+}
+
+export function setAgentProjectPreferences(
+  preferences: AgentProjectPreferences
+): AgentProjectPreferences {
+  data.agentProjects[preferences.workspaceId] = { ...preferences }
+  persist()
+  return { ...preferences }
+}
+
+function isAgentProjectPreferences(value: unknown): value is AgentProjectPreferences {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Partial<AgentProjectPreferences>
+  return (
+    typeof candidate.workspaceId === 'string' &&
+    (PERMISSION_MODES as readonly unknown[]).includes(candidate.permissionMode) &&
+    (EXECUTION_ENVIRONMENTS as readonly unknown[]).includes(candidate.executionEnvironment)
+  )
 }

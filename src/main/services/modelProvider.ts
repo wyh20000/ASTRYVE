@@ -1,4 +1,5 @@
 import type { ModelPreset, ReasoningEffort, SourceCitation } from '@shared/types'
+import type { NativeFunctionToolDefinition } from '@shared/agent'
 import { readSseStream } from './sse'
 import {
   CONNECT_TIMEOUT_MESSAGE,
@@ -33,6 +34,16 @@ export interface StreamEvent {
   done?: boolean
 }
 
+export interface ChatCompletionTurn {
+  message: ChatMessage
+  finishReason: string | null
+}
+
+export interface StreamChatOptions {
+  tools?: NativeFunctionToolDefinition[]
+  toolChoice?: 'auto' | 'none'
+}
+
 type OnEvent = (ev: StreamEvent) => void | Promise<void>
 
 export const MODEL_RESOURCE_ERROR = 'MODEL_INSUFFICIENT_SYSTEM_RESOURCE'
@@ -56,10 +67,7 @@ export interface RuntimeModel {
 }
 
 async function handleChatCompletionEvent(payload: string, onEvent: OnEvent): Promise<void> {
-  if (payload === '[DONE]') {
-    await onEvent({ done: true })
-    return
-  }
+  if (payload === '[DONE]') return
   let json: any
   try {
     json = JSON.parse(payload)
@@ -80,18 +88,128 @@ async function handleChatCompletionEvent(payload: string, onEvent: OnEvent): Pro
   }
 }
 
+const MAX_STREAMED_TOOL_CALLS = 64
+const MAX_STREAMED_TOOL_FIELD_LENGTH = 100_000
+
+interface PendingToolCall {
+  id: string
+  type: string
+  name: string
+  arguments: string
+}
+
+function createChatCompletionCollector(onEvent: OnEvent): {
+  handle: (payload: string) => Promise<void>
+  result: () => ChatCompletionTurn
+} {
+  const calls = new Map<number, PendingToolCall>()
+  let content = ''
+  let finishReason: string | null = null
+
+  const append = (current: string, value: unknown, field: string): string => {
+    if (value === undefined) return current
+    if (typeof value !== 'string') throw new Error(`模型返回了无效的工具调用字段：${field}`)
+    const next = current + value
+    if (next.length > MAX_STREAMED_TOOL_FIELD_LENGTH) {
+      throw new Error(`模型工具调用字段过长：${field}`)
+    }
+    return next
+  }
+
+  const handle = async (payload: string): Promise<void> => {
+    if (payload === '[DONE]') return
+    let json: any
+    try {
+      json = JSON.parse(payload)
+    } catch {
+      return
+    }
+    const choice = json?.choices?.[0]
+    if (choice?.finish_reason === 'insufficient_system_resource') {
+      throw new Error(MODEL_RESOURCE_ERROR)
+    }
+    if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason
+    const delta = choice?.delta
+    if (!delta) return
+    if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+      await onEvent({ reasoning: delta.reasoning_content })
+    }
+    if (typeof delta.content === 'string' && delta.content) {
+      content += delta.content
+      await onEvent({ content: delta.content })
+    }
+    if (delta.tool_calls === undefined) return
+    if (!Array.isArray(delta.tool_calls)) throw new Error('模型返回了无效的原生工具调用')
+    for (const raw of delta.tool_calls) {
+      if (!raw || typeof raw !== 'object' || !Number.isSafeInteger(raw.index)) {
+        throw new Error('模型返回了无效的原生工具调用索引')
+      }
+      const index = raw.index as number
+      if (index < 0 || index >= MAX_STREAMED_TOOL_CALLS) {
+        throw new Error('模型原生工具调用数量超过限制')
+      }
+      const pending = calls.get(index) ?? { id: '', type: '', name: '', arguments: '' }
+      pending.id = append(pending.id, raw.id, 'id')
+      pending.type = append(pending.type, raw.type, 'type')
+      if (raw.function !== undefined) {
+        if (!raw.function || typeof raw.function !== 'object' || Array.isArray(raw.function)) {
+          throw new Error('模型返回了无效的 function 调用')
+        }
+        pending.name = append(pending.name, raw.function.name, 'name')
+        pending.arguments = append(pending.arguments, raw.function.arguments, 'arguments')
+      }
+      calls.set(index, pending)
+    }
+  }
+
+  return {
+    handle,
+    result: () => {
+      const toolCalls: ToolCall[] = [...calls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, call]) => ({
+          id: call.id,
+          type: call.type as ToolCall['type'],
+          function: { name: call.name, arguments: call.arguments }
+        }))
+      return {
+        message: {
+          role: 'assistant',
+          content: content || null,
+          tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+        },
+        finishReason
+      }
+    }
+  }
+}
+
 /** 调用 OpenAI 兼容流式接口（DeepSeek / Kimi 通用）。仅打印接口信息（模型/URL/状态/耗时），不打印 prompt 与响应内容。 */
 export async function streamChat(
   runtime: RuntimeModel,
   messages: ChatMessage[],
   onEvent: OnEvent
 ): Promise<void> {
+  await streamChatTurn(runtime, messages, onEvent)
+}
+
+/** 执行一轮 OpenAI 兼容流式对话，并仅从原生 delta.tool_calls 组装工具调用。 */
+export async function streamChatTurn(
+  runtime: RuntimeModel,
+  messages: ChatMessage[],
+  onEvent: OnEvent,
+  options: StreamChatOptions = {}
+): Promise<ChatCompletionTurn> {
   const base = runtime.baseUrl.replace(/\/+$/, '')
   const started = Date.now()
   console.log('[model] request model=' + runtime.model + ' url=' + base)
   // 思考模式：三档都开启思考，强度不同：低→low / 中→high / 高→max。(DeepSeek 映射：medium/high→high，max→max)
   // 思考模式下不支持 temperature（会被忽略），故仅在未启用思考时携带。
   const body: Record<string, unknown> = { model: runtime.model, messages, stream: true }
+  if (options.tools && options.tools.length > 0) {
+    body.tools = options.tools
+    body.tool_choice = options.toolChoice ?? 'auto'
+  }
   const e = runtime.reasoningEffort
   if (!runtime.vision) {
     if (e === 'low' || e === 'medium' || e === 'high') {
@@ -117,9 +235,11 @@ export async function streamChat(
       const text = await res.text().catch(() => '')
       throw new Error(`模型请求失败 HTTP ${res.status}${text ? `（${text.slice(0, 120)}）` : ''}`)
     }
-    await readSseStream(res.body, ({ data }) => handleChatCompletionEvent(data, onEvent))
+    const collector = createChatCompletionCollector(onEvent)
+    await readSseStream(res.body, ({ data }) => collector.handle(data))
     console.log('[model] stream done, elapse_ms=' + (Date.now() - started))
     await onEvent({ done: true })
+    return collector.result()
   } catch (error) {
     request.throwIfAborted()
     throw error

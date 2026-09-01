@@ -140,5 +140,16 @@ export const Icon = {
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <path d="M9 3v18M15 3v18" />
     </svg>
+  ),
+  Shield: (p: P) => (
+    <svg {...base(p, 16)}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+  Container: (p: P) => (
+    <svg {...base(p, 16)}>
+      <path d="m21 8-9-5-9 5 9 5 9-5z" />
+      <path d="m3 8v8l9 5 9-5V8M12 13v8" />
+    </svg>
   )
 }

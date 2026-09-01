@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isRetryableStreamError, streamDeepSeekSearch, streamSearchChat } from './modelProvider'
+import {
+  isRetryableStreamError,
+  streamChatTurn,
+  streamDeepSeekSearch,
+  streamSearchChat
+} from './modelProvider'
 
 function sseResponse(lines: string[]): Response {
   const encoder = new TextEncoder()
@@ -31,6 +36,69 @@ describe('isRetryableStreamError', () => {
       expect(isRetryableStreamError(error)).toBe(false)
     }
   )
+})
+
+describe('streamChatTurn', () => {
+  it('assembles only provider-native streamed function calls and sends closed schemas', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      sseResponse([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-","type":"function","function":{"name":"workspace.","arguments":"{\\"path\\":"}}]},"finish_reason":null}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"1","function":{"name":"readFile","arguments":"\\"README.md\\"}"}}]},"finish_reason":"tool_calls"}]}',
+        'data: [DONE]'
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const tools = [{
+      type: 'function' as const,
+      function: {
+        name: 'workspace.readFile',
+        description: 'Read a file',
+        parameters: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+          additionalProperties: false as const
+        }
+      }
+    }]
+
+    const turn = await streamChatTurn(
+      { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'model' },
+      [{ role: 'user', content: '读取 README' }],
+      () => undefined,
+      { tools }
+    )
+
+    expect(turn).toEqual({
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'workspace.readFile', arguments: '{"path":"README.md"}' }
+        }]
+      },
+      finishReason: 'tool_calls'
+    })
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.tools).toEqual(tools)
+    expect(body.tool_choice).toBe('auto')
+  })
+
+  it('rejects malformed native tool-call deltas instead of inspecting text', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"```json {\\"type\\":\\"function\\"} ```"},"finish_reason":null}]}',
+        'data: {"choices":[{"delta":{"tool_calls":{"index":0}},"finish_reason":"tool_calls"}]}'
+      ])
+    ))
+    await expect(streamChatTurn(
+      { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'model' },
+      [{ role: 'user', content: 'test' }],
+      () => undefined
+    )).rejects.toThrow('无效的原生工具调用')
+  })
 })
 
 describe('streamSearchChat', () => {

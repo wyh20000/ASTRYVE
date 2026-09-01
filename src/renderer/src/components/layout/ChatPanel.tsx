@@ -40,7 +40,6 @@ export default function ChatPanel(): JSX.Element {
         </span>
         <div className="flex items-center gap-2">
           {active && <WorkspacePicker sessionId={active.id} projectPath={active.projectPath} />}
-          <span className="chip border border-accent bg-accent-dim/20 text-accent">智能模式</span>
         </div>
       </div>
 

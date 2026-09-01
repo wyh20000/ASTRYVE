@@ -15,6 +15,7 @@ import {
   onSessionWorkspaceSwitched
 } from '../services/agent/workspaceManager'
 import { WorkspaceError } from '../services/agent/workspace'
+import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
 import { err, ok } from './result'
 import {
   InputValidationError,
@@ -37,6 +38,7 @@ function workspaceFailure(error: unknown) {
 export function registerWorkspaceIpc(): void {
   onSessionWorkspaceSwitched((sessionId) => {
     cancelGeneration(sessionId, 'workspace_switched')
+    cancelTasksForSession(sessionId, 'workspace_switched')
   })
   ipcMain.handle(IPC.workspace.recent, (event) => {
     try {

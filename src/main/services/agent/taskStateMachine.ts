@@ -8,20 +8,22 @@ import type {
 } from '../../../shared/agent'
 
 const TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
-  queued: ['planning', 'running', 'stopping', 'failed', 'cancelled'],
-  planning: ['running', 'waiting-approval', 'stopping', 'failed', 'cancelled'],
-  running: ['waiting-approval', 'stopping', 'completed', 'failed', 'cancelled'],
-  'waiting-approval': ['running', 'stopping', 'failed', 'cancelled'],
-  stopping: ['failed', 'cancelled'],
+  queued: ['planning', 'running', 'stopping', 'failed', 'cancelled', 'stale'],
+  planning: ['running', 'waiting-approval', 'stopping', 'failed', 'cancelled', 'stale'],
+  running: ['waiting-approval', 'stopping', 'completed', 'failed', 'cancelled', 'stale'],
+  'waiting-approval': ['running', 'stopping', 'failed', 'cancelled', 'stale'],
+  stopping: ['failed', 'cancelled', 'stale'],
   completed: [],
   failed: [],
-  cancelled: []
+  cancelled: [],
+  stale: []
 }
 
 export interface CreateTaskStateInput {
   id: string
   sessionId: string
   workspaceId: string
+  ownerWebContentsId: number
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
   now?: number
@@ -51,6 +53,7 @@ export class TaskStateMachine {
       id: input.id,
       sessionId: input.sessionId,
       workspaceId: input.workspaceId,
+      ownerWebContentsId: input.ownerWebContentsId,
       permissionMode: input.permissionMode,
       environment: input.environment,
       status: 'queued',

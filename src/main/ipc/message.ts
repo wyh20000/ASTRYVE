@@ -37,6 +37,7 @@ import {
   finishGeneration,
   isCurrentGeneration
 } from '../services/generationTasks'
+import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
 import {
   assertTrustedIpcSender,
   validateSendMessageInput,
@@ -88,7 +89,9 @@ export function registerMessageIpc(): void {
     try {
       assertTrustedIpcSender(event)
       validateSessionId(sessionId)
-      return ok({ stopped: cancelGeneration(sessionId, 'user') })
+      const generationStopped = cancelGeneration(sessionId, 'user')
+      const taskStopped = cancelTasksForSession(sessionId, 'user') > 0
+      return ok({ stopped: generationStopped || taskStopped })
     } catch (e) {
       return err('STOP_ERR', String(e))
     }

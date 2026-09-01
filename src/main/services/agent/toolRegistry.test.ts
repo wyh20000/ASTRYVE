@@ -12,6 +12,12 @@ function readTool(): ToolDefinition<ReadArgs, string> {
     name: 'workspace.readFile',
     operation: 'fs.read',
     description: 'Read one authorized workspace file',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+      additionalProperties: false
+    },
     validateArgs: (input): input is ReadArgs =>
       !!input && typeof input === 'object' && typeof (input as { path?: unknown }).path === 'string',
     execute: vi.fn(async () => ({ ok: true, value: 'content' }))
@@ -26,6 +32,7 @@ function invocation(overrides: Partial<ToolInvocation> = {}): ToolInvocation {
     args: { path: 'README.md' },
     workspaceId: 'workspace-1',
     environment: 'docker',
+    permissionMode: 'ask-every-time',
     ...overrides
   }
 }
@@ -53,6 +60,7 @@ describe('ToolRegistry', () => {
       callId: 'call-1',
       workspace: { id: 'workspace-1', rootPath: 'D:\\repo', realRootPath: 'D:\\repo', createdAt: 1 },
       environment: 'docker',
+      permissionMode: 'ask-every-time',
       signal: new AbortController().signal
     } satisfies ToolExecutionContext
 
@@ -89,6 +97,7 @@ describe('ToolRegistry', () => {
       callId: 'call-1',
       workspace: { id: 'workspace-1', rootPath: 'D:\\repo', realRootPath: 'D:\\repo', createdAt: 1 },
       environment: 'docker',
+      permissionMode: 'ask-every-time',
       signal: new AbortController().signal
     } satisfies ToolExecutionContext
     await expect(registry.execute(invocation(), context)).rejects.toMatchObject({
@@ -101,6 +110,39 @@ describe('ToolRegistry', () => {
     registry.register(readTool())
     expectRegistryError(() => registry.validate(invocation({ args: { path: 42 } })), 'INVALID_ARGS')
     expectRegistryError(() => registry.validate({ taskId: '../escape' }), 'INVALID_INVOCATION')
+  })
+
+  it('exports defensive copies of closed native function schemas', () => {
+    const registry = new ToolRegistry()
+    registry.register(readTool())
+    const tools = registry.listNativeFunctionTools()
+    expect(tools).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'workspace.readFile',
+          description: 'Read one authorized workspace file',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path'],
+            additionalProperties: false
+          }
+        }
+      }
+    ])
+    tools[0].function.parameters.properties.path = { type: 'number' }
+    expect(registry.listNativeFunctionTools()[0].function.parameters.properties.path).toEqual({
+      type: 'string'
+    })
+  })
+
+  it('rejects open or malformed tool schemas', () => {
+    const registry = new ToolRegistry()
+    expectRegistryError(
+      () => registry.register({ ...readTool(), parameters: { ...readTool().parameters, additionalProperties: true as false } }),
+      'INVALID_DEFINITION'
+    )
   })
 })
 

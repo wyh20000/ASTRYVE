@@ -1,9 +1,20 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { PersistedTheme } from '@shared/types'
-import { getThemeSettings, setThemeSettings } from '../services/settings'
+import type { AgentProjectPreferences, AgentProjectSettings, PersistedTheme } from '@shared/types'
+import {
+  getAgentProjectPreferences,
+  getThemeSettings,
+  getWorkspaceGrants,
+  setAgentProjectPreferences,
+  setThemeSettings
+} from '../services/settings'
 import { ok, err } from './result'
 import { assertTrustedIpcSender } from './validation'
+import {
+  AGENT_EXECUTION_CAPABILITIES,
+  defaultAgentProjectPreferences,
+  validateAgentProjectPreferences
+} from '../services/agent/projectPreferences'
 
 export function registerSettingsIpc(): void {
   ipcMain.handle(IPC.settings.getTheme, (event) => {
@@ -31,4 +42,46 @@ export function registerSettingsIpc(): void {
       return err('SET_ERR', String(e))
     }
   })
+
+  ipcMain.handle(IPC.settings.getAgentProject, (event, workspaceId?: string) => {
+    try {
+      assertTrustedIpcSender(event)
+      validateWorkspace(workspaceId)
+      const preferences =
+        getAgentProjectPreferences(workspaceId) ?? defaultAgentProjectPreferences(workspaceId)
+      return ok({
+        preferences,
+        capabilities: AGENT_EXECUTION_CAPABILITIES
+      } satisfies AgentProjectSettings)
+    } catch (e) {
+      return err('SET_ERR', e instanceof Error ? e.message : String(e))
+    }
+  })
+
+  ipcMain.handle(
+    IPC.settings.setAgentProject,
+    (event, preferences?: AgentProjectPreferences) => {
+      try {
+        assertTrustedIpcSender(event)
+        const authorized = new Set(getWorkspaceGrants().map((workspace) => workspace.id))
+        const validated = validateAgentProjectPreferences(preferences, authorized)
+        const saved = setAgentProjectPreferences(validated)
+        return ok({
+          preferences: saved,
+          capabilities: AGENT_EXECUTION_CAPABILITIES
+        } satisfies AgentProjectSettings)
+      } catch (e) {
+        return err('SET_ERR', e instanceof Error ? e.message : String(e))
+      }
+    }
+  )
+}
+
+function validateWorkspace(workspaceId: unknown): asserts workspaceId is string {
+  if (
+    typeof workspaceId !== 'string' ||
+    !getWorkspaceGrants().some((workspace) => workspace.id === workspaceId)
+  ) {
+    throw new Error('项目工作区不存在或未授权')
+  }
 }

@@ -11,6 +11,7 @@ function createMachine(): TaskStateMachine {
     id: 'task-1',
     sessionId: 'session-1',
     workspaceId: 'workspace-1',
+    ownerWebContentsId: 101,
     permissionMode: 'ask-every-time',
     environment: 'docker',
     now: 100

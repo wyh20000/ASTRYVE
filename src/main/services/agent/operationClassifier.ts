@@ -1,0 +1,140 @@
+import path from 'node:path'
+import type {
+  NormalizedOperationTarget,
+  OperationKind,
+  WorkspaceGrant
+} from '../../../shared/agent'
+import { normalizeCommand } from './commandPolicy'
+
+const SENSITIVE_PATH = /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.git-credentials|\.npmrc|\.ssh|credentials?)(?:[\\/]|$)/i
+
+export class OperationClassificationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'OperationClassificationError'
+  }
+}
+
+/** Converts validated tool arguments into a trusted, deterministic policy target. */
+export function classifyOperation(
+  operation: OperationKind,
+  input: unknown,
+  workspace: WorkspaceGrant
+): NormalizedOperationTarget {
+  const args = asRecord(input)
+  switch (operation) {
+    case 'process.run': {
+      const classified = normalizeCommand(args, workspace)
+      return { type: 'command', ...classified }
+    }
+    case 'network.enable': {
+      const rawUrl = requireString(args.url, 'url')
+      let url: URL
+      try {
+        url = new URL(rawUrl)
+      } catch {
+        throw new OperationClassificationError('Network target URL is invalid')
+      }
+      return {
+        type: 'network',
+        protocol: url.protocol === 'http:' || url.protocol === 'https:' ? url.protocol : 'other',
+        host: url.host.toLowerCase()
+      }
+    }
+    case 'git.read':
+    case 'git.write':
+      return {
+        type: 'git',
+        action: requireString(args.action, 'action').trim().toLowerCase(),
+        write: operation === 'git.write'
+      }
+    case 'fs.apply-host': {
+      const paths = requireStringArray(args.paths, 'paths').map((item) =>
+        normalizeWorkspacePath(workspace, item)
+      )
+      return {
+        type: 'host-patch',
+        paths: paths.map((item) => item.path),
+        patchHash: requireHash(args.patchHash),
+        outsideWorkspace: paths.some((item) => item.outsideWorkspace)
+      }
+    }
+    case 'fs.read':
+    case 'fs.search':
+    case 'fs.patch': {
+      const normalized = normalizeWorkspacePath(
+        workspace,
+        typeof args.path === 'string' ? args.path : '.'
+      )
+      return {
+        type: 'file',
+        ...normalized,
+        sensitive: SENSITIVE_PATH.test(normalized.path),
+        destructive: operation === 'fs.patch' && Boolean(args.destructive),
+        binary: Boolean(args.binary)
+      }
+    }
+  }
+}
+
+export function serializeOperationTarget(target: NormalizedOperationTarget): string {
+  return stableStringify(target)
+}
+
+function normalizeWorkspacePath(
+  workspace: WorkspaceGrant,
+  requestedPath: string
+): { path: string; outsideWorkspace: boolean } {
+  if (requestedPath.includes('\0')) {
+    throw new OperationClassificationError('Path contains an invalid null byte')
+  }
+  const root = path.resolve(workspace.realRootPath)
+  const target = path.resolve(root, requestedPath)
+  const relative = path.relative(root, target)
+  const outsideWorkspace = relative.startsWith('..') || path.isAbsolute(relative)
+  return { path: target, outsideWorkspace }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new OperationClassificationError('Operation target must be an object')
+  }
+  return value as Record<string, unknown>
+}
+
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 8_192) {
+    throw new OperationClassificationError(`${field} is invalid`)
+  }
+  return value
+}
+
+function requireStringArray(value: unknown, field: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > 1_000 ||
+    !value.every((item) => typeof item === 'string' && item.length <= 8_192)
+  ) {
+    throw new OperationClassificationError(`${field} is invalid`)
+  }
+  return value
+}
+
+function requireHash(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/i.test(value)) {
+    throw new OperationClassificationError('patchHash must be a SHA-256 digest')
+  }
+  return value.toLowerCase()
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}

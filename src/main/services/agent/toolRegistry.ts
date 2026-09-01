@@ -1,10 +1,11 @@
 import type {
+  NativeFunctionToolDefinition,
   ToolDefinition,
   ToolExecutionContext,
   ToolInvocation,
   ToolResult
 } from '../../../shared/agent'
-import { isOperationKind, isToolInvocation, isToolName } from './validation'
+import { hasSafeValueShape, isOperationKind, isToolInvocation, isToolName } from './validation'
 
 export class ToolRegistryError extends Error {
   constructor(
@@ -31,6 +32,7 @@ export class ToolRegistry {
       !isOperationKind(definition.operation) ||
       typeof definition.description !== 'string' ||
       definition.description.trim().length === 0 ||
+      !isClosedObjectSchema(definition.parameters) ||
       typeof definition.validateArgs !== 'function' ||
       typeof definition.execute !== 'function'
     ) {
@@ -47,6 +49,17 @@ export class ToolRegistry {
       name,
       operation,
       description
+    }))
+  }
+
+  listNativeFunctionTools(): NativeFunctionToolDefinition[] {
+    return [...this.tools.values()].map(({ name, description, parameters }) => ({
+      type: 'function',
+      function: {
+        name,
+        description,
+        parameters: cloneSchema(parameters)
+      }
     }))
   }
 
@@ -72,7 +85,8 @@ export class ToolRegistry {
       invocation.taskId !== context.taskId ||
       invocation.callId !== context.callId ||
       invocation.workspaceId !== context.workspace.id ||
-      invocation.environment !== context.environment
+      invocation.environment !== context.environment ||
+      invocation.permissionMode !== context.permissionMode
     ) {
       throw new ToolRegistryError(
         'CONTEXT_MISMATCH',
@@ -81,4 +95,28 @@ export class ToolRegistry {
     }
     return this.validate(invocation).execute(invocation.args, context)
   }
+}
+
+function isClosedObjectSchema(value: unknown): value is ToolDefinition['parameters'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !hasSafeValueShape(value)) {
+    return false
+  }
+  const schema = value as Record<string, unknown>
+  if (
+    schema.type !== 'object' ||
+    !schema.properties ||
+    typeof schema.properties !== 'object' ||
+    Array.isArray(schema.properties) ||
+    schema.additionalProperties !== false
+  ) {
+    return false
+  }
+  return (
+    schema.required === undefined ||
+    (Array.isArray(schema.required) && schema.required.every((item) => typeof item === 'string'))
+  )
+}
+
+function cloneSchema(schema: ToolDefinition['parameters']): ToolDefinition['parameters'] {
+  return JSON.parse(JSON.stringify(schema)) as ToolDefinition['parameters']
 }

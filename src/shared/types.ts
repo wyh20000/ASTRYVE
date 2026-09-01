@@ -4,6 +4,8 @@
  */
 import type {
   ActivateWorkspaceInput,
+  ExecutionEnvironment,
+  PermissionMode,
   WorkspaceFileContent,
   WorkspaceFileEntry,
   WorkspaceListInput,
@@ -13,6 +15,23 @@ import type {
   WorkspaceSearchMatch,
   WorkspaceSummary
 } from './agent'
+
+export interface AgentProjectPreferences {
+  workspaceId: string
+  permissionMode: PermissionMode
+  executionEnvironment: ExecutionEnvironment
+}
+
+export interface AgentExecutionCapabilities {
+  dockerAvailable: boolean
+  dockerReason?: string
+  localAvailable: boolean
+}
+
+export interface AgentProjectSettings {
+  preferences: AgentProjectPreferences
+  capabilities: AgentExecutionCapabilities
+}
 
 /** IPC 统一返回结构（不裸抛异常） */
 export type IpcResult<T> =
@@ -203,6 +222,10 @@ export interface AgentApi {
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>
     setTheme: (t: PersistedTheme) => Promise<IpcResult<PersistedTheme>>
+    getAgentProject: (workspaceId: string) => Promise<IpcResult<AgentProjectSettings>>
+    setAgentProject: (
+      preferences: AgentProjectPreferences
+    ) => Promise<IpcResult<AgentProjectSettings>>
   }
   window: {
     setTitleBarOverlay: (opts?: { color: string; symbolColor: string }) => Promise<IpcResult<boolean>>

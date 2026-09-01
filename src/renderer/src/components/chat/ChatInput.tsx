@@ -14,6 +14,9 @@ import type { ReasoningEffort, Attachment } from '@shared/types'
 import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { Icon } from '../ui/icons'
 import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
+import { useSessionStore } from '../../stores/sessionStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { AgentControls } from './AgentControls'
 
 const MAX_H = 200
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
@@ -49,6 +52,12 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
 
   const config = useModelStore((s) => s.config)
   const activePreset = config?.presets.find((p) => p.id === config.activePresetId)
+  const projectPath = useSessionStore((state) =>
+    state.sessions.find((session) => session.id === sessionId)?.projectPath
+  )
+  const workspaceId = useWorkspaceStore((state) =>
+    state.recent.find((workspace) => workspace.displayPath === projectPath)?.id
+  )
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')
@@ -242,6 +251,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
           />
           <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
             <ModelSelector />
+            <AgentControls workspaceId={workspaceId} />
             <div className="ml-auto flex items-center gap-1">
               {supportsBuiltInSearch(activePreset?.provider) && activePreset && (
                 <button

@@ -6,6 +6,13 @@ import { initSettings } from './services/settings'
 import { registerIpcHandlers } from './ipc'
 import { initWorkspaceService } from './services/agent/workspaceManager'
 import {
+  cancelAllAgentTasks,
+  cancelTasksForOwner,
+  flushTaskPersistence,
+  initTaskPersistence,
+  initTaskRuntime
+} from './services/agent/taskRuntimeManager'
+import {
   cancelAllGenerations,
   cancelGenerationsForWebContents
 } from './services/generationTasks'
@@ -61,7 +68,10 @@ function createWindow(): void {
   })
   win.webContents.session.setPermissionCheckHandler(() => false)
   const webContentsId = win.webContents.id
-  win.webContents.once('destroyed', () => cancelGenerationsForWebContents(webContentsId))
+  win.webContents.once('destroyed', () => {
+    cancelGenerationsForWebContents(webContentsId)
+    cancelTasksForOwner(webContentsId, 'window_closed')
+  })
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -73,6 +83,15 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   initSettings()
   initWorkspaceService()
+  initTaskRuntime()
+  try {
+    const recovery = await initTaskPersistence(app.getPath('userData'))
+    if (recovery.staleTasks || recovery.removedResources || recovery.removedInterruptedWrites) {
+      console.log('[agent] runtime recovery', recovery)
+    }
+  } catch (error) {
+    console.warn('[agent] runtime persistence unavailable:', error)
+  }
   await initStore()
   initModelConfig()
   registerIpcHandlers()
@@ -87,4 +106,24 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => cancelAllGenerations())
+let shutdownStarted = false
+let shutdownComplete = false
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  if (shutdownStarted) return
+  shutdownStarted = true
+  cancelAllGenerations()
+  cancelAllAgentTasks('app_quit')
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<void>((resolve) => {
+    timeoutHandle = setTimeout(resolve, 2_000)
+  })
+  void Promise.race([flushTaskPersistence(), timeout])
+    .catch((error) => console.warn('[agent] final task journal flush failed:', error))
+    .finally(() => {
+      if (timeoutHandle) clearTimeout(timeoutHandle)
+      shutdownComplete = true
+      app.quit()
+    })
+})

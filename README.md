@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1/P2 已完成；P3（安全执行内核 / Coding / Docker / Skills）已完成计划，准备实施
+- **当前阶段**：P1/P2 已完成；P3 已完成 M0/M1、M2-A/B/C 与 M3-A 权限策略核心，下一步接入批准 UI、权限筛选器和持久化审计
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
 
