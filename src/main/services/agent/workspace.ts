@@ -42,6 +42,10 @@ const BLOCKED_NAMES = new Set([
   'id_ed25519'
 ])
 const BLOCKED_DIRECTORIES = new Set(['.git', '.ssh', '.gnupg'])
+const IGNORED_GENERATED_DIRECTORIES = new Set([
+  '.cache', '.next', '.nuxt', '.parcel-cache', '.turbo', '.vite',
+  'build', 'coverage', 'dist', 'node_modules', 'out', 'release', 'target'
+])
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
 const GRANT_ID = /^[a-f0-9-]{16,64}$/i
 const MAX_ROOT_PATH_CHARS = 500
@@ -280,6 +284,7 @@ export class WorkspaceBoundaryService {
         if (child.isSymbolicLink()) continue
         const lower = child.name.toLocaleLowerCase('en-US')
         if (isBlockedName(lower)) continue
+        if (child.isDirectory() && IGNORED_GENERATED_DIRECTORIES.has(lower)) continue
         const childRelative = current.relative ? `${current.relative}/${child.name}` : child.name
         let safeRelative: string
         try {

@@ -1,8 +1,5 @@
 import { create } from 'zustand'
-import type {
-  AgentProjectPreferences,
-  AgentProjectSettings
-} from '@shared/types'
+import type { AgentProjectSettings } from '@shared/types'
 import type { ExecutionEnvironment, PermissionMode } from '@shared/agent'
 
 interface AgentSettingsState {
@@ -10,71 +7,47 @@ interface AgentSettingsState {
   loading: Record<string, boolean>
   errors: Record<string, string | undefined>
   load: (workspaceId: string) => Promise<void>
-  setPermissionMode: (workspaceId: string, permissionMode: PermissionMode) => Promise<void>
-  setExecutionEnvironment: (
-    workspaceId: string,
-    executionEnvironment: ExecutionEnvironment
-  ) => Promise<void>
+  setPermissionMode: (workspaceId: string, mode: PermissionMode) => Promise<void>
+  setExecutionEnvironment: (workspaceId: string, environment: ExecutionEnvironment) => Promise<void>
 }
 
-export const useAgentSettingsStore = create<AgentSettingsState>((set, get) => ({
-  projects: {},
-  loading: {},
-  errors: {},
-
-  load: async (workspaceId) => {
+export const useAgentSettingsStore = create<AgentSettingsState>((set, get) => {
+  // Serialize requests per project so stale reads cannot replace newly saved settings.
+  async function request(
+    workspaceId: string,
+    operation: () => ReturnType<typeof window.agent.settings.getAgentProject>
+  ): Promise<void> {
+    if (get().loading[workspaceId]) return
     set((state) => ({
       loading: { ...state.loading, [workspaceId]: true },
       errors: { ...state.errors, [workspaceId]: undefined }
     }))
-    const result = await window.agent.settings.getAgentProject(workspaceId)
-    if (result.ok) {
+    try {
+      const result = await operation()
+      if (!result.ok) throw new Error(result.error.message)
+      if (result.data.preferences.workspaceId !== workspaceId) throw new Error('项目设置响应不匹配')
+      set((state) => ({ projects: { ...state.projects, [workspaceId]: result.data } }))
+    } catch (error) {
       set((state) => ({
-        projects: { ...state.projects, [workspaceId]: result.data },
-        loading: { ...state.loading, [workspaceId]: false }
+        errors: { ...state.errors, [workspaceId]: error instanceof Error ? error.message : '项目设置请求失败' }
       }))
-    } else {
-      set((state) => ({
-        loading: { ...state.loading, [workspaceId]: false },
-        errors: { ...state.errors, [workspaceId]: result.error.message }
-      }))
+    } finally {
+      set((state) => ({ loading: { ...state.loading, [workspaceId]: false } }))
     }
-  },
-
-  setPermissionMode: async (workspaceId, permissionMode) => {
-    const current = get().projects[workspaceId]
-    if (!current) return
-    await save({ ...current.preferences, permissionMode }, set)
-  },
-
-  setExecutionEnvironment: async (workspaceId, executionEnvironment) => {
-    const current = get().projects[workspaceId]
-    if (!current) return
-    await save({ ...current.preferences, executionEnvironment }, set)
   }
-}))
 
-async function save(
-  preferences: AgentProjectPreferences,
-  set: Parameters<typeof useAgentSettingsStore.setState>[0] extends never
-    ? never
-    : typeof useAgentSettingsStore.setState
-): Promise<void> {
-  const workspaceId = preferences.workspaceId
-  set((state) => ({
-    loading: { ...state.loading, [workspaceId]: true },
-    errors: { ...state.errors, [workspaceId]: undefined }
-  }))
-  const result = await window.agent.settings.setAgentProject(preferences)
-  if (result.ok) {
-    set((state) => ({
-      projects: { ...state.projects, [workspaceId]: result.data },
-      loading: { ...state.loading, [workspaceId]: false }
-    }))
-  } else {
-    set((state) => ({
-      loading: { ...state.loading, [workspaceId]: false },
-      errors: { ...state.errors, [workspaceId]: result.error.message }
-    }))
+  return {
+    projects: {}, loading: {}, errors: {},
+    load: (id) => request(id, () => window.agent.settings.getAgentProject(id)),
+    setPermissionMode: async (id, permissionMode) => {
+      const current = get().projects[id]
+      if (!current) return
+      await request(id, () => window.agent.settings.setAgentProject({ ...current.preferences, permissionMode }))
+    },
+    setExecutionEnvironment: async (id, executionEnvironment) => {
+      const current = get().projects[id]
+      if (!current) return
+      await request(id, () => window.agent.settings.setAgentProject({ ...current.preferences, executionEnvironment }))
+    }
   }
-}
+})

@@ -296,6 +296,8 @@ export interface ExecutionRequest {
   executable: string
   args: string[]
   timeoutMs: number
+  /** Trusted host tools may suppress raw output events and return only a sanitized result. */
+  captureOnly?: boolean
 }
 
 export interface ExecutionResult {

@@ -59,7 +59,7 @@ export function initSettings(): void {
   }
 }
 
-function persist(): void {
+function persist(strict = false): void {
   const target = file()
   const temp = `${target}.${process.pid}.tmp`
   try {
@@ -73,6 +73,7 @@ function persist(): void {
       // best effort cleanup
     }
     console.warn('[settings] save failed:', e)
+    if (strict) throw new Error('项目设置保存失败，请重试')
   }
 }
 
@@ -113,8 +114,15 @@ export function getAgentProjectPreferences(workspaceId: string): AgentProjectPre
 export function setAgentProjectPreferences(
   preferences: AgentProjectPreferences
 ): AgentProjectPreferences {
+  const previous = data.agentProjects[preferences.workspaceId]
   data.agentProjects[preferences.workspaceId] = { ...preferences }
-  persist()
+  try {
+    persist(true)
+  } catch (error) {
+    if (previous) data.agentProjects[preferences.workspaceId] = previous
+    else delete data.agentProjects[preferences.workspaceId]
+    throw error
+  }
   return { ...preferences }
 }
 

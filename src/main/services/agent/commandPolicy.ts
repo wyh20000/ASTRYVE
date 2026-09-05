@@ -76,7 +76,7 @@ export function normalizeCommand(input: unknown, workspace: WorkspaceGrant): Cla
   if (!executable || executable.length > 1_024 || /[\0\r\n]/.test(executable)) {
     throw new CommandPolicyError('INVALID_COMMAND', 'Executable is invalid')
   }
-  if (SHELL_SYNTAX.test(executable) || /\s/.test(executable)) {
+  if (SHELL_SYNTAX.test(executable) || (/\s/.test(executable) && !path.isAbsolute(executable))) {
     throw new CommandPolicyError('RAW_SHELL_FORBIDDEN', 'Raw shell commands are not accepted')
   }
   if (
@@ -101,7 +101,6 @@ export function normalizeCommand(input: unknown, workspace: WorkspaceGrant): Cla
   const executableName = path.basename(executable).toLowerCase()
   const tokens = [executableName, ...input.args.map((arg) => arg.toLowerCase())]
   const packageAction = getPackageAction(executableName, input.args)
-  const gitAction = executableName === 'git' ? input.args[0]?.toLowerCase() : undefined
   const destructive =
     isDestructive(executableName, input.args) ||
     (WILDCARD.test(input.args.join(' ')) && ['rm', 'del', 'erase', 'rmdir'].includes(executableName))
@@ -121,8 +120,7 @@ export function normalizeCommand(input: unknown, workspace: WorkspaceGrant): Cla
         !destructive &&
         !SHELL_INTERPRETERS.has(executableName) &&
         !input.args.some((arg) => SHELL_SYNTAX.test(arg)) &&
-        (DETERMINISTIC_CHECK_EXECUTABLES.has(executableName) ||
-          tokens.some((token) => CHECK_COMMAND.test(token)))
+        DETERMINISTIC_CHECK_EXECUTABLES.has(executableName)
     }
   }
 }

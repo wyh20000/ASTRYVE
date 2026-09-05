@@ -324,6 +324,14 @@ export class TaskRuntime {
     return this.tasks.get(taskId)?.machine.snapshot
   }
 
+  setWaitingApproval(taskId: string, waiting: boolean): void {
+    const task = this.tasks.get(taskId)
+    if (!task || !this.isActive(task)) return
+    const status = task.machine.snapshot.status
+    if (waiting && status === 'running') this.emitTransition(task, 'waiting-approval', 'approval_required')
+    if (!waiting && status === 'waiting-approval') this.emitTransition(task, 'running', 'approval_resolved')
+  }
+
   getTaskSignal(taskId: string): AbortSignal {
     return this.requireTask(taskId).controller.signal
   }
@@ -355,7 +363,8 @@ export class TaskRuntime {
         this.publish(task.machine.emit('tool.completed', {
           callId: current.invocation.callId,
           toolName: current.invocation.toolName,
-          result
+          ok: result.ok,
+          errorCode: result.error?.code
         }, this.now()))
         current.resolve(result)
         current = undefined

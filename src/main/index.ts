@@ -81,6 +81,18 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.AI_AGENT_LOCAL_EXECUTION_SMOKE === '1') {
+    try {
+      const { runLocalExecutionSmoke } = await import('./services/agent/localExecutionSmoke')
+      await runLocalExecutionSmoke()
+      console.log('PASS: real Electron utility execution and process-tree cancellation')
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: local execution smoke', error)
+      app.exit(1)
+    }
+    return
+  }
   initSettings()
   initWorkspaceService()
   initTaskRuntime()

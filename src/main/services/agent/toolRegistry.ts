@@ -24,6 +24,9 @@ export class ToolRegistryError extends Error {
 }
 
 export class ToolRegistry {
+  constructor(private readonly authorize?: (
+    invocation: ToolInvocation, context: ToolExecutionContext, definition: ToolDefinition
+  ) => Promise<boolean>) {}
   private readonly tools = new Map<string, ToolDefinition<unknown, unknown>>()
 
   register<TArgs, TResult>(definition: ToolDefinition<TArgs, TResult>): void {
@@ -93,7 +96,15 @@ export class ToolRegistry {
         'Invocation does not match the trusted execution context'
       )
     }
-    return this.validate(invocation).execute(invocation.args, context)
+    const frozenInvocation = structuredClone(invocation)
+    const definition = this.validate(frozenInvocation)
+    if (this.authorize && !(await this.authorize(frozenInvocation, context, definition))) {
+      return { ok: false, error: { code: 'APPROVAL_DENIED', message: '操作未获批准或等待已取消' } }
+    }
+    if (context.signal.aborted) {
+      return { ok: false, error: { code: 'TASK_CANCELLED', message: '任务已取消' } }
+    }
+    return definition.execute(frozenInvocation.args, context)
   }
 }
 

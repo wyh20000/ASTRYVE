@@ -7,13 +7,13 @@ import {
 const workspaceIds = new Set(['workspace-1'])
 
 describe('project agent preferences', () => {
-  it('defaults to ask-every-time and chooses Docker only when available', () => {
+  it('defaults to Docker without silently falling back to local execution', () => {
     expect(
       defaultAgentProjectPreferences('workspace-1', {
         dockerAvailable: false,
         localAvailable: true
       })
-    ).toMatchObject({ permissionMode: 'ask-every-time', executionEnvironment: 'local' })
+    ).toMatchObject({ permissionMode: 'ask-every-time', executionEnvironment: 'docker' })
     expect(
       defaultAgentProjectPreferences('workspace-1', {
         dockerAvailable: true,
@@ -30,7 +30,8 @@ describe('project agent preferences', () => {
           permissionMode: 'smart-approval',
           executionEnvironment: 'local'
         },
-        workspaceIds
+        workspaceIds,
+        { dockerAvailable: false, localAvailable: true }
       )
     ).toEqual({
       workspaceId: 'workspace-1',
@@ -59,8 +60,8 @@ describe('project agent preferences', () => {
     ).toThrowError(/权限档位/)
   })
 
-  it('rejects forged Docker selection while the backend is unavailable', () => {
-    expect(() =>
+  it('can save permissions while retaining an unavailable Docker preference', () => {
+    expect(
       validateAgentProjectPreferences(
         {
           workspaceId: 'workspace-1',
@@ -70,6 +71,11 @@ describe('project agent preferences', () => {
         workspaceIds,
         { dockerAvailable: false, dockerReason: '沙箱未启用', localAvailable: true }
       )
-    ).toThrowError('沙箱未启用')
+    ).toMatchObject({ executionEnvironment: 'docker' })
+  })
+  it('rejects switching to the unavailable local backend', () => {
+    expect(() => validateAgentProjectPreferences({
+      workspaceId: 'workspace-1', permissionMode: 'read-only', executionEnvironment: 'local'
+    }, workspaceIds, { dockerAvailable: false, localAvailable: false })).toThrowError('本机执行当前不可用')
   })
 })

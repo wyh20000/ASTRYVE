@@ -49,6 +49,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
   )
 
   useEffect(() => {
+    setOpen(null)
     if (workspaceId) void load(workspaceId)
   }, [load, workspaceId])
 
@@ -68,12 +69,17 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
     (option) => option.value === project?.preferences.executionEnvironment
   )
   const disabled = !workspaceId || !project || loading
+  const unavailable = project && (project.preferences.executionEnvironment === 'docker'
+    ? !project.capabilities.dockerAvailable : !project.capabilities.localAvailable)
 
   return (
-    <div ref={container} className="relative flex items-center gap-1">
+    <div ref={container} className="relative flex flex-wrap items-center gap-1" onKeyDown={(event) => {
+      if (event.key === 'Escape') setOpen(null)
+    }}>
       <button
         type="button"
         disabled={disabled}
+        aria-expanded={open === 'permission'}
         onClick={() => setOpen((value) => (value === 'permission' ? null : 'permission'))}
         className="chip flex items-center gap-1 border border-border text-txt-muted hover:border-accent hover:text-txt-secondary disabled:cursor-not-allowed disabled:opacity-50"
         title={workspaceId ? permission?.description : '请先选择项目工作区'}
@@ -85,14 +91,29 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
       <button
         type="button"
         disabled={disabled}
+        aria-expanded={open === 'environment'}
         onClick={() => setOpen((value) => (value === 'environment' ? null : 'environment'))}
         className="chip flex items-center gap-1 border border-border text-txt-muted hover:border-accent hover:text-txt-secondary disabled:cursor-not-allowed disabled:opacity-50"
         title={workspaceId ? environment?.description : '请先选择项目工作区'}
       >
         <Icon.Container size={12} />
         {executionEnvironmentLabel(project?.preferences.executionEnvironment)}
+        {unavailable && ' · 不可用'}
         <Icon.ChevronDown size={11} />
       </button>
+      {workspaceId && project && <span className="text-[10px] text-txt-muted">
+        {project.preferences.executionEnvironment === 'local' && project.capabilities.localAvailable
+          ? 'Coding 已启用 · 命令在本机项目根目录执行'
+          : project.preferences.executionEnvironment === 'docker'
+            ? 'Coding 待启用 · Docker 沙箱后端尚未完成'
+            : 'Coding 执行环境不可用'}
+      </span>}
+      {error && <div role="alert" className="w-full text-[11px] text-warn">
+        {error}
+        <button type="button" disabled={loading} className="ml-2 underline" onClick={() => {
+          if (workspaceId) void load(workspaceId)
+        }}>重新读取设置</button>
+      </div>}
 
       {open && project && (
         <div className="absolute bottom-full left-0 z-40 mb-2 w-[300px] overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
@@ -101,8 +122,9 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
           </div>
           <div className="py-1">
             {(open === 'permission' ? PERMISSION_OPTIONS : ENVIRONMENT_OPTIONS).map((option) => {
-              const dockerDisabled =
-                option.value === 'docker' && !project.capabilities.dockerAvailable
+              const environmentDisabled =
+                (option.value === 'docker' && !project.capabilities.dockerAvailable) ||
+                (option.value === 'local' && !project.capabilities.localAvailable)
               const selected =
                 open === 'permission'
                   ? option.value === project.preferences.permissionMode
@@ -111,7 +133,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
                 <button
                   key={option.value}
                   type="button"
-                  disabled={dockerDisabled}
+                  disabled={environmentDisabled || loading}
                   onClick={() => {
                     if (open === 'permission') {
                       void setPermissionMode(workspaceId!, option.value as PermissionMode)
@@ -131,7 +153,9 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
                   <span className="min-w-0 flex-1">
                     <span className="block text-[12px] text-txt-primary">{option.label}</span>
                     <span className="block text-[10px] leading-4 text-txt-muted">
-                      {dockerDisabled ? project.capabilities.dockerReason : option.description}
+                      {environmentDisabled
+                        ? (option.value === 'docker' ? project.capabilities.dockerReason : '本机执行后端尚未启用')
+                        : option.description}
                     </span>
                   </span>
                   {selected && <Icon.Check size={13} className="mt-1 shrink-0 text-accent" />}

@@ -7,6 +7,11 @@
   "license": "MIT",
   "private": true,
   "scripts": {
+    "build:native": "node scripts/build-native.cjs",
+    "smoke:local": "node scripts/smoke-local-execution.cjs",
+    "prebuild": "npm run build:native",
+    "predev": "npm run build:native",
+    "prebuild:win": "npm run build:native",
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",

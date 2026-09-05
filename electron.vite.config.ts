@@ -9,6 +9,14 @@ const sharedAlias = {
 
 export default defineConfig({
   main: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          localExecutionWorker: resolve('src/main/services/agent/localExecutionWorker.ts')
+        }
+      }
+    },
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: { '@shared': resolve('src/shared') }

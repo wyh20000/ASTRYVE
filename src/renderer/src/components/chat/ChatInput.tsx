@@ -249,7 +249,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
             style={{ height: 'auto' }}
           />
-          <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2 pt-1">
             <ModelSelector />
             <AgentControls workspaceId={workspaceId} />
             <div className="ml-auto flex items-center gap-1">

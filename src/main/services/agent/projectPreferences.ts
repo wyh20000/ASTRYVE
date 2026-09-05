@@ -17,19 +17,20 @@ export const AGENT_EXECUTION_CAPABILITIES: AgentExecutionCapabilities = {
 
 export function defaultAgentProjectPreferences(
   workspaceId: string,
-  capabilities: AgentExecutionCapabilities = AGENT_EXECUTION_CAPABILITIES
+  _capabilities: AgentExecutionCapabilities = AGENT_EXECUTION_CAPABILITIES
 ): AgentProjectPreferences {
   return {
     workspaceId,
     permissionMode: 'ask-every-time',
-    executionEnvironment: capabilities.dockerAvailable ? 'docker' : 'local'
+    executionEnvironment: 'docker'
   }
 }
 
 export function validateAgentProjectPreferences(
   value: unknown,
   authorizedWorkspaceIds: ReadonlySet<string>,
-  capabilities: AgentExecutionCapabilities = AGENT_EXECUTION_CAPABILITIES
+  capabilities: AgentExecutionCapabilities = AGENT_EXECUTION_CAPABILITIES,
+  current?: AgentProjectPreferences
 ): AgentProjectPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Agent 配置无效')
@@ -49,10 +50,10 @@ export function validateAgentProjectPreferences(
   ) {
     throw new Error('执行环境无效')
   }
-  if (candidate.executionEnvironment === 'docker' && !capabilities.dockerAvailable) {
-    throw new Error(capabilities.dockerReason ?? 'Docker 沙箱当前不可用')
-  }
-  if (candidate.executionEnvironment === 'local' && !capabilities.localAvailable) {
+  // An unavailable Docker preference is safe to retain; execution must check availability.
+  // This permits permission changes without silently downgrading the selected backend.
+  if (candidate.executionEnvironment === 'local' && !capabilities.localAvailable &&
+      !(current?.workspaceId === candidate.workspaceId && current.executionEnvironment === 'local')) {
     throw new Error('本机执行当前不可用')
   }
   return {

@@ -33,7 +33,10 @@ describe('taskRuntimeManager', () => {
   it('owns one runtime and cancels tasks through lifecycle indexes', () => {
     const runtime = initTaskRuntime()
     expect(getTaskRuntime()).toBe(runtime)
-    expect(getToolRegistry().list()).toEqual([])
+    expect(getToolRegistry().list().map((tool) => tool.name)).toEqual([
+      'process.run', 'workspace.listFiles', 'workspace.readFile', 'workspace.searchText', 'workspace.findFiles',
+      'git.status', 'git.diff', 'git.log', 'git.show'
+    ])
     const task = runtime.createTask({
       sessionId: 'session-1',
       workspace: {

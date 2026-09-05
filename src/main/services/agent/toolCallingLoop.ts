@@ -14,6 +14,13 @@ const DEFAULT_MAX_TOOL_ROUNDS = 8
 const MAX_TOOL_RESULT_CONTENT_LENGTH = 200_000
 
 type OnEvent = (event: StreamEvent) => void | Promise<void>
+export interface ToolActivity {
+  callId: string
+  toolName: string
+  args: unknown
+  status: 'requested' | 'completed'
+  ok?: boolean
+}
 type RunRound = (
   runtime: RuntimeModel,
   messages: ChatMessage[],
@@ -28,7 +35,9 @@ export interface RunToolCallingLoopInput {
   model: RuntimeModel
   messages: ChatMessage[]
   onEvent: OnEvent
+  onToolActivity?: (activity: ToolActivity) => void | Promise<void>
   maxToolRounds?: number
+  maxToolResultChars?: number
   runRound?: RunRound
 }
 
@@ -47,13 +56,18 @@ export async function runToolCallingLoop(
   input: RunToolCallingLoopInput
 ): Promise<ToolCallingLoopResult> {
   const maxRounds = input.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS
+  const maxToolResultChars = input.maxToolResultChars ?? 400_000
   if (!Number.isSafeInteger(maxRounds) || maxRounds <= 0 || maxRounds > 64) {
     throw new Error('工具调用轮数限制无效')
+  }
+  if (!Number.isSafeInteger(maxToolResultChars) || maxToolResultChars < 1_000 || maxToolResultChars > 2_000_000) {
+    throw new Error('工具结果总预算无效')
   }
 
   const messages = [...input.messages]
   const tools = input.registry.listNativeFunctionTools()
   const runRound = input.runRound ?? streamChatTurn
+  let acceptedToolResultChars = 0
   input.taskRuntime.startTask(input.taskId)
   const signal = input.taskRuntime.getTaskSignal(input.taskId)
 
@@ -79,7 +93,16 @@ export async function runToolCallingLoop(
       }
 
       for (const call of calls) {
+        let parsedArgs: unknown
+        try { parsedArgs = JSON.parse(call.function.arguments) } catch { parsedArgs = undefined }
+        await input.onToolActivity?.({
+          callId: call.id, toolName: call.function.name, args: parsedArgs, status: 'requested'
+        })
         const result = await input.taskRuntime.submitNativeToolCall(input.taskId, call)
+        await input.onToolActivity?.({
+          callId: call.id, toolName: call.function.name, args: parsedArgs,
+          status: 'completed', ok: result.ok
+        })
         if (!result.ok) {
           return { status: 'failed', rounds: round, messages, error: result.error }
         }
@@ -93,6 +116,14 @@ export async function runToolCallingLoop(
             error: { code: 'TOOL_RESULT_TOO_LARGE', message: '工具结果超过模型回传限制' }
           }
         }
+        if (acceptedToolResultChars + content.length > maxToolResultChars) {
+          input.taskRuntime.failTask(input.taskId, 'tool_result_budget_exceeded')
+          return {
+            status: 'failed', rounds: round, messages,
+            error: { code: 'TOOL_RESULT_BUDGET', message: '本任务读取内容超过上下文预算，请缩小文件或行范围' }
+          }
+        }
+        acceptedToolResultChars += content.length
         messages.push({
           role: 'tool',
           tool_call_id: call.id,

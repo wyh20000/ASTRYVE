@@ -78,6 +78,7 @@ describe('runToolCallingLoop', () => {
       return seenMessages.length === 1 ? toolTurn() : finalTurn()
     })
     const events: Array<{ done?: boolean }> = []
+    const activities: string[] = []
 
     const result = await runToolCallingLoop({
       taskRuntime: runtime,
@@ -88,6 +89,7 @@ describe('runToolCallingLoop', () => {
       onEvent: (event) => {
         events.push(event)
       },
+      onToolActivity: (activity) => { activities.push(`${activity.status}:${activity.toolName}:${activity.ok ?? ''}`) },
       runRound
     })
 
@@ -101,6 +103,7 @@ describe('runToolCallingLoop', () => {
     })
     expect(seenSignals[0]).toBe(seenSignals[1])
     expect(events.filter((event) => event.done)).toHaveLength(1)
+    expect(activities).toEqual(['requested:test.echo:', 'completed:test.echo:true'])
     expect(runtime.activeTaskCount).toBe(0)
   })
 
@@ -189,6 +192,21 @@ describe('runToolCallingLoop', () => {
       runRound: async () => toolTurn(`call-${++call}`)
     })
     expect(result).toMatchObject({ status: 'failed', error: { code: 'TOOL_ROUND_LIMIT' } })
+    expect(runtime.activeTaskCount).toBe(0)
+  })
+
+  it('enforces one cumulative tool-result budget for the whole task', async () => {
+    const registry = new ToolRegistry()
+    const tool = echoTool()
+    tool.execute = async () => ({ ok: true, value: 'x'.repeat(1200) })
+    registry.register(tool)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-budget' })
+    const task = runtime.createTask({ sessionId: 'session-budget', workspace, ownerWebContentsId: 1,
+      permissionMode: 'ask-every-time', environment: 'docker' })
+    const result = await runToolCallingLoop({ taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, maxToolResultChars: 1000, runRound: async () => toolTurn() })
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'TOOL_RESULT_BUDGET' } })
     expect(runtime.activeTaskCount).toBe(0)
   })
 })

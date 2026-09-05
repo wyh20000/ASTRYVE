@@ -1,4 +1,4 @@
-import type { ModelPreset, ReasoningEffort, SourceCitation } from '@shared/types'
+import type { ModelPreset, ModelProvider, ReasoningEffort, SourceCitation } from '@shared/types'
 import type { NativeFunctionToolDefinition } from '@shared/agent'
 import { readSseStream } from './sse'
 import {
@@ -6,6 +6,7 @@ import {
   REQUEST_TIMEOUT_MESSAGE,
   fetchWithRequestTimeout
 } from './requestTimeout'
+import { getProviderAdapter, type ProviderToolCall } from './providerAdapters'
 
 /** 多模态内容片段（文本 / 图片） */
 export type ChatContentPart =
@@ -24,6 +25,8 @@ export interface ChatMessage {
   tool_calls?: ToolCall[]
   tool_call_id?: string
   name?: string
+  /** DeepSeek thinking-mode tool continuation requires this field verbatim. */
+  reasoning_content?: string
 }
 
 export interface StreamEvent {
@@ -57,6 +60,7 @@ export function isRetryableStreamError(error: unknown): boolean {
 }
 
 export interface RuntimeModel {
+  provider?: ModelProvider
   baseUrl: string
   apiKey: string
   model: string
@@ -104,6 +108,7 @@ function createChatCompletionCollector(onEvent: OnEvent): {
 } {
   const calls = new Map<number, PendingToolCall>()
   let content = ''
+  let reasoningContent = ''
   let finishReason: string | null = null
 
   const append = (current: string, value: unknown, field: string): string => {
@@ -132,6 +137,7 @@ function createChatCompletionCollector(onEvent: OnEvent): {
     const delta = choice?.delta
     if (!delta) return
     if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+      reasoningContent += delta.reasoning_content
       await onEvent({ reasoning: delta.reasoning_content })
     }
     if (typeof delta.content === 'string' && delta.content) {
@@ -176,6 +182,7 @@ function createChatCompletionCollector(onEvent: OnEvent): {
         message: {
           role: 'assistant',
           content: content || null,
+          reasoning_content: reasoningContent || undefined,
           tool_calls: toolCalls.length > 0 ? toolCalls : undefined
         },
         finishReason
@@ -201,24 +208,22 @@ export async function streamChatTurn(
   options: StreamChatOptions = {}
 ): Promise<ChatCompletionTurn> {
   const base = runtime.baseUrl.replace(/\/+$/, '')
+  const adapter = getProviderAdapter(runtime.provider)
+  const bridge = adapter.createToolBridge(options.tools ?? [])
   const started = Date.now()
   console.log('[model] request model=' + runtime.model + ' url=' + base)
   // 思考模式：三档都开启思考，强度不同：低→low / 中→high / 高→max。(DeepSeek 映射：medium/high→high，max→max)
   // 思考模式下不支持 temperature（会被忽略），故仅在未启用思考时携带。
-  const body: Record<string, unknown> = { model: runtime.model, messages, stream: true }
+  const body: Record<string, unknown> = {
+    model: runtime.model,
+    messages: bridge.toProviderMessages(messages),
+    stream: true
+  }
   if (options.tools && options.tools.length > 0) {
-    body.tools = options.tools
+    body.tools = bridge.tools
     body.tool_choice = options.toolChoice ?? 'auto'
   }
-  const e = runtime.reasoningEffort
-  if (!runtime.vision) {
-    if (e === 'low' || e === 'medium' || e === 'high') {
-      body.thinking = { type: 'enabled' }
-      body.reasoning_effort = e === 'low' ? 'low' : e === 'high' ? 'max' : 'high'
-    } else {
-      body.temperature = 0.7
-    }
-  }
+  adapter.applyReasoning(body, runtime.reasoningEffort, runtime.vision === true)
   const request = await fetchWithRequestTimeout(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -239,7 +244,13 @@ export async function streamChatTurn(
     await readSseStream(res.body, ({ data }) => collector.handle(data))
     console.log('[model] stream done, elapse_ms=' + (Date.now() - started))
     await onEvent({ done: true })
-    return collector.result()
+    const turn = collector.result()
+    if (turn.message.tool_calls) {
+      turn.message.tool_calls = turn.message.tool_calls.map((call) =>
+        bridge.toCanonicalToolCall(call as ProviderToolCall) as ToolCall
+      )
+    }
+    return turn
   } catch (error) {
     request.throwIfAborted()
     throw error

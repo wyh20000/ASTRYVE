@@ -427,12 +427,17 @@ describe('TaskRuntime', () => {
   it('contains listener exceptions so later listeners and task execution still work', async () => {
     const { runtime } = createRuntime()
     const observed: string[] = []
+    let completedPayload: unknown
     runtime.subscribe(() => { throw new Error('observer error') })
-    runtime.subscribe((event) => observed.push(event.type))
+    runtime.subscribe((event) => {
+      observed.push(event.type)
+      if (event.type === 'tool.completed') completedPayload = event.payload
+    })
     const task = createAndStart(runtime)
     await expect(runtime.submitNativeToolCall(task.id, nativeCall())).resolves.toEqual({ ok: true, value: 'ok' })
 
     expect(observed).toEqual(['task.created', 'task.status-changed', 'tool.requested', 'tool.completed'])
+    expect(completedPayload).toEqual({ callId: 'call-1', toolName: 'test.echo', ok: true })
     expect(runtime.completeTask(task.id)).toBe(true)
   })
 

@@ -11,6 +11,9 @@ const settingsStorage: WorkspaceGrantStorage = {
 
 let service: WorkspaceBoundaryService | null = null
 const activeWorkspaces = new Map<string, string>()
+export function getSessionWorkspaceId(sessionId: string): string | undefined {
+  return activeWorkspaces.get(sessionId)
+}
 const switchListeners = new Set<
   (sessionId: string, previousWorkspaceId: string | undefined, workspaceId: string | undefined) => void
 >()

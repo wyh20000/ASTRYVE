@@ -3,18 +3,74 @@ import { TaskRuntime } from './taskRuntime'
 import { ToolRegistry } from './toolRegistry'
 import { FileTaskEventStore, TaskEventJournal } from './taskEventJournal'
 import { cleanupStaleTaskResources } from './taskRecovery'
+import { ToolAuthorization } from './toolAuthorization'
+import { createApprovalDialog } from './approvalDialog'
+import { TERMINAL_TASK_STATUSES } from '../../../shared/agent'
+import { launchProjectTask } from './projectTaskLauncher'
+import { AuditJournal } from './auditJournal'
+import { BoundApprovalService } from './approvalService'
+import { DenyFirstPolicyEngine, type AuditWriter } from './policyEngine'
+import { LocalExecutionBackend } from './localExecutionBackend'
+import { createProcessRunTool } from './processRunTool'
+import { getWorkspaceService } from './workspaceManager'
+import { getSessionWorkspaceId } from './workspaceManager'
+import { getAgentProjectPreferences } from '../settings'
+import { AGENT_EXECUTION_CAPABILITIES, defaultAgentProjectPreferences } from './projectPreferences'
+import { createWorkspaceReadTools } from './workspaceReadTools'
+import { createGitReadTools } from './gitReadTools'
+
+export async function createProjectTask(sessionId: string, ownerWebContentsId: number) {
+  const [{ BrowserWindow }, { getStore }, settings, workspaces, { AGENT_EXECUTION_CAPABILITIES }] = await Promise.all([
+    import('electron'), import('../../db'), import('../settings'), import('./workspaceManager'), import('./projectPreferences')
+  ])
+  return launchProjectTask(sessionId, ownerWebContentsId, {
+    sessionExists: async (id) => Boolean(await getStore().getSession(id)),
+    activeWorkspace: workspaces.getSessionWorkspaceId,
+    verifyWorkspace: async (id) => { await workspaces.getWorkspaceService().activate(id) },
+    getGrant: (id) => workspaces.getWorkspaceService().getGrant(id),
+    getPreferences: settings.getAgentProjectPreferences,
+    getCapabilities: () => ({ ...AGENT_EXECUTION_CAPABILITIES }),
+    ownerAlive: (id) => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents.id === id),
+    createTask: (input) => getTaskRuntime().createTask(input)
+  })
+}
 
 let registry: ToolRegistry | null = null
 let runtime: TaskRuntime | null = null
 let journal: TaskEventJournal | null = null
 let unsubscribeJournal: (() => void) | null = null
+let auditJournal: AuditJournal | null = null
 
 export function initTaskRuntime(): TaskRuntime {
   unsubscribeJournal?.()
   unsubscribeJournal = null
   journal = null
-  registry = new ToolRegistry()
+  auditJournal = null
+  const writeAudit: AuditWriter = (event) => {
+    if (!auditJournal) throw new Error('审计日志尚未初始化，操作已阻止')
+    auditJournal.write(event)
+  }
+  const authorization = new ToolAuthorization(
+    createApprovalDialog((id) => runtime?.getTaskSnapshot(id)),
+    (id, waiting) => runtime?.setWaitingApproval(id, waiting),
+    new BoundApprovalService(writeAudit),
+    new DenyFirstPolicyEngine(writeAudit)
+  )
+  registry = new ToolRegistry((invocation, context, definition) => authorization.authorize(invocation, context, definition))
   runtime = new TaskRuntime(registry)
+  const localBackend = new LocalExecutionBackend({
+    verifyWorkspace: async (workspaceId) => { await getWorkspaceService().activate(workspaceId) },
+    appendOutput: (taskId, stream, chunk) => {
+      if (runtime?.getTaskSnapshot(taskId)) runtime.appendOutput(taskId, stream, chunk)
+    }
+  })
+  registry.register(createProcessRunTool(localBackend))
+  for (const tool of createWorkspaceReadTools(getWorkspaceService)) registry.register(tool)
+  for (const tool of createGitReadTools(localBackend)) registry.register(tool)
+  runtime.subscribe((event) => {
+    const status = runtime?.getTaskSnapshot(event.taskId)?.status
+    if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) authorization.revokeTask(event.taskId)
+  })
   return runtime
 }
 
@@ -24,6 +80,7 @@ export async function initTaskPersistence(userDataPath: string): Promise<{
   removedInterruptedWrites: number
 }> {
   const activeRuntime = getTaskRuntime()
+  auditJournal = new AuditJournal(join(userDataPath, 'agent-audit.json'))
   const store = new FileTaskEventStore(join(userDataPath, 'agent-task-journal.json'))
   const removedInterruptedWrites = await store.cleanupInterruptedWrites()
   const staleTaskIds = await store.recoverStaleTasks()
@@ -45,6 +102,14 @@ export function getTaskRuntime(): TaskRuntime {
 export function getToolRegistry(): ToolRegistry {
   if (!registry) throw new Error('Tool registry not initialized')
   return registry
+}
+
+/** Coding tools are opt-in per project. Unavailable Docker preferences keep ordinary chat working. */
+export function shouldUseProjectAgent(sessionId: string): boolean {
+  const workspaceId = getSessionWorkspaceId(sessionId)
+  if (!workspaceId) return false
+  const preferences = getAgentProjectPreferences(workspaceId) ?? defaultAgentProjectPreferences(workspaceId)
+  return preferences.executionEnvironment === 'local' && AGENT_EXECUTION_CAPABILITIES.localAvailable
 }
 
 export function cancelTasksForSession(sessionId: string, reason: string): number {
@@ -71,4 +136,5 @@ export function resetTaskRuntimeForTests(): void {
   runtime?.cancelAll('test_reset')
   runtime = null
   registry = null
+  auditJournal = null
 }

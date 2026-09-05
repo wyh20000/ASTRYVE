@@ -88,7 +88,8 @@ function evaluateMode(context: PolicyContext): PolicyDecision {
     return decision('ask', riskFor(target), 'EXPLICIT_APPROVAL_REQUIRED', '此操作需要用户批准', target)
   }
 
-  if (context.operation === 'fs.patch' && context.invocation.environment === 'docker') {
+  if (context.operation === 'fs.patch' && context.invocation.environment === 'docker' &&
+      target.type === 'file' && !target.destructive && !target.binary) {
     return decision('allow', 'low', 'SANDBOX_PATCH', '允许在隔离沙箱中生成临时补丁', target)
   }
 

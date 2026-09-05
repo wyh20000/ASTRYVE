@@ -64,7 +64,9 @@ export function registerSettingsIpc(): void {
       try {
         assertTrustedIpcSender(event)
         const authorized = new Set(getWorkspaceGrants().map((workspace) => workspace.id))
-        const validated = validateAgentProjectPreferences(preferences, authorized)
+        const current = typeof preferences?.workspaceId === 'string'
+          ? getAgentProjectPreferences(preferences.workspaceId) : undefined
+        const validated = validateAgentProjectPreferences(preferences, authorized, AGENT_EXECUTION_CAPABILITIES, current)
         const saved = setAgentProjectPreferences(validated)
         return ok({
           preferences: saved,

@@ -42,7 +42,7 @@ describe('streamChatTurn', () => {
   it('assembles only provider-native streamed function calls and sends closed schemas', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       sseResponse([
-        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-","type":"function","function":{"name":"workspace.","arguments":"{\\"path\\":"}}]},"finish_reason":null}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-","type":"function","function":{"name":"workspace_","arguments":"{\\"path\\":"}}]},"finish_reason":null}]}',
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"1","function":{"name":"readFile","arguments":"\\"README.md\\"}"}}]},"finish_reason":"tool_calls"}]}',
         'data: [DONE]'
       ])
@@ -82,8 +82,67 @@ describe('streamChatTurn', () => {
       finishReason: 'tool_calls'
     })
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
-    expect(body.tools).toEqual(tools)
+    expect(body.tools).toEqual([{
+      ...tools[0],
+      function: { ...tools[0].function, name: 'workspace_readFile' }
+    }])
     expect(body.tool_choice).toBe('auto')
+  })
+
+  it('replays DeepSeek reasoning content and keeps canonical tool names inside the app', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse([
+        'data: {"choices":[{"delta":{"reasoning_content":"先读取文件"},"finish_reason":null}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"workspace_readFile","arguments":"{\\"path\\":\\"README.md\\"}"}}]},"finish_reason":"tool_calls"}]}',
+        'data: [DONE]'
+      ]))
+      .mockResolvedValueOnce(sseResponse([
+        'data: {"choices":[{"delta":{"content":"读取完成"},"finish_reason":"stop"}]}',
+        'data: [DONE]'
+      ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const tools = [{
+      type: 'function' as const,
+      function: {
+        name: 'workspace.readFile',
+        description: 'Read a file',
+        parameters: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+          additionalProperties: false as const
+        }
+      }
+    }]
+
+    const first = await streamChatTurn(
+      { provider: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'key', model: 'deepseek-v4-pro', reasoningEffort: 'high' },
+      [{ role: 'user', content: '读取 README' }],
+      () => undefined,
+      { tools }
+    )
+    expect(first.message).toMatchObject({
+      reasoning_content: '先读取文件',
+      tool_calls: [{ function: { name: 'workspace.readFile' } }]
+    })
+
+    await streamChatTurn(
+      { provider: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'key', model: 'deepseek-v4-pro', reasoningEffort: 'high' },
+      [
+        { role: 'user', content: '读取 README' },
+        first.message,
+        { role: 'tool', tool_call_id: 'call-1', name: 'workspace.readFile', content: '{"ok":true}' }
+      ],
+      () => undefined,
+      { tools }
+    )
+
+    const secondBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(secondBody.messages[1]).toMatchObject({
+      reasoning_content: '先读取文件',
+      tool_calls: [{ function: { name: 'workspace_readFile' } }]
+    })
+    expect(secondBody.messages[2].name).toBe('workspace_readFile')
   })
 
   it('rejects malformed native tool-call deltas instead of inspecting text', async () => {

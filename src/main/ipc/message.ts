@@ -37,7 +37,16 @@ import {
   finishGeneration,
   isCurrentGeneration
 } from '../services/generationTasks'
-import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
+import {
+  cancelTasksForSession,
+  createProjectTask,
+  getTaskRuntime,
+  getToolRegistry,
+  shouldUseProjectAgent
+} from '../services/agent/taskRuntimeManager'
+import { runToolCallingLoop } from '../services/agent/toolCallingLoop'
+import { getWorkspaceService } from '../services/agent/workspaceManager'
+import { buildCodingSystemPrompt } from '../services/agent/codingPrompt'
 import {
   assertTrustedIpcSender,
   validateSendMessageInput,
@@ -152,7 +161,24 @@ async function runReply(
   }
   const vision = attachments.some((a) => a.kind === 'image')
   const useSearch = search && supportsBuiltInSearch(preset.provider) && !vision
+  const useProjectAgent = !vision && !search && shouldUseProjectAgent(sessionId)
+  let agentTaskId: string | undefined
+  let agentWorkspaceRoot: string | undefined
   try {
+    if (useProjectAgent) {
+      cancelTasksForSession(sessionId, 'replaced')
+      try {
+        const agentTask = await createProjectTask(sessionId, wc.id)
+        agentTaskId = agentTask.id
+        agentWorkspaceRoot = getWorkspaceService().getGrant(agentTask.workspaceId)?.rootPath
+      } catch (error) {
+        sendMessageNotice(wc, {
+          id: randomUUID(), sessionId, level: 'error',
+          message: error instanceof Error ? error.message : '项目任务无法启动'
+        })
+        return
+      }
+    }
     await runModelReply(
       wc,
       preset,
@@ -161,7 +187,9 @@ async function runReply(
       vision,
       docTexts,
       useSearch,
-      task.controller.signal
+      task.controller.signal,
+      agentTaskId,
+      agentWorkspaceRoot
     )
   } finally {
     finishGeneration(sessionId, task)
@@ -184,7 +212,9 @@ async function buildHistory(
   contextMessages: number,
   vision: boolean,
   docTexts: string[],
-  contextTokens: number
+  contextTokens: number,
+  coding = false,
+  workspaceRoot?: string
 ): Promise<ChatMessage[]> {
   const msgs = await getStore().listMessages(sessionId)
   const history: ChatMessage[] = msgs
@@ -192,9 +222,12 @@ async function buildHistory(
     .filter((m) => m.content.trim().length > 0 || (m.attachments ?? []).length > 0)
     .slice(-normalizeContextMessages(contextMessages))
     .map((m) => toChatMessage(m, vision))
-  const combined = [{ role: 'system' as const, content: AGENT_SYSTEM_PROMPT }, ...history]
+  const systemPrompt = coding
+    ? `${AGENT_SYSTEM_PROMPT}\n\n${buildCodingSystemPrompt(workspaceRoot)}`
+    : AGENT_SYSTEM_PROMPT
+  const combined = [{ role: 'system' as const, content: systemPrompt }, ...history]
   injectDocuments(combined, docTexts)
-  return fitHistoryToTokenBudget(combined, contextTokens)
+  return fitHistoryToTokenBudget(combined, coding ? Math.max(1_000, Math.floor(contextTokens * 0.55)) : contextTokens)
 }
 
 async function runModelReply(
@@ -205,13 +238,16 @@ async function runModelReply(
   vision: boolean,
   docTexts: string[],
   search: boolean,
-  signal: AbortSignal
+  signal: AbortSignal,
+  agentTaskId?: string,
+  agentWorkspaceRoot?: string
 ): Promise<void> {
   const id = randomUUID()
   const timestamp = Date.now()
   let reasoning = ''
   let content = ''
   let sources: SourceCitation[] = []
+  const toolPlan = new Map<string, { order: number; title: string; done: boolean }>()
   let activity = ''
   let pendingPersist: Message | null = null
   let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -252,6 +288,7 @@ async function runModelReply(
     const blocks: MessageBlock[] = []
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
     if (thinking) blocks.push({ kind: 'thinking', content: thinking })
+    if (toolPlan.size) blocks.push({ kind: 'plan', items: [...toolPlan.values()] })
     if (content) blocks.push({ kind: 'text', content })
     if (sources.length) blocks.push({ kind: 'sources', sources })
     const msg: Message = {
@@ -273,9 +310,12 @@ async function runModelReply(
     preset.contextMessages,
     vision,
     docTexts,
-    preset.contextTokens ?? 128_000
+    preset.contextTokens ?? 128_000,
+    Boolean(agentTaskId),
+    agentWorkspaceRoot
   )
   const runtime = {
+    provider: preset.provider,
     baseUrl: preset.baseUrl,
     apiKey: preset.apiKey,
     model: preset.model,
@@ -304,7 +344,34 @@ async function runModelReply(
   let searchFallbackUsed = false
   while (true) {
     try {
-      if (useSearch) {
+      if (agentTaskId) {
+        const result = await runToolCallingLoop({
+          taskRuntime: getTaskRuntime(),
+          registry: getToolRegistry(),
+          taskId: agentTaskId,
+          model: runtime,
+          messages: history,
+          onEvent,
+          onToolActivity: async (tool) => {
+            const current = toolPlan.get(tool.callId)
+            toolPlan.set(tool.callId, {
+              order: current?.order ?? toolPlan.size + 1,
+              title: current?.title ?? describeToolActivity(tool.toolName, tool.args),
+              done: tool.status === 'completed' && tool.ok === true
+            })
+            await emit('streaming')
+          },
+          maxToolResultChars: Math.max(20_000, Math.min(400_000, Math.floor((preset.contextTokens ?? 128_000) * 1.4)))
+        })
+        if (result.status === 'failed') {
+          await emit('error')
+          sendMessageNotice(wc, {
+            id: randomUUID(), sessionId, level: 'error',
+            message: result.error?.message ?? 'Coding 任务执行失败'
+          })
+          return
+        }
+      } else if (useSearch) {
         if (preset.provider === 'deepseek') await streamDeepSeekSearch(runtime, history, onEvent)
         else await streamSearchChat(runtime, history, onEvent)
       }
@@ -372,6 +439,24 @@ async function runModelReply(
       return
     }
   }
+}
+
+function describeToolActivity(toolName: string, args: unknown): string {
+  const input = args && typeof args === 'object' && !Array.isArray(args)
+    ? args as Record<string, unknown> : {}
+  const clean = (value: unknown): string => typeof value === 'string'
+    ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 100) : ''
+  if (toolName === 'process.run') {
+    const executable = clean(input.executable) || '命令'
+    const argv = Array.isArray(input.args) ? input.args.slice(0, 4).map(clean).filter(Boolean).join(' ') : ''
+    return `等待批准并运行：${executable}${argv ? ` ${argv}` : ''}`
+  }
+  if (toolName === 'workspace.readFile') return `读取文件：${clean(input.path) || '项目文件'}`
+  if (toolName === 'workspace.searchText') return `搜索正文：${clean(input.query) || '关键词'}`
+  if (toolName === 'workspace.findFiles') return `查找文件：${clean(input.query) || '文件名'}`
+  if (toolName === 'workspace.listFiles') return `查看目录：${clean(input.path) || '项目根目录'}`
+  if (toolName.startsWith('git.')) return `查看 Git：${toolName.slice(4)}`
+  return `使用工具：${toolName.slice(0, 100)}`
 }
 
 function modelErrorMessage(detail: string, retryable: boolean, retried: boolean, hasContent: boolean): string {

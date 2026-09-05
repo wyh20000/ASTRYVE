@@ -133,7 +133,7 @@ export class BoundApprovalService implements ApprovalService {
 
   isTaskPrefixApproved(binding: ApprovalBinding): boolean {
     if (!binding.commandPrefix) return false
-    return this.prefixApprovals.some(
+    const approved = this.prefixApprovals.some(
       (approval) =>
         approval.taskId === binding.taskId &&
         approval.workspaceId === binding.workspaceId &&
@@ -142,6 +142,14 @@ export class BoundApprovalService implements ApprovalService {
         approval.normalizedTarget === binding.normalizedTarget &&
         arraysEqual(approval.commandPrefix, binding.commandPrefix!)
     )
+    if (approved) {
+      this.writeAudit({
+        id: randomUUID(), timestamp: this.now(), taskId: binding.taskId,
+        workspaceId: binding.workspaceId, actor: 'policy', action: 'approval', outcome: 'allow',
+        reasonCode: 'TASK_APPROVAL_REUSED', target: `sha256:${hashApprovalBinding(binding)}`
+      })
+    }
+    return approved
   }
 
   revokeTask(taskId: string): void {
