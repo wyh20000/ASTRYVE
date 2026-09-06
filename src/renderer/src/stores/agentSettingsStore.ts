@@ -9,6 +9,7 @@ interface AgentSettingsState {
   load: (workspaceId: string) => Promise<void>
   setPermissionMode: (workspaceId: string, mode: PermissionMode) => Promise<void>
   setExecutionEnvironment: (workspaceId: string, environment: ExecutionEnvironment) => Promise<void>
+  setDockerImage: (workspaceId: string, dockerImageId: string) => Promise<void>
 }
 
 export const useAgentSettingsStore = create<AgentSettingsState>((set, get) => {
@@ -48,6 +49,11 @@ export const useAgentSettingsStore = create<AgentSettingsState>((set, get) => {
       const current = get().projects[id]
       if (!current) return
       await request(id, () => window.agent.settings.setAgentProject({ ...current.preferences, executionEnvironment }))
+    },
+    setDockerImage: async (id, dockerImageId) => {
+      const current = get().projects[id]
+      if (!current) return
+      await request(id, () => window.agent.settings.setAgentProject({ ...current.preferences, dockerImageId }))
     }
   }
 })

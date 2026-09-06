@@ -58,6 +58,7 @@ export interface CommandInput {
   cwd?: string
   env?: Record<string, string>
   timeoutMs?: number
+  expectedPorts?: number[]
 }
 
 export interface ClassifiedCommand {
@@ -97,7 +98,15 @@ export function normalizeCommand(input: unknown, workspace: WorkspaceGrant): Cla
     throw new CommandPolicyError('INVALID_COMMAND', 'Command timeout is outside the allowed range')
   }
 
-  const command = { executable, args: [...input.args], cwd, env, timeoutMs }
+  const expectedPorts = normalizeExpectedPorts(input.expectedPorts)
+  const command = {
+    executable,
+    args: [...input.args],
+    cwd,
+    env,
+    timeoutMs,
+    ...(expectedPorts.length > 0 ? { expectedPorts } : {})
+  }
   const executableName = path.basename(executable).toLowerCase()
   const tokens = [executableName, ...input.args.map((arg) => arg.toLowerCase())]
   const packageAction = getPackageAction(executableName, input.args)
@@ -134,8 +143,21 @@ function isCommandInput(value: unknown): value is CommandInput {
     candidate.args.every((arg) => typeof arg === 'string') &&
     (candidate.cwd === undefined || typeof candidate.cwd === 'string') &&
     (candidate.timeoutMs === undefined || typeof candidate.timeoutMs === 'number') &&
+    (candidate.expectedPorts === undefined || Array.isArray(candidate.expectedPorts)) &&
     (candidate.env === undefined || isStringRecord(candidate.env))
   )
+}
+
+function normalizeExpectedPorts(value: number[] | undefined): number[] {
+  if (value === undefined) return []
+  if (
+    value.length > 16 ||
+    !value.every((port) => Number.isSafeInteger(port) && port >= 1 && port <= 65_535) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new CommandPolicyError('INVALID_COMMAND', 'Expected service ports are invalid')
+  }
+  return [...value]
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

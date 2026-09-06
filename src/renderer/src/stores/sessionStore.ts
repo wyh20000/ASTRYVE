@@ -22,14 +22,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
 
   init: async () => {
+    if (get().loading) return
     set({ loading: true })
     const res = await window.agent.session.list()
     if (res.ok) {
       set({ sessions: res.data, loading: false, error: null })
       // 默认展示一个新对话：若最近会话已是空的新对话则复用，否则新建
       const top = res.data[0]
-      if (top && !top.title) {
-        set({ activeId: top.id })
+      const reusable = res.data.find((session) => !session.title.trim())
+      if (reusable) {
+        set({ activeId: reusable.id })
       } else {
         const created = await window.agent.session.create({ title: '' })
         if (created.ok) {
@@ -44,9 +46,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   create: async (title) => {
+    if (!title?.trim()) {
+      const reusable = get().sessions.find((session) => !session.title.trim())
+      if (reusable) {
+        set({ activeId: reusable.id })
+        return reusable
+      }
+    }
     const res = await window.agent.session.create({ title })
     if (!res.ok) return null
-    set((s) => ({ sessions: [res.data, ...s.sessions], activeId: res.data.id }))
+    set((s) => ({
+      sessions: [res.data, ...s.sessions.filter((session) => session.id !== res.data.id)],
+      activeId: res.data.id
+    }))
     return res.data
   },
 

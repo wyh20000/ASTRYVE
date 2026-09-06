@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import type { ToolExecutionContext, ToolInvocation, ToolDefinition } from '../../../shared/agent'
+import type { ApprovalRequest, ToolExecutionContext, ToolInvocation, ToolDefinition } from '../../../shared/agent'
 import { ToolAuthorization } from './toolAuthorization'
 import { ToolRegistry } from './toolRegistry'
 
@@ -67,5 +67,33 @@ describe('tool approval execution gate', () => {
       expect((await result).ok).toBe(false)
       expect(fixture.execute).not.toHaveBeenCalled()
     } finally { vi.useRealTimers() }
+  })
+
+  it('never offers task-prefix reuse for long-running service starts', async () => {
+    let approvalRequest: ApprovalRequest | undefined
+    const prompt = vi.fn(async (request: ApprovalRequest) => {
+      approvalRequest = request
+      return 'once' as const
+    })
+    const guard = new ToolAuthorization(prompt)
+    const context: ToolExecutionContext = {
+      taskId: 'task-service', callId: 'call-service',
+      workspace: { id: 'workspace-1', rootPath: path.resolve('fixture'), realRootPath: path.resolve('fixture'), createdAt: 1 },
+      environment: 'local', permissionMode: 'smart-approval', signal: new AbortController().signal
+    }
+    const invocation: ToolInvocation = {
+      taskId: context.taskId, callId: context.callId, workspaceId: context.workspace.id,
+      environment: 'local', permissionMode: 'smart-approval', toolName: 'process.startService',
+      args: { executable: 'node', args: ['server.js'], expectedPorts: [3000] }
+    }
+    const definition: ToolDefinition = {
+      name: 'process.startService', operation: 'process.start', description: 'start service',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      validateArgs: (value): value is unknown => Boolean(value), execute: async () => ({ ok: true })
+    }
+    await expect(guard.authorize(invocation, context, definition)).resolves.toBe(true)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(approvalRequest?.scopeOptions).toEqual(['once'])
+    expect(approvalRequest?.summary).toContain('LONG_RUNNING_COMMAND_REQUIRES_APPROVAL')
   })
 })

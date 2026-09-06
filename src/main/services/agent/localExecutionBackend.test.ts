@@ -60,4 +60,26 @@ describe('LocalExecutionBackend', () => {
     await expect(running).rejects.toThrow('COMMAND_CANCELLED')
     expect(executionSignal?.aborted).toBe(true)
   })
+
+  it('starts a task-scoped service, exposes PID/ports, and only stops it with the owning task', async () => {
+    let serviceSignal: AbortSignal | undefined
+    const backend = new LocalExecutionBackend({
+      verifyWorkspace: async () => undefined,
+      appendOutput: vi.fn(),
+      resolveExecutable: async () => ({ executable: 'C:\\Runtime\\node.exe', prefixArgs: [], trustedPathEntries: [] }),
+      startService: async (_command, signal) => {
+        serviceSignal = signal
+        const completion = new Promise<never>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('COMMAND_CANCELLED')), { once: true })
+        })
+        return { pid: 4321, completion }
+      }
+    })
+    const info = await backend.startService({ ...request, expectedPorts: [5173] }, new AbortController().signal)
+    expect(info).toMatchObject({ pid: 4321, expectedPorts: [5173] })
+    expect(await backend.stopService('another-task', info.serviceId)).toBe(false)
+    expect(serviceSignal?.aborted).toBe(false)
+    expect(await backend.stopService(request.taskId, info.serviceId)).toBe(true)
+    expect(serviceSignal?.aborted).toBe(true)
+  })
 })

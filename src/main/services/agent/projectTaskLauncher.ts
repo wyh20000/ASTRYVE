@@ -42,6 +42,7 @@ export async function launchProjectTask(
   }
   return dependencies.createTask({
     sessionId, ownerWebContentsId, workspace: { ...workspace },
-    permissionMode: preferences.permissionMode, environment: preferences.executionEnvironment
+    permissionMode: preferences.permissionMode, environment: preferences.executionEnvironment,
+    dockerImageId: preferences.executionEnvironment === 'docker' ? preferences.dockerImageId : undefined
   })
 }

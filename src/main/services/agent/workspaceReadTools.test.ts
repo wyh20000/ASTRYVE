@@ -15,6 +15,10 @@ describe('workspace read tools', () => {
       listFiles: vi.fn(async () => Array.from({ length: 4 }, (_, index) => ({
         path: `src/${index}.ts`, name: `${index}.ts`, kind: 'file' as const, size: 2
       }))),
+      listDirectory: vi.fn(async () => ({
+        entries: [{ path: 'src', name: 'src', kind: 'directory' as const }],
+        nextOffset: 2
+      })),
       readFile: vi.fn(async () => ({ path: 'src/a.ts', content: 'one\ntwo\nthree', size: 13, encoding: 'utf-8' as const })),
       searchText: vi.fn(async () => Array.from({ length: 3 }, (_, index) => ({
         path: 'src/a.ts', line: index + 1, column: 1, preview: 'hit'
@@ -22,14 +26,15 @@ describe('workspace read tools', () => {
     } as unknown as WorkspaceBoundaryService
     const [list, read, search, find] = createWorkspaceReadTools(() => service)
 
-    expect(list.validateArgs({ limit: 2 })).toBe(true)
+    expect(list.validateArgs({ limit: 2, offset: 0 })).toBe(true)
     expect(list.validateArgs({ path: '' })).toBe(true)
     expect(search.validateArgs({ query: 'hit', path: '' })).toBe(true)
     expect(find.validateArgs({ query: '2.ts', path: '' })).toBe(true)
     expect(list.validateArgs({ limit: 2, unexpected: true })).toBe(false)
     await expect(list.execute({ limit: 2 }, context)).resolves.toMatchObject({
-      ok: true, value: { total: 4, truncated: true, entries: [{ path: 'src/0.ts' }, { path: 'src/1.ts' }] }
+      ok: true, value: { nextOffset: 2, truncated: true, entries: [{ path: 'src' }] }
     })
+    expect(service.listDirectory).toHaveBeenCalledWith('workspace-1', '', 0, 2)
     await expect(read.execute({ path: 'src/a.ts', startLine: 2, endLine: 2 }, context)).resolves.toMatchObject({
       ok: true, value: { content: 'two', startLine: 2, endLine: 2, totalLines: 3, truncated: true, nextStartLine: 3 }
     })

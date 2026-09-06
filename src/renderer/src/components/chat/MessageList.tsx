@@ -9,20 +9,33 @@ export function MessageList({ messages }: { messages: Message[] }): JSX.Element 
   useEffect(() => {
     if (stick) {
       const el = ref.current
-      if (el) el.scrollTop = el.scrollHeight
+      if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
     }
   }, [messages, stick])
 
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const content = el.firstElementChild
+    if (!content) return
+    const observer = new ResizeObserver(() => {
+      if (stick) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [stick])
+
   return (
-    <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4">
+    <div
+      ref={ref}
+      className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      onScroll={(e) => {
+        const el = e.currentTarget
+        setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+      }}
+    >
       <div
-        ref={ref}
         className="mx-auto max-w-[820px] space-y-6"
-        onScroll={(e) => {
-          const el = e.currentTarget
-          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-          setStick(atBottom)
-        }}
       >
         {messages.length === 0 ? (
           <EmptyState />

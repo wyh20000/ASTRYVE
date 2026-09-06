@@ -133,5 +133,7 @@ function isAgentProjectPreferences(value: unknown): value is AgentProjectPrefere
     typeof candidate.workspaceId === 'string' &&
     (PERMISSION_MODES as readonly unknown[]).includes(candidate.permissionMode) &&
     (EXECUTION_ENVIRONMENTS as readonly unknown[]).includes(candidate.executionEnvironment)
+    && (candidate.dockerImageId === undefined ||
+      (typeof candidate.dockerImageId === 'string' && /^sha256:[a-f0-9]{64}$/i.test(candidate.dockerImageId)))
   )
 }

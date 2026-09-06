@@ -13,6 +13,7 @@ import { assertTrustedIpcSender } from './validation'
 import {
   AGENT_EXECUTION_CAPABILITIES,
   defaultAgentProjectPreferences,
+  refreshAgentExecutionCapabilities,
   validateAgentProjectPreferences
 } from '../services/agent/projectPreferences'
 
@@ -43,15 +44,22 @@ export function registerSettingsIpc(): void {
     }
   })
 
-  ipcMain.handle(IPC.settings.getAgentProject, (event, workspaceId?: string) => {
+  ipcMain.handle(IPC.settings.getAgentProject, async (event, workspaceId?: string) => {
     try {
       assertTrustedIpcSender(event)
       validateWorkspace(workspaceId)
-      const preferences =
+      const capabilities = await refreshAgentExecutionCapabilities()
+      const stored =
         getAgentProjectPreferences(workspaceId) ?? defaultAgentProjectPreferences(workspaceId)
+      const imageStillExists = !stored.dockerImageId ||
+        (capabilities.dockerImages ?? []).some((image) => image.imageId === stored.dockerImageId)
+      const preferences = validateAgentProjectPreferences(
+        imageStillExists ? stored : { ...stored, dockerImageId: undefined },
+        new Set([workspaceId]), capabilities
+      )
       return ok({
         preferences,
-        capabilities: AGENT_EXECUTION_CAPABILITIES
+        capabilities
       } satisfies AgentProjectSettings)
     } catch (e) {
       return err('SET_ERR', e instanceof Error ? e.message : String(e))

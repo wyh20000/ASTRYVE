@@ -95,6 +95,8 @@ describe('runToolCallingLoop', () => {
 
     expect(result.status).toBe('completed')
     expect(result.rounds).toBe(2)
+    expect(runRound.mock.calls[0][3].toolChoice).toBe('required')
+    expect(runRound.mock.calls[1][3].toolChoice).toBe('auto')
     expect(seenMessages[1].at(-1)).toEqual({
       role: 'tool',
       tool_call_id: 'call-1',
@@ -132,6 +134,78 @@ describe('runToolCallingLoop', () => {
     })
     expect(result).toMatchObject({ status: 'failed', error: { code: 'INVALID_ENVELOPE' } })
     expect(runRound).toHaveBeenCalledTimes(1)
+    expect(runtime.activeTaskCount).toBe(0)
+  })
+
+  it('retries a provider that ignores required tools without displaying fake command output', async () => {
+    const { registry, runtime, task } = setup()
+    const events: string[] = []
+    let round = 0
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime,
+      registry,
+      taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      messages: [{ role: 'user', content: 'inspect' }],
+      onEvent: (event) => { if (event.content) events.push(event.content) },
+      runRound: async (_model, _messages, onEvent, options) => {
+        round += 1
+        if (round === 1) {
+          expect(options.toolChoice).toBe('required')
+          await onEvent({ content: '```bash\npwd\n```' })
+          return { message: { role: 'assistant', content: '```bash\npwd\n```' }, finishReason: 'stop' }
+        }
+        if (round === 2) {
+          expect(options.toolChoice).toBe('required')
+          return toolTurn()
+        }
+        expect(options.toolChoice).toBe('auto')
+        await onEvent({ content: 'done' })
+        return finalTurn()
+      }
+    })
+    expect(result.status).toBe('completed')
+    expect(events).toEqual(['done'])
+  })
+
+  it('returns recoverable tool errors to the model and allows a corrected next call', async () => {
+    const registry = new ToolRegistry()
+    let execution = 0
+    const tool = echoTool()
+    tool.execute = async (input) => {
+      execution += 1
+      return execution === 1
+        ? { ok: false, error: { code: 'NOT_DIRECTORY', message: '目标不是目录' } }
+        : { ok: true, value: input.value }
+    }
+    registry.register(tool)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-recover' })
+    const task = runtime.createTask({ sessionId: 'session-recover', workspace, ownerWebContentsId: 1,
+      permissionMode: 'ask-every-time', environment: 'docker' })
+    let round = 0
+    const seenMessages: ChatMessage[][] = []
+
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime,
+      registry,
+      taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      messages: [{ role: 'user', content: 'inspect' }],
+      onEvent: () => undefined,
+      runRound: async (_model, messages) => {
+        round += 1
+        seenMessages.push([...messages])
+        if (round <= 2) return toolTurn(`call-${round}`)
+        return finalTurn()
+      }
+    })
+
+    expect(result.status).toBe('completed')
+    expect(execution).toBe(2)
+    expect(seenMessages[1].at(-1)).toMatchObject({
+      role: 'tool',
+      content: expect.stringContaining('NOT_DIRECTORY')
+    })
     expect(runtime.activeTaskCount).toBe(0)
   })
 
@@ -178,7 +252,7 @@ describe('runToolCallingLoop', () => {
     expect(runtime.activeTaskCount).toBe(0)
   })
 
-  it('stops deterministic repeated tool calls at the configured round limit', async () => {
+  it('turns the emergency round fuse into a final synthesis instead of a user-facing error', async () => {
     const { registry, runtime, task } = setup()
     let call = 0
     const result = await runToolCallingLoop({
@@ -189,9 +263,15 @@ describe('runToolCallingLoop', () => {
       messages: [],
       onEvent: () => undefined,
       maxToolRounds: 2,
-      runRound: async () => toolTurn(`call-${++call}`)
+      runRound: async (_model, _messages, onEvent, options) => {
+        if (options.toolChoice === 'none') {
+          await onEvent({ content: 'final from collected evidence' })
+          return finalTurn()
+        }
+        return toolTurn(`call-${++call}`)
+      }
     })
-    expect(result).toMatchObject({ status: 'failed', error: { code: 'TOOL_ROUND_LIMIT' } })
+    expect(result).toMatchObject({ status: 'completed', rounds: 3 })
     expect(runtime.activeTaskCount).toBe(0)
   })
 

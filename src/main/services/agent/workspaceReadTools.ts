@@ -7,7 +7,7 @@ const MAX_SEARCH_RESULTS = 100
 
 type ServiceProvider = () => WorkspaceBoundaryService
 
-interface ListFilesArgs { path?: string; limit?: number }
+interface ListFilesArgs { path?: string; offset?: number; limit?: number }
 interface ReadFileArgs { path: string; startLine?: number; endLine?: number }
 interface SearchTextArgs { query: string; path?: string; limit?: number }
 
@@ -18,17 +18,25 @@ export function createWorkspaceReadTools(service: ServiceProvider): Array<ToolDe
 function listFilesTool(service: ServiceProvider): ToolDefinition<ListFilesArgs, unknown> {
   return {
     name: 'workspace.listFiles', operation: 'fs.read',
-    description: 'List files and directories under the authorized project. Sensitive paths, links and generated trees are filtered by the host.',
+    description: 'List one page of the direct children of a project directory. The project has no total file-count limit. Use path to descend into directories and nextOffset to continue a large directory.',
     parameters: { type: 'object', properties: {
       path: { type: 'string', description: 'Project-relative directory; omit for project root.' },
+      offset: { type: 'integer', minimum: 0, description: 'Pagination offset; omit or use 0 for the first page.' },
       limit: { type: 'integer', minimum: 1, maximum: MAX_LIST_RESULTS }
     }, additionalProperties: false },
-    validateArgs: (value): value is ListFilesArgs => isClosed(value, ['path', 'limit']) &&
-      optionalDirectory(value.path) && optionalInteger(value.limit, 1, MAX_LIST_RESULTS),
+    validateArgs: (value): value is ListFilesArgs => isClosed(value, ['path', 'offset', 'limit']) &&
+      optionalDirectory(value.path) && optionalInteger(value.offset, 0) &&
+      optionalInteger(value.limit, 1, MAX_LIST_RESULTS),
     execute: async (input, context) => safely(async () => {
-      const entries = await service().listFiles(context.workspace.id, input.path ?? '')
       const limit = input.limit ?? 200
-      return { entries: entries.slice(0, limit), total: entries.length, truncated: entries.length > limit }
+      const page = await service().listDirectory(
+        context.workspace.id, input.path ?? '', input.offset ?? 0, limit
+      )
+      return {
+        entries: page.entries,
+        ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}),
+        truncated: page.nextOffset !== undefined
+      }
     })
   }
 }

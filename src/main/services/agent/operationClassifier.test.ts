@@ -20,15 +20,31 @@ describe('classifyOperation', () => {
     expect(
       classifyOperation('process.run', { executable: 'vitest', args: ['run'] }, workspace)
     ).toMatchObject({ type: 'command', signals: { deterministicCheck: true } })
-    expect(classifyOperation('network.enable', { url: 'https://Example.com/a' }, workspace)).toEqual({
+    expect(
+      classifyOperation('process.start', {
+        executable: 'node', args: ['server.js'], expectedPorts: [3000]
+      }, workspace)
+    ).toMatchObject({
+      type: 'command', command: { expectedPorts: [3000] }, signals: { longRunning: true }
+    })
+    expect(classifyOperation('process.stop', { serviceId: 'service-1' }, workspace)).toEqual({
+      type: 'service-stop', serviceId: 'service-1'
+    })
+    expect(classifyOperation('network.enable', { url: 'https://Example.com/a', scope: 'once' }, workspace)).toEqual({
       type: 'network',
       protocol: 'https:',
-      host: 'example.com'
+      host: 'example.com',
+      scope: 'once'
     })
     expect(classifyOperation('git.write', { action: 'Commit' }, workspace)).toEqual({
       type: 'git',
       action: 'commit',
       write: true
+    })
+    expect(classifyOperation('git.read', {}, workspace, 'git.status')).toEqual({
+      type: 'git',
+      action: 'status',
+      write: false
     })
     expect(
       classifyOperation(
@@ -46,10 +62,11 @@ describe('classifyOperation', () => {
     expect(classifyOperation('fs.read', { path: '.env' }, workspace)).toMatchObject({
       sensitive: true
     })
-    expect(classifyOperation('network.enable', { url: 'file:///etc/passwd' }, workspace)).toEqual({
+    expect(classifyOperation('network.enable', { url: 'file:///etc/passwd', scope: 'task' }, workspace)).toEqual({
       type: 'network',
       protocol: 'other',
-      host: ''
+      host: '',
+      scope: 'task'
     })
   })
 

@@ -26,6 +26,7 @@ export interface CreateTaskStateInput {
   ownerWebContentsId: number
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
+  dockerImageId?: string
   now?: number
 }
 
@@ -56,6 +57,7 @@ export class TaskStateMachine {
       ownerWebContentsId: input.ownerWebContentsId,
       permissionMode: input.permissionMode,
       environment: input.environment,
+      dockerImageId: input.dockerImageId,
       status: 'queued',
       sequence: 0,
       createdAt: now,

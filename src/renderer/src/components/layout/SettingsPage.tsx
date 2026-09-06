@@ -249,7 +249,7 @@ function ModelSection(): JSX.Element {
       apiKey: '',
       model: PROVIDER_PRESETS.deepseek.model,
       capabilities: { imageInput: false },
-      contextMessages: 20,
+      contextMessages: 50,
       contextTokens: 128000
     })
     setIsNew(true)
@@ -264,8 +264,7 @@ function ModelSection(): JSX.Element {
     const draft: ModelPreset = {
       ...editing,
       id: editing.id || crypto.randomUUID(),
-      name: editing.name || editing.model,
-      contextMessages: Math.min(50, Math.max(1, Math.trunc(editing.contextMessages || 20)))
+      name: editing.name || editing.model
     }
     const presets = isNew
       ? [...config.presets, draft]
@@ -356,29 +355,9 @@ function ModelSection(): JSX.Element {
               />
               此模型支持图片输入
             </label>
-            <Field label="上下文消息数（多轮记忆）">
-              <input
-                className="input font-mono"
-                type="number"
-                min={1}
-                max={50}
-                step={1}
-                value={editing.contextMessages}
-                onChange={(e) => set({ contextMessages: Number(e.target.value) || 20 })}
-                onBlur={() => set({ contextMessages: Math.min(50, Math.max(1, Math.trunc(editing.contextMessages || 20))) })}
-              />
-            </Field>
-            <Field label="上下文预算（tokens）">
-              <input
-                className="input font-mono"
-                type="number"
-                min={8000}
-                max={1000000}
-                step={1000}
-                value={editing.contextTokens ?? 128000}
-                onChange={(e) => set({ contextTokens: Number(e.target.value) || 128000 })}
-              />
-            </Field>
+            <p className="text-[11px] leading-relaxed text-txt-muted">
+              多轮记忆和上下文长度由应用按厂商与模型能力自动管理。
+            </p>
           </div>
           <div className="mt-4 flex items-center gap-3">
             <button onClick={() => void commit()} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">保存</button>

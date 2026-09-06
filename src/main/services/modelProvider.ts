@@ -44,7 +44,7 @@ export interface ChatCompletionTurn {
 
 export interface StreamChatOptions {
   tools?: NativeFunctionToolDefinition[]
-  toolChoice?: 'auto' | 'none'
+  toolChoice?: 'auto' | 'none' | 'required'
 }
 
 type OnEvent = (ev: StreamEvent) => void | Promise<void>
@@ -219,9 +219,18 @@ export async function streamChatTurn(
     messages: bridge.toProviderMessages(messages),
     stream: true
   }
+  const requestedToolChoice = options.toolChoice ?? 'auto'
+  const deepSeekThinkingToolRequest = Boolean(
+    options.tools?.length && runtime.provider === 'deepseek' &&
+    runtime.vision !== true && runtime.reasoningEffort !== undefined &&
+    requestedToolChoice === 'required'
+  )
   if (options.tools && options.tools.length > 0) {
     body.tools = bridge.tools
-    body.tool_choice = options.toolChoice ?? 'auto'
+    // DeepSeek thinking mode supports tools, but its thinking-mode tool loop
+    // rejects `tool_choice=required`. Omitting the field keeps the whole loop
+    // in one protocol; the agent layer enforces the required first tool call.
+    if (!deepSeekThinkingToolRequest) body.tool_choice = requestedToolChoice
   }
   adapter.applyReasoning(body, runtime.reasoningEffort, runtime.vision === true)
   const request = await fetchWithRequestTimeout(`${base}/chat/completions`, {

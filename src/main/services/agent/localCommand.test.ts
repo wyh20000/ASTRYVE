@@ -9,12 +9,14 @@ const command = (code: string): LocalCommand => ({
 describe('local command worker primitive', () => {
   it('runs a real child process with separate output streams and no inherited secrets', async () => {
     const output: string[] = []
+    let pid = 0
     const result = await runLocalCommand(command('process.stdout.write("hello"); process.stderr.write("error"); process.stdout.write(String(process.env.AGENT_TEST_SECRET ?? "absent"))'),
-      new AbortController().signal, (_, text) => output.push(text))
+      new AbortController().signal, (_, text) => output.push(text), (value) => { pid = value })
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toBe('helloabsent')
     expect(result.stderr).toBe('error')
     expect(output.join('')).toContain('hello')
+    expect(pid).toBeGreaterThan(0)
   })
   it('does not interpret shell metacharacters in argv', async () => {
     const input = command('process.stdout.write(process.argv[1])')

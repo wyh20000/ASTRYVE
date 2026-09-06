@@ -86,6 +86,23 @@ describe('WorkspaceBoundaryService', () => {
     ])
   })
 
+  it('returns a bounded directory prefix instead of failing large listings', async () => {
+    const files = await service.listFiles(workspaceId, '', 2)
+    expect(files).toHaveLength(2)
+  })
+
+  it('pages direct directory children without imposing a project-wide limit', async () => {
+    await writeFile(join(projectRoot, 'a.txt'), 'a', 'utf-8')
+    await writeFile(join(projectRoot, 'b.txt'), 'b', 'utf-8')
+    const first = await service.listDirectory(workspaceId, '', 0, 2)
+    expect(first.entries).toHaveLength(2)
+    expect(first.nextOffset).toBe(2)
+    const second = await service.listDirectory(workspaceId, '', first.nextOffset, 2)
+    expect(second.entries.length).toBeGreaterThan(0)
+    expect(new Set([...first.entries, ...second.entries].map((entry) => entry.path)).size)
+      .toBe(first.entries.length + second.entries.length)
+  })
+
   it('rejects binary and oversized files', async () => {
     await writeFile(join(projectRoot, 'binary.bin'), Buffer.from([0, 1, 2, 3]))
     await writeFile(join(projectRoot, 'huge.txt'), Buffer.alloc(2 * 1024 * 1024 + 1, 65))

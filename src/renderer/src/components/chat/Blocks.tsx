@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import hljs from 'highlight.js'
 import type { MessageBlock, MessageStatus, SourceCitation } from '@shared/types'
 import MarkdownRenderer from './MarkdownRenderer'
@@ -119,11 +119,19 @@ function ThinkingBlock({
   const finished = status === 'done' || status === 'error'
   const streaming = status === 'streaming'
   const [open, setOpen] = useState(!finished)
+  const [stick, setStick] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   // 思考结束后自动收起，用户可点击展开
   useEffect(() => {
     if (finished) setOpen(false)
   }, [finished])
+
+  useEffect(() => {
+    if (!open || !streaming || !stick) return
+    const element = scrollRef.current
+    if (element) requestAnimationFrame(() => { element.scrollTop = element.scrollHeight })
+  }, [content, open, stick, streaming])
 
   return (
     <div>
@@ -140,10 +148,28 @@ function ThinkingBlock({
               <Icon.ChevronDown size={14} className="rotate-180" />
             </button>
           </div>
-          <div className="max-h-72 overflow-y-auto px-3 py-2">
+          <div
+            ref={scrollRef}
+            className="relative max-h-72 overflow-y-auto px-3 py-2"
+            onScroll={(event) => {
+              const element = event.currentTarget
+              setStick(element.scrollHeight - element.scrollTop - element.clientHeight < 48)
+            }}
+          >
             <div className="selectable whitespace-pre-wrap break-words text-[12px] leading-6 text-txt-secondary">
               {content}
             </div>
+            {!stick && streaming && <button
+              type="button"
+              onClick={() => {
+                setStick(true)
+                const element = scrollRef.current
+                if (element) element.scrollTop = element.scrollHeight
+              }}
+              className="sticky bottom-1 left-1/2 mt-2 -translate-x-1/2 rounded-full border border-border bg-bg-raised px-2.5 py-1 text-[10px] text-txt-secondary shadow-lg hover:text-txt-primary"
+            >
+              回到底部
+            </button>}
           </div>
         </div>
       ) : (
@@ -199,7 +225,11 @@ function SourcesBlock({ sources }: { sources: SourceCitation[] }): JSX.Element |
 }
 
 function PlanBlock({ items }: { items: { order: number; title: string; done: boolean }[] }): JSX.Element {
-  const [open, setOpen] = useState(true)
+  const finished = items.length > 0 && items.every((item) => item.done)
+  const [open, setOpen] = useState(!finished)
+  useEffect(() => {
+    setOpen(!finished)
+  }, [finished])
   return (
     <div className="w-fit min-w-[260px] overflow-hidden rounded-md border border-border bg-bg-panel">
       <button
@@ -207,7 +237,7 @@ function PlanBlock({ items }: { items: { order: number; title: string; done: boo
         onClick={() => setOpen((v) => !v)}
       >
         <Icon.Check size={14} className="text-ok" />
-        执行计划
+        {finished ? `已完成 ${items.length} 项操作` : '执行计划'}
         <Icon.ChevronDown size={13} className={`ml-auto text-txt-muted transition-transform ${open ? '' : '-rotate-90'}`} />
       </button>
       {open && (

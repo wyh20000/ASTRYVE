@@ -23,6 +23,20 @@ describe.skipIf(process.platform !== 'win32' || !fs.existsSync(helper))('Windows
     expect(result.stdout).toBe(command.args[2])
   })
 
+  it('reports the real child PID separately from the job host PID', async () => {
+    let childPid = 0
+    const result = await runWindowsJob(
+      helper,
+      input('process.stdout.write("started")'),
+      new AbortController().signal,
+      () => undefined,
+      undefined,
+      (pid) => { childPid = pid }
+    )
+    expect(result.exitCode).toBe(0)
+    expect(childPid).toBeGreaterThan(0)
+  })
+
   it.each(['cancel', 'crash', 'normal'] as const)('cleans detached descendants on %s', async (mode) => {
     const controller = new AbortController()
     let hostPid = 0, descendant = 0

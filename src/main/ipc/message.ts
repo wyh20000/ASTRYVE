@@ -24,7 +24,7 @@ import {
   type ChatMessage,
   type StreamEvent
 } from '../services/modelProvider'
-import { getModelConfig, getActivePreset, normalizeContextMessages } from '../services/modelConfig'
+import { getModelConfig, getActivePreset } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
 import { fitHistoryToTokenBudget, toChatMessage, injectDocuments } from '../services/history'
 import { ok, err } from './result'
@@ -45,8 +45,14 @@ import {
   shouldUseProjectAgent
 } from '../services/agent/taskRuntimeManager'
 import { runToolCallingLoop } from '../services/agent/toolCallingLoop'
-import { getWorkspaceService } from '../services/agent/workspaceManager'
+import { getWorkspaceService, restoreSessionWorkspace } from '../services/agent/workspaceManager'
 import { buildCodingSystemPrompt } from '../services/agent/codingPrompt'
+import {
+  appendToolTimelineText,
+  createToolTimeline,
+  resetToolTimeline,
+  updateToolTimeline
+} from '../services/agent/toolTimeline'
 import {
   assertTrustedIpcSender,
   validateSendMessageInput,
@@ -161,16 +167,24 @@ async function runReply(
   }
   const vision = attachments.some((a) => a.kind === 'image')
   const useSearch = search && supportsBuiltInSearch(preset.provider) && !vision
-  const useProjectAgent = !vision && !search && shouldUseProjectAgent(sessionId)
+  const projectEligible = !vision && !search
+  let useProjectAgent = false
   let agentTaskId: string | undefined
   let agentWorkspaceRoot: string | undefined
+  let agentExecutionEnvironment: 'local' | 'docker' | undefined
   try {
+    if (projectEligible) {
+      const session = await getStore().getSession(sessionId)
+      await restoreSessionWorkspace(sessionId, session?.projectPath)
+      useProjectAgent = shouldUseProjectAgent(sessionId)
+    }
     if (useProjectAgent) {
       cancelTasksForSession(sessionId, 'replaced')
       try {
         const agentTask = await createProjectTask(sessionId, wc.id)
         agentTaskId = agentTask.id
         agentWorkspaceRoot = getWorkspaceService().getGrant(agentTask.workspaceId)?.rootPath
+        agentExecutionEnvironment = agentTask.environment
       } catch (error) {
         sendMessageNotice(wc, {
           id: randomUUID(), sessionId, level: 'error',
@@ -189,7 +203,8 @@ async function runReply(
       useSearch,
       task.controller.signal,
       agentTaskId,
-      agentWorkspaceRoot
+      agentWorkspaceRoot,
+      agentExecutionEnvironment
     )
   } finally {
     finishGeneration(sessionId, task)
@@ -209,21 +224,21 @@ const AGENT_SYSTEM_PROMPT = [
 
 async function buildHistory(
   sessionId: string,
-  contextMessages: number,
+  _contextMessages: number,
   vision: boolean,
   docTexts: string[],
   contextTokens: number,
   coding = false,
-  workspaceRoot?: string
+  workspaceRoot?: string,
+  executionEnvironment?: 'local' | 'docker'
 ): Promise<ChatMessage[]> {
   const msgs = await getStore().listMessages(sessionId)
   const history: ChatMessage[] = msgs
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
     .filter((m) => m.content.trim().length > 0 || (m.attachments ?? []).length > 0)
-    .slice(-normalizeContextMessages(contextMessages))
     .map((m) => toChatMessage(m, vision))
   const systemPrompt = coding
-    ? `${AGENT_SYSTEM_PROMPT}\n\n${buildCodingSystemPrompt(workspaceRoot)}`
+    ? `${AGENT_SYSTEM_PROMPT}\n\n${buildCodingSystemPrompt(workspaceRoot, executionEnvironment)}`
     : AGENT_SYSTEM_PROMPT
   const combined = [{ role: 'system' as const, content: systemPrompt }, ...history]
   injectDocuments(combined, docTexts)
@@ -240,14 +255,15 @@ async function runModelReply(
   search: boolean,
   signal: AbortSignal,
   agentTaskId?: string,
-  agentWorkspaceRoot?: string
+  agentWorkspaceRoot?: string,
+  agentExecutionEnvironment?: 'local' | 'docker'
 ): Promise<void> {
   const id = randomUUID()
   const timestamp = Date.now()
   let reasoning = ''
   let content = ''
   let sources: SourceCitation[] = []
-  const toolPlan = new Map<string, { order: number; title: string; done: boolean }>()
+  const timeline = createToolTimeline()
   let activity = ''
   let pendingPersist: Message | null = null
   let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -288,8 +304,8 @@ async function runModelReply(
     const blocks: MessageBlock[] = []
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
     if (thinking) blocks.push({ kind: 'thinking', content: thinking })
-    if (toolPlan.size) blocks.push({ kind: 'plan', items: [...toolPlan.values()] })
-    if (content) blocks.push({ kind: 'text', content })
+    if (agentTaskId) blocks.push(...timeline.blocks)
+    else if (content) blocks.push({ kind: 'text', content })
     if (sources.length) blocks.push({ kind: 'sources', sources })
     const msg: Message = {
       id,
@@ -312,7 +328,8 @@ async function runModelReply(
     docTexts,
     preset.contextTokens ?? 128_000,
     Boolean(agentTaskId),
-    agentWorkspaceRoot
+    agentWorkspaceRoot,
+    agentExecutionEnvironment
   )
   const runtime = {
     provider: preset.provider,
@@ -327,6 +344,7 @@ async function runModelReply(
     if (ev.reasoning) reasoning += ev.reasoning
     if (ev.content) {
       content += ev.content
+      if (agentTaskId) appendToolTimelineText(timeline, ev.content)
       activity = ''
     }
     if (ev.activity !== undefined) activity = ev.activity
@@ -353,21 +371,29 @@ async function runModelReply(
           messages: history,
           onEvent,
           onToolActivity: async (tool) => {
-            const current = toolPlan.get(tool.callId)
-            toolPlan.set(tool.callId, {
-              order: current?.order ?? toolPlan.size + 1,
-              title: current?.title ?? describeToolActivity(tool.toolName, tool.args),
-              done: tool.status === 'completed' && tool.ok === true
-            })
+            const baseTitle = describeToolActivity(tool.toolName, tool.args, tool.result)
+            const failure = tool.status === 'completed' && tool.ok === false
+              ? toolFailureDescription(tool.result)
+              : ''
+            updateToolTimeline(
+              timeline,
+              tool.callId,
+              failure ? `${baseTitle}（未完成：${failure}）` : baseTitle,
+              tool.status === 'completed' && tool.ok === true
+            )
             await emit('streaming')
           },
           maxToolResultChars: Math.max(20_000, Math.min(400_000, Math.floor((preset.contextTokens ?? 128_000) * 1.4)))
         })
         if (result.status === 'failed') {
+          const failureMessage = result.error?.message ?? 'Coding 任务执行失败'
+          if (!content.trim()) {
+            appendToolTimelineText(timeline, `本次执行未完成：${failureMessage}。请重试。`)
+          }
           await emit('error')
           sendMessageNotice(wc, {
             id: randomUUID(), sessionId, level: 'error',
-            message: result.error?.message ?? 'Coding 任务执行失败'
+            message: failureMessage
           })
           return
         }
@@ -404,6 +430,7 @@ async function runModelReply(
         useSearch = false
         reasoning = ''
         content = ''
+        resetToolTimeline(timeline)
         sources = []
         activity = ''
         console.warn('[model] web search failed, falling back to ordinary chat')
@@ -429,6 +456,11 @@ async function runModelReply(
 
       const detail = (e as Error)?.message ?? '网络错误'
       console.warn('[model] chat error:', detail) // 不打印 prompt / 响应内容
+      if (!content.trim()) {
+        const placeholder = modelErrorMessage(detail, retryable, retried, false)
+        if (agentTaskId) appendToolTimelineText(timeline, `本次执行未完成：${placeholder}。请重试。`)
+        else content = `本次回答未完成：${placeholder}。请重试。`
+      }
       await emit('error')
       sendMessageNotice(wc, {
         id: randomUUID(),
@@ -441,7 +473,7 @@ async function runModelReply(
   }
 }
 
-function describeToolActivity(toolName: string, args: unknown): string {
+function describeToolActivity(toolName: string, args: unknown, result?: unknown): string {
   const input = args && typeof args === 'object' && !Array.isArray(args)
     ? args as Record<string, unknown> : {}
   const clean = (value: unknown): string => typeof value === 'string'
@@ -451,12 +483,33 @@ function describeToolActivity(toolName: string, args: unknown): string {
     const argv = Array.isArray(input.args) ? input.args.slice(0, 4).map(clean).filter(Boolean).join(' ') : ''
     return `等待批准并运行：${executable}${argv ? ` ${argv}` : ''}`
   }
+  if (toolName === 'process.startService') {
+    const output = result && typeof result === 'object' && !Array.isArray(result)
+      ? result as Record<string, unknown> : {}
+    const pid = Number.isSafeInteger(output.pid) ? `PID ${output.pid}` : '等待启动'
+    const ports = Array.isArray(output.expectedPorts)
+      ? output.expectedPorts.filter(Number.isSafeInteger).slice(0, 8).join(', ') : ''
+    return result
+      ? `服务已启动：${pid}${ports ? `，声明端口 ${ports}` : ''}`
+      : `等待批准并启动服务：${clean(input.executable) || '命令'}`
+  }
+  if (toolName === 'process.stop') return result ? '服务已停止' : '停止任务服务'
   if (toolName === 'workspace.readFile') return `读取文件：${clean(input.path) || '项目文件'}`
   if (toolName === 'workspace.searchText') return `搜索正文：${clean(input.query) || '关键词'}`
   if (toolName === 'workspace.findFiles') return `查找文件：${clean(input.query) || '文件名'}`
   if (toolName === 'workspace.listFiles') return `查看目录：${clean(input.path) || '项目根目录'}`
   if (toolName.startsWith('git.')) return `查看 Git：${toolName.slice(4)}`
   return `使用工具：${toolName.slice(0, 100)}`
+}
+
+function toolFailureDescription(result: unknown): string {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return '工具返回错误'
+  const error = (result as { error?: unknown }).error
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return '工具返回错误'
+  const message = (error as { message?: unknown }).message
+  return typeof message === 'string'
+    ? message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120)
+    : '工具返回错误'
 }
 
 function modelErrorMessage(detail: string, retryable: boolean, retried: boolean, hasContent: boolean): string {

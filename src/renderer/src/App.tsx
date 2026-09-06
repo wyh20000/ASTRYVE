@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd'
 import Sidebar from './components/layout/Sidebar'
 import ChatPanel from './components/layout/ChatPanel'
 import StatusBar from './components/layout/StatusBar'
@@ -10,14 +11,15 @@ import { useChatStore } from './stores/chatStore'
 import { useUiStore } from './stores/uiStore'
 import { useModelStore } from './stores/modelStore'
 import { useThemeStore } from './stores/themeStore'
+import { getTheme } from './theme/theme'
 import { useWorkspaceStore } from './stores/workspaceStore'
 
-export default function App(): JSX.Element {
+function AppShell(): JSX.Element {
+  const { message: messageApi } = AntdApp.useApp()
   const init = useSessionStore((s) => s.init)
   const activeId = useSessionStore((s) => s.activeId)
   const load = useChatStore((s) => s.load)
   const upsertMessage = useChatStore((s) => s.upsertMessage)
-  const setNotice = useChatStore((s) => s.setNotice)
   const create = useSessionStore((s) => s.create)
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
@@ -38,9 +40,16 @@ export default function App(): JSX.Element {
   }, [upsertMessage])
 
   useEffect(() => {
-    const unsub = window.agent.onMessageNotice((notice) => setNotice(notice))
+    const unsub = window.agent.onMessageNotice((notice) => {
+      void messageApi.open({
+        key: notice.id,
+        type: notice.level,
+        content: notice.message,
+        duration: 5
+      })
+    })
     return unsub
-  }, [setNotice])
+  }, [messageApi])
 
   useEffect(() => {
     if (activeId) void load(activeId)
@@ -75,5 +84,27 @@ export default function App(): JSX.Element {
       )}
       <StatusBar />
     </div>
+  )
+}
+
+export default function App(): JSX.Element {
+  const presetId = useThemeStore((state) => state.presetId)
+  const light = getTheme(presetId).light
+  return (
+    <ConfigProvider
+      theme={{
+        algorithm: light ? antdTheme.defaultAlgorithm : antdTheme.darkAlgorithm,
+        token: {
+          colorPrimary: 'var(--accent)',
+          colorBgElevated: 'var(--bg-raised)',
+          colorText: 'var(--text-primary)',
+          colorBorder: 'var(--border)'
+        }
+      }}
+    >
+      <AntdApp message={{ top: 48, maxCount: 3 }}>
+        <AppShell />
+      </AntdApp>
+    </ConfigProvider>
   )
 }

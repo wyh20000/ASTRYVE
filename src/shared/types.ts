@@ -20,12 +20,44 @@ export interface AgentProjectPreferences {
   workspaceId: string
   permissionMode: PermissionMode
   executionEnvironment: ExecutionEnvironment
+  /** Immutable local image id selected by the user. Never supplied by the model. */
+  dockerImageId?: string
 }
 
 export interface AgentExecutionCapabilities {
   dockerAvailable: boolean
   dockerReason?: string
+  dockerPreflight?: DockerPreflightStatus
+  dockerImages?: DockerImageOption[]
   localAvailable: boolean
+}
+
+export interface DockerImageOption {
+  imageId: string
+  repository: string
+  tag: string
+  digest?: string
+  source: 'local'
+}
+
+export interface DockerPreflightStatus {
+  checkedAt: number
+  cliFound: boolean
+  clientVersion?: string
+  contextName?: string
+  localContext: boolean
+  daemonReachable: boolean
+  serverVersion?: string
+  operatingSystem?: string
+  linuxContainers: boolean
+  diskChecked: boolean
+  diskSummary?: string
+  imageReference: string
+  imagePresent: boolean
+  imageDigest?: string
+  images: DockerImageOption[]
+  ready: boolean
+  reason: string
 }
 
 export interface AgentProjectSettings {

@@ -11,13 +11,15 @@ import { AuditJournal } from './auditJournal'
 import { BoundApprovalService } from './approvalService'
 import { DenyFirstPolicyEngine, type AuditWriter } from './policyEngine'
 import { LocalExecutionBackend } from './localExecutionBackend'
-import { createProcessRunTool } from './processRunTool'
+import { createProcessTools } from './processRunTool'
 import { getWorkspaceService } from './workspaceManager'
 import { getSessionWorkspaceId } from './workspaceManager'
 import { getAgentProjectPreferences } from '../settings'
 import { AGENT_EXECUTION_CAPABILITIES, defaultAgentProjectPreferences } from './projectPreferences'
 import { createWorkspaceReadTools } from './workspaceReadTools'
 import { createGitReadTools } from './gitReadTools'
+import { DockerExecutionBackend } from './dockerExecutionBackend'
+import { createDockerNetworkTool } from './dockerNetworkTool'
 
 export async function createProjectTask(sessionId: string, ownerWebContentsId: number) {
   const [{ BrowserWindow }, { getStore }, settings, workspaces, { AGENT_EXECUTION_CAPABILITIES }] = await Promise.all([
@@ -64,12 +66,23 @@ export function initTaskRuntime(): TaskRuntime {
       if (runtime?.getTaskSnapshot(taskId)) runtime.appendOutput(taskId, stream, chunk)
     }
   })
-  registry.register(createProcessRunTool(localBackend))
+  const dockerBackend = new DockerExecutionBackend({
+    verifyWorkspace: async (workspaceId) => { await getWorkspaceService().activate(workspaceId) },
+    appendOutput: (taskId, stream, chunk) => {
+      if (runtime?.getTaskSnapshot(taskId)) runtime.appendOutput(taskId, stream, chunk)
+    }
+  })
+  for (const tool of createProcessTools(localBackend, dockerBackend)) registry.register(tool)
+  registry.register(createDockerNetworkTool(dockerBackend))
   for (const tool of createWorkspaceReadTools(getWorkspaceService)) registry.register(tool)
   for (const tool of createGitReadTools(localBackend)) registry.register(tool)
   runtime.subscribe((event) => {
     const status = runtime?.getTaskSnapshot(event.taskId)?.status
-    if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) authorization.revokeTask(event.taskId)
+    if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) {
+      authorization.revokeTask(event.taskId)
+      void localBackend.stopTask(event.taskId)
+      void dockerBackend.stopTask(event.taskId)
+    }
   })
   return runtime
 }
@@ -109,7 +122,9 @@ export function shouldUseProjectAgent(sessionId: string): boolean {
   const workspaceId = getSessionWorkspaceId(sessionId)
   if (!workspaceId) return false
   const preferences = getAgentProjectPreferences(workspaceId) ?? defaultAgentProjectPreferences(workspaceId)
-  return preferences.executionEnvironment === 'local' && AGENT_EXECUTION_CAPABILITIES.localAvailable
+  return preferences.executionEnvironment === 'local'
+    ? AGENT_EXECUTION_CAPABILITIES.localAvailable
+    : AGENT_EXECUTION_CAPABILITIES.dockerAvailable
 }
 
 export function cancelTasksForSession(sessionId: string, reason: string): number {

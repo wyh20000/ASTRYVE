@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { useAgentSettingsStore } from '../../stores/agentSettingsStore'
 import {
   AgentControls,
+  dockerStatusText,
   executionEnvironmentLabel,
   permissionModeLabel,
   PERMISSION_OPTIONS
@@ -29,5 +30,18 @@ describe('AgentControls', () => {
     const html = renderToStaticMarkup(<AgentControls />)
     expect(html.match(/disabled=""/g)).toHaveLength(2)
     expect(html).toContain('请先选择项目工作区')
+  })
+
+  it('describes the real Docker preflight state in the environment selector', () => {
+    const text = dockerStatusText('内置沙箱镜像未安装：node:22.14.0-bookworm-slim', {
+      checkedAt: 1, cliFound: true, clientVersion: '29.5.3', contextName: 'desktop-linux', localContext: true, daemonReachable: true,
+      serverVersion: '29.5.3', operatingSystem: 'Docker Desktop', linuxContainers: true,
+      diskChecked: true, imageReference: 'node:22.14.0-bookworm-slim', imagePresent: false,
+      images: [],
+      ready: false, reason: '内置沙箱镜像未安装：node:22.14.0-bookworm-slim'
+    })
+    expect(text).toContain('内置沙箱镜像未安装')
+    expect(text).toContain('CLI 29.5.3')
+    expect(text).toContain('Linux container')
   })
 })

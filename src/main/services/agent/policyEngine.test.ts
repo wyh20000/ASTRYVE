@@ -38,7 +38,7 @@ const cases: Array<{
     input: { executable: 'vitest', args: ['run'] },
     expected: effects('allow')
   },
-  { operation: 'network.enable', input: { url: 'https://example.com' }, expected: effects('ask') },
+  { operation: 'network.enable', input: { url: 'https://example.com', scope: 'once' }, expected: effects('ask') },
   { operation: 'git.write', input: { action: 'commit' }, expected: effects('ask') }
 ]
 
@@ -75,13 +75,33 @@ describe('DenyFirstPolicyEngine', () => {
     ).toBe('PROJECT_SCRIPT_REQUIRES_APPROVAL')
   })
 
+  it('always asks to start a service and allows stopping a task-owned service', () => {
+    const start = classifyOperation('process.start', {
+      executable: 'node', args: ['server.js'], expectedPorts: [3000]
+    }, workspace)
+    expect(evaluate('smart-approval', 'process.start', start, 'local')).toMatchObject({
+      outcome: 'ask', risk: 'high', reasonCode: 'LONG_RUNNING_COMMAND_REQUIRES_APPROVAL'
+    })
+    const stop = classifyOperation('process.stop', { serviceId: 'service-1' }, workspace)
+    expect(evaluate('smart-approval', 'process.stop', stop, 'local')).toMatchObject({
+      outcome: 'allow', risk: 'low', reasonCode: 'TASK_SERVICE_STOP'
+    })
+  })
+
+  it('denies Docker network grants in the local execution environment', () => {
+    const target = classifyOperation('network.enable', { url: 'https://example.com', scope: 'once' }, workspace)
+    expect(evaluate('ask-every-time', 'network.enable', target, 'local')).toMatchObject({
+      outcome: 'deny', reasonCode: 'NETWORK_SCOPE_REQUIRES_DOCKER'
+    })
+  })
+
   it.each([
     ['path escape', 'fs.read', classifyOperation('fs.read', { path: '..' }, workspace)],
     ['sensitive path', 'fs.read', classifyOperation('fs.read', { path: '.env' }, workspace)],
     [
       'unsupported protocol',
       'network.enable',
-      classifyOperation('network.enable', { url: 'file:///tmp/a' }, workspace)
+      classifyOperation('network.enable', { url: 'file:///tmp/a', scope: 'once' }, workspace)
     ],
     [
       'shell interpreter',

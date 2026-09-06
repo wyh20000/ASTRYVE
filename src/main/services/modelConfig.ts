@@ -13,8 +13,19 @@ export const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: s
 
 export const MIN_CONTEXT_MESSAGES = 1
 export const MAX_CONTEXT_MESSAGES = 50
-export const DEFAULT_CONTEXT_MESSAGES = 20
+export const DEFAULT_CONTEXT_MESSAGES = 50
 export const DEFAULT_CONTEXT_TOKENS = 128_000
+
+/** Internal context policy. The renderer does not ask users to tune provider limits. */
+export function automaticContextTokens(provider: ModelProvider, model: string): number {
+  const normalized = model.trim().toLocaleLowerCase('en-US')
+  // DeepSeek V4 has a 1M context window and up to 384K output. Keep a
+  // conservative input allowance for output plus tokenizer estimation error.
+  if (provider === 'deepseek' && /(?:^|[-_])v4(?:[-_]|$)/.test(normalized)) return 600_000
+  const namedWindow = normalized.match(/(?:^|[-_])(\d{1,4})k(?:[-_]|$)/)
+  if (namedWindow) return Math.min(1_000_000, Math.max(8_000, Number(namedWindow[1]) * 1_000))
+  return DEFAULT_CONTEXT_TOKENS
+}
 
 export function normalizeContextMessages(value: unknown): number {
   const parsed = Math.trunc(Number(value))
@@ -40,8 +51,8 @@ function makeDefaultPreset(): ModelPreset {
     hasApiKey: Boolean(apiKey),
     model: process.env.MODEL ?? preset.model,
     capabilities: { imageInput: supportsImageInput(process.env.MODEL ?? preset.model) },
-    contextMessages: normalizeContextMessages(process.env.CONTEXT_MESSAGES ?? DEFAULT_CONTEXT_MESSAGES),
-    contextTokens: DEFAULT_CONTEXT_TOKENS
+    contextMessages: DEFAULT_CONTEXT_MESSAGES,
+    contextTokens: automaticContextTokens(provider, process.env.MODEL ?? preset.model)
   }
 }
 
@@ -71,8 +82,10 @@ export function normalizePreset(p: Partial<ModelPreset>): ModelPreset {
     hasApiKey: p.hasApiKey ?? Boolean(p.apiKey),
     model: p.model ?? '',
     capabilities: p.capabilities ?? { imageInput: supportsImageInput(p.model ?? '') },
-    contextMessages: normalizeContextMessages(p.contextMessages ?? DEFAULT_CONTEXT_MESSAGES),
-    contextTokens: Math.min(1_000_000, Math.max(8_000, Math.trunc(p.contextTokens ?? DEFAULT_CONTEXT_TOKENS)))
+    // Kept in the serialized shape for backward compatibility. Runtime history
+    // is token-budgeted and no longer truncated by a user-configurable count.
+    contextMessages: DEFAULT_CONTEXT_MESSAGES,
+    contextTokens: automaticContextTokens(provider, p.model ?? '')
   }
 }
 

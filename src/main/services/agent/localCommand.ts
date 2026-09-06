@@ -8,7 +8,12 @@ export type CommandOutput = (stream: 'stdout' | 'stderr', text: string) => void
 const MAX_OUTPUT = 1024 * 1024
 
 /** Worker-only primitive; authorization and executable resolution must precede this call. */
-export function runLocalCommand(command: LocalCommand, signal: AbortSignal, output: CommandOutput): Promise<ExecutionResult> {
+export function runLocalCommand(
+  command: LocalCommand,
+  signal: AbortSignal,
+  output: CommandOutput,
+  onStarted?: (pid: number) => void
+): Promise<ExecutionResult> {
   validateLocalCommand(command)
   if (signal.aborted) return Promise.reject(new Error('COMMAND_CANCELLED'))
   const started = Date.now()
@@ -47,6 +52,9 @@ export function runLocalCommand(command: LocalCommand, signal: AbortSignal, outp
     const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', abort) }
     child.stdout.on('data', (chunk: Buffer) => emit('stdout', chunk))
     child.stderr.on('data', (chunk: Buffer) => emit('stderr', chunk))
+    child.once('spawn', () => {
+      if (child.pid) onStarted?.(child.pid)
+    })
     child.once('error', (error) => { cleanup(); reject(error) })
     child.once('close', (exitCode) => {
       cleanup()
@@ -65,6 +73,11 @@ export function validateLocalCommand(input: unknown): asserts input is LocalComm
     /\.(?:cmd|bat|ps1)$/i.test(c.executable) || typeof c.cwd !== 'string' || !isAbsolute(c.cwd) ||
     !Array.isArray(c.args) || c.args.length > 256 || c.args.some((arg) => typeof arg !== 'string' || arg.length > 8192 || arg.includes('\0')) ||
     !Number.isInteger(c.timeoutMs) || c.timeoutMs! < 1 || c.timeoutMs! > 600_000 ||
+    (c.expectedPorts !== undefined && (
+      !Array.isArray(c.expectedPorts) || c.expectedPorts.length > 16 ||
+      c.expectedPorts.some((port) => !Number.isSafeInteger(port) || port < 1 || port > 65_535) ||
+      new Set(c.expectedPorts).size !== c.expectedPorts.length
+    )) ||
     !c.env || typeof c.env !== 'object' || Array.isArray(c.env) ||
     Object.entries(c.env).some(([key, value]) => ![
       'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'CI', 'NO_COLOR', 'LANG', 'LC_ALL',

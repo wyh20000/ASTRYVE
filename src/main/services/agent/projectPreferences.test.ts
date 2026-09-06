@@ -78,4 +78,20 @@ describe('project agent preferences', () => {
       workspaceId: 'workspace-1', permissionMode: 'read-only', executionEnvironment: 'local'
     }, workspaceIds, { dockerAvailable: false, localAvailable: false })).toThrowError('本机执行当前不可用')
   })
+
+  it('accepts only an existing immutable local Docker image selection', () => {
+    const imageId = `sha256:${'a'.repeat(64)}`
+    const capabilities = {
+      dockerAvailable: true, localAvailable: true,
+      dockerImages: [{ imageId, repository: 'node', tag: '22', source: 'local' as const }]
+    }
+    expect(validateAgentProjectPreferences({
+      workspaceId: 'workspace-1', permissionMode: 'ask-every-time',
+      executionEnvironment: 'docker', dockerImageId: imageId
+    }, workspaceIds, capabilities).dockerImageId).toBe(imageId)
+    expect(() => validateAgentProjectPreferences({
+      workspaceId: 'workspace-1', permissionMode: 'ask-every-time',
+      executionEnvironment: 'docker', dockerImageId: `sha256:${'b'.repeat(64)}`
+    }, workspaceIds, capabilities)).toThrow('镜像已不存在')
+  })
 })

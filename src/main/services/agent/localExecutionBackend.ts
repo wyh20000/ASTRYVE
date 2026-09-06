@@ -1,8 +1,19 @@
 import { delimiter, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtemp, rm } from 'node:fs/promises'
-import type { ExecutionBackend, ExecutionRequest, ExecutionResult } from '../../../shared/agent'
-import { executeInUtilityProcess } from './localExecutionProcess'
+import { randomUUID } from 'node:crypto'
+import type {
+  ExecutionRequest,
+  ExecutionResult,
+  ExecutionServiceInfo,
+  ExecutionServiceRequest,
+  ServiceExecutionBackend
+} from '../../../shared/agent'
+import {
+  executeInUtilityProcess,
+  startLongRunningInUtilityProcess,
+  type RunningUtilityService
+} from './localExecutionProcess'
 import { LOCAL_EXECUTABLES, resolveTrustedExecutable, type LocalExecutableName } from './trustedExecutable'
 
 export interface LocalExecutionBackendDependencies {
@@ -10,12 +21,20 @@ export interface LocalExecutionBackendDependencies {
   appendOutput: (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => void
   resolveExecutable?: typeof resolveTrustedExecutable
   execute?: typeof executeInUtilityProcess
+  startService?: typeof startLongRunningInUtilityProcess
 }
 
 /** Main-process adapter. Every run is isolated in its own utility process. */
-export class LocalExecutionBackend implements ExecutionBackend {
+interface RunningService {
+  taskId: string
+  controller: AbortController
+  process: RunningUtilityService
+}
+
+export class LocalExecutionBackend implements ServiceExecutionBackend {
   readonly environment = 'local' as const
   private readonly running = new Map<string, Set<AbortController>>()
+  private readonly services = new Map<string, RunningService>()
 
   constructor(private readonly dependencies: LocalExecutionBackendDependencies) {}
 
@@ -63,6 +82,76 @@ export class LocalExecutionBackend implements ExecutionBackend {
 
   async stopTask(taskId: string): Promise<void> {
     for (const controller of this.running.get(taskId) ?? []) controller.abort('TASK_STOPPED')
+  }
+
+  async startService(
+    request: ExecutionServiceRequest,
+    signal: AbortSignal
+  ): Promise<ExecutionServiceInfo> {
+    if (signal.aborted) throw new Error('COMMAND_CANCELLED')
+    if (!(LOCAL_EXECUTABLES as readonly string[]).includes(request.executable)) {
+      throw new Error('EXECUTABLE_NOT_ALLOWED')
+    }
+    await this.dependencies.verifyWorkspace(request.workspace.id)
+    if (signal.aborted) throw new Error('COMMAND_CANCELLED')
+
+    const resolveExecutable = this.dependencies.resolveExecutable ?? resolveTrustedExecutable
+    const resolved = await resolveExecutable(request.executable as LocalExecutableName)
+    const controller = new AbortController()
+    const runtimeHome = await mkdtemp(join(tmpdir(), 'ai-agent-service-'))
+    const abort = () => controller.abort(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    this.add(request.taskId, controller)
+    let process: RunningUtilityService
+    try {
+      const startService = this.dependencies.startService ?? startLongRunningInUtilityProcess
+      process = await startService({
+        executable: resolved.executable,
+        args: [
+          ...resolved.prefixArgs,
+          ...(request.executable === 'git' ? ['-c', `safe.directory=${request.workspace.realRootPath}`] : []),
+          ...request.args
+        ],
+        cwd: request.workspace.realRootPath,
+        env: minimalEnvironment(request.workspace.realRootPath, resolved.trustedPathEntries, runtimeHome),
+        timeoutMs: request.timeoutMs,
+        expectedPorts: request.expectedPorts
+      }, controller.signal, (stream, chunk) => {
+        try { this.dependencies.appendOutput(request.taskId, stream, chunk) } catch {
+          controller.abort('TASK_OUTPUT_UNAVAILABLE')
+        }
+      })
+    } catch (error) {
+      signal.removeEventListener('abort', abort)
+      this.remove(request.taskId, controller)
+      await rm(runtimeHome, { recursive: true, force: true }).catch(() => undefined)
+      throw error
+    }
+
+    const serviceId = randomUUID()
+    this.services.set(serviceId, { taskId: request.taskId, controller, process })
+    const cleanup = async (): Promise<void> => {
+      signal.removeEventListener('abort', abort)
+      this.remove(request.taskId, controller)
+      this.services.delete(serviceId)
+      await rm(runtimeHome, { recursive: true, force: true }).catch(() => undefined)
+    }
+    void process.completion.then(cleanup, cleanup)
+    return {
+      serviceId,
+      pid: process.pid,
+      expectedPorts: [...(request.expectedPorts ?? [])],
+      startedAt: Date.now()
+    }
+  }
+
+  async stopService(taskId: string, serviceId: string): Promise<boolean> {
+    const service = this.services.get(serviceId)
+    if (!service || service.taskId !== taskId) return false
+    service.controller.abort('SERVICE_STOPPED')
+    await service.process.completion.catch(() => undefined)
+    return true
   }
 
   private add(taskId: string, controller: AbortController): void {

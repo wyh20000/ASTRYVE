@@ -143,6 +143,62 @@ describe('streamChatTurn', () => {
       tool_calls: [{ function: { name: 'workspace_readFile' } }]
     })
     expect(secondBody.messages[2].name).toBe('workspace_readFile')
+    expect(secondBody.tool_choice).toBe('auto')
+    expect(secondBody.thinking).toEqual({ type: 'enabled' })
+    expect(secondBody.reasoning_effort).toBe('max')
+  })
+
+  it('keeps DeepSeek thinking enabled and omits unsupported required tool choice', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(sseResponse([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"test_tool","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}',
+      'data: [DONE]'
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const tools = [{
+      type: 'function' as const,
+      function: {
+        name: 'test.tool', description: 'Test',
+        parameters: { type: 'object' as const, properties: {}, additionalProperties: false as const }
+      }
+    }]
+
+    await streamChatTurn(
+      {
+        provider: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'key',
+        model: 'deepseek-v4-pro', reasoningEffort: 'high'
+      },
+      [{ role: 'user', content: 'test' }],
+      () => undefined,
+      { tools, toolChoice: 'required' }
+    )
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body).not.toHaveProperty('tool_choice')
+    expect(body.thinking).toEqual({ type: 'enabled' })
+    expect(body.reasoning_effort).toBe('max')
+  })
+
+  it('keeps required tool choice for compatible non-thinking providers', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(sseResponse([
+      'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}',
+      'data: [DONE]'
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const tools = [{
+      type: 'function' as const,
+      function: {
+        name: 'test.tool', description: 'Test',
+        parameters: { type: 'object' as const, properties: {}, additionalProperties: false as const }
+      }
+    }]
+    await streamChatTurn(
+      { provider: 'custom', baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      [{ role: 'user', content: 'test' }],
+      () => undefined,
+      { tools, toolChoice: 'required' }
+    )
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.tool_choice).toBe('required')
   })
 
   it('rejects malformed native tool-call deltas instead of inspecting text', async () => {

@@ -34,7 +34,9 @@ describe('taskRuntimeManager', () => {
     const runtime = initTaskRuntime()
     expect(getTaskRuntime()).toBe(runtime)
     expect(getToolRegistry().list().map((tool) => tool.name)).toEqual([
-      'process.run', 'workspace.listFiles', 'workspace.readFile', 'workspace.searchText', 'workspace.findFiles',
+      'process.run', 'process.startService', 'process.stop',
+      'docker.enableNetwork',
+      'workspace.listFiles', 'workspace.readFile', 'workspace.searchText', 'workspace.findFiles',
       'git.status', 'git.diff', 'git.log', 'git.show'
     ])
     const task = runtime.createTask({

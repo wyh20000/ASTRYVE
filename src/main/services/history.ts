@@ -7,13 +7,20 @@ import type { ChatMessage, ChatContentPart } from './modelProvider'
  * 纯文本请求会剥掉历史图片只留文字，避免不支持图片的模型收到 image_url 而报 400。
  */
 export function toChatMessage(m: Message, vision: boolean): ChatMessage {
+  const reasoningContent = m.role === 'assistant'
+    ? m.blocks?.find((block) => block.kind === 'thinking')?.content
+    : undefined
   const images = vision
     ? (m.attachments ?? []).filter(
         (a): a is Attachment & { kind: 'image' } => a.kind === 'image' && a.dataRef.startsWith('data:')
       )
     : []
   if (images.length === 0) {
-    return { role: m.role as ChatMessage['role'], content: m.content }
+    return {
+      role: m.role as ChatMessage['role'],
+      content: m.content,
+      ...(reasoningContent ? { reasoning_content: reasoningContent } : {})
+    }
   }
   const parts: ChatContentPart[] = []
   if (m.content.trim()) parts.push({ type: 'text', text: m.content })
@@ -39,8 +46,13 @@ export function estimateTextTokens(text: string): number {
 }
 
 export function estimateMessageTokens(message: ChatMessage): number {
-  if (typeof message.content === 'string') return 4 + estimateTextTokens(message.content)
-  return (
+  const reasoningTokens = message.reasoning_content
+    ? estimateTextTokens(message.reasoning_content)
+    : 0
+  if (typeof message.content === 'string') {
+    return 4 + estimateTextTokens(message.content) + reasoningTokens
+  }
+  return reasoningTokens + (
     4 +
     (message.content ?? []).reduce(
       (sum, part) => sum + (part.type === 'text' ? estimateTextTokens(part.text) : 1024),

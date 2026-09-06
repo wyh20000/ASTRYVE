@@ -8,3 +8,4 @@ dist/
 *.tsbuildinfo
 *.err
 .smoke*.log*
+.diag.cjs

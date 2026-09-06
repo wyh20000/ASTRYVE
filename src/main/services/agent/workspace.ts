@@ -266,7 +266,14 @@ export class WorkspaceBoundaryService {
     return toSummary(grant)
   }
 
-  async listFiles(workspaceId: string, relativePath = ''): Promise<WorkspaceFileEntry[]> {
+  async listFiles(
+    workspaceId: string,
+    relativePath = '',
+    maxEntries: number = WORKSPACE_LIMITS.maxEntries
+  ): Promise<WorkspaceFileEntry[]> {
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || maxEntries > WORKSPACE_LIMITS.maxEntries + 1) {
+      throw new WorkspaceError('LIMIT_EXCEEDED', '目录列表数量限制无效')
+    }
     const start = await this.resolveExisting(workspaceId, relativePath, 'directory', true)
     const root = this.requireGrant(workspaceId).realRootPath
     const result: WorkspaceFileEntry[] = []
@@ -276,9 +283,7 @@ export class WorkspaceBoundaryService {
 
     while (queue.length) {
       const current = queue.shift()!
-      if (current.depth > WORKSPACE_LIMITS.maxDepth) {
-        throw new WorkspaceError('LIMIT_EXCEEDED', '目录深度超过安全限制')
-      }
+      if (current.depth > WORKSPACE_LIMITS.maxDepth) continue
       const children = await readdir(current.absolute, { withFileTypes: true })
       for (const child of children) {
         if (child.isSymbolicLink()) continue
@@ -302,12 +307,67 @@ export class WorkspaceBoundaryService {
         } else if (info.isFile()) {
           result.push({ path: safeRelative.split(sep).join('/'), name: child.name, kind: 'file', size: info.size })
         }
-        if (result.length > WORKSPACE_LIMITS.maxEntries) {
-          throw new WorkspaceError('LIMIT_EXCEEDED', '文件数量超过安全限制')
-        }
+        // Large repositories are normal. Return a safe prefix so the caller
+        // can narrow its next query instead of failing the whole operation.
+        if (result.length >= maxEntries) return result
       }
     }
     return result
+  }
+
+  /**
+   * Lists one directory page without recursively scanning the project. The
+   * project may contain any number of files; limits apply only to this page.
+   */
+  async listDirectory(
+    workspaceId: string,
+    relativePath = '',
+    offset = 0,
+    limit = 200
+  ): Promise<{ entries: WorkspaceFileEntry[]; nextOffset?: number }> {
+    if (!Number.isSafeInteger(offset) || offset < 0 ||
+        !Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+      throw new WorkspaceError('LIMIT_EXCEEDED', '目录分页参数无效')
+    }
+    const directory = await this.resolveExisting(workspaceId, relativePath, 'directory', true)
+    const root = this.requireGrant(workspaceId).realRootPath
+    const base = relativePath ? normalizeWorkspaceRelativePath(relativePath) : ''
+    const children = (await readdir(directory, { withFileTypes: true }))
+      .filter((child) => {
+        if (child.isSymbolicLink() || (!child.isDirectory() && !child.isFile())) return false
+        const lower = child.name.toLocaleLowerCase('en-US')
+        if (isBlockedName(lower)) return false
+        return !(child.isDirectory() && IGNORED_GENERATED_DIRECTORIES.has(lower))
+      })
+      .sort((left, right) => {
+        if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1
+        return left.name.localeCompare(right.name, 'en-US')
+      })
+
+    const page = children.slice(offset, offset + limit)
+    const entries: WorkspaceFileEntry[] = []
+    for (const child of page) {
+      let safeRelative: string
+      try {
+        safeRelative = normalizeWorkspaceRelativePath(base ? `${base}/${child.name}` : child.name)
+      } catch {
+        continue
+      }
+      const absolute = resolve(root, safeRelative)
+      if (!isPathInside(root, absolute)) continue
+      const info = await lstat(absolute)
+      if (info.isSymbolicLink()) continue
+      if (info.isDirectory()) {
+        entries.push({ path: safeRelative.split(sep).join('/'), name: child.name, kind: 'directory' })
+      } else if (info.isFile()) {
+        entries.push({ path: safeRelative.split(sep).join('/'), name: child.name, kind: 'file', size: info.size })
+      }
+    }
+    const nextOffset = offset + page.length
+    return {
+      entries,
+      ...(nextOffset < children.length ? { nextOffset } : {})
+    }
   }
 
   async readFile(workspaceId: string, relativePath: string): Promise<WorkspaceFileContent> {
@@ -379,9 +439,7 @@ export class WorkspaceBoundaryService {
       if (
         scannedFiles > WORKSPACE_LIMITS.maxSearchFiles ||
         scannedBytes > WORKSPACE_LIMITS.maxSearchBytes
-      ) {
-        throw new WorkspaceError('LIMIT_EXCEEDED', '搜索范围超过安全限制')
-      }
+      ) break
       let file: WorkspaceFileContent
       try {
         file = await this.readFile(workspaceId, entry.path)

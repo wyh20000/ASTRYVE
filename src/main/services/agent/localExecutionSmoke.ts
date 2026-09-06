@@ -37,6 +37,28 @@ export async function runLocalExecutionSmoke(): Promise<void> {
     executable: 'git', args: ['status', '--short', '--', '.'], captureOnly: true }, new AbortController().signal)
   if (git.exitCode !== 0) throw new Error(`Trusted Git execution failed: ${git.stderr}`)
 
+  const service = await backend.startService({
+    ...base,
+    taskId: 'smoke-service',
+    callId: 'smoke-call-service',
+    args: ['-e', 'setInterval(()=>{},1000)'],
+    expectedPorts: [43123]
+  }, new AbortController().signal)
+  if (service.pid <= 0 || service.expectedPorts[0] !== 43123) {
+    throw new Error('Service startup metadata was invalid')
+  }
+  try { process.kill(service.pid, 0) } catch { throw new Error('Service exited before lifecycle stop') }
+  if (!(await backend.stopService('smoke-service', service.serviceId))) {
+    throw new Error('Task-owned service could not be stopped')
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  try {
+    process.kill(service.pid, 0)
+    throw new Error('Service survived explicit stop')
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Service survived explicit stop') throw error
+  }
+
   if (process.platform === 'win32') {
     activeController = new AbortController()
     const running = backend.run({ ...base, taskId: 'smoke-tree', callId: 'smoke-call-2', args: ['-e',

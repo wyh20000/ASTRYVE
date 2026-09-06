@@ -19,8 +19,10 @@ export class DenyFirstPolicyEngine implements PolicyEngine {
   ) {}
 
   evaluate(context: PolicyContext): PolicyDecision {
-    const hardDenial = evaluateHardDenial(context.target)
-    const decision = hardDenial ?? evaluateMode(context)
+    const hardDenial = context.operation === 'network.enable' && context.invocation.environment !== 'docker'
+      ? decision('deny', 'high', 'NETWORK_SCOPE_REQUIRES_DOCKER', '联网授权只适用于 Docker 沙箱', context.target)
+      : evaluateHardDenial(context.target)
+    const result = hardDenial ?? evaluateMode(context)
     this.writeAudit(sanitizeAuditEvent({
       id: randomUUID(),
       timestamp: this.now(),
@@ -28,16 +30,16 @@ export class DenyFirstPolicyEngine implements PolicyEngine {
       workspaceId: context.workspace.id,
       actor: 'policy',
       action: context.operation,
-      outcome: decision.outcome,
-      risk: decision.risk,
-      reasonCode: decision.reasonCode,
-      target: hashAuditTarget(decision.normalizedTarget),
+      outcome: result.outcome,
+      risk: result.risk,
+      reasonCode: result.reasonCode,
+      target: hashAuditTarget(result.normalizedTarget),
       metadata: {
         permissionMode: context.permissionMode,
         environment: context.invocation.environment
       }
     }))
-    return decision
+    return result
   }
 }
 
@@ -76,6 +78,10 @@ function evaluateMode(context: PolicyContext): PolicyDecision {
     context.operation === 'fs.search' ||
     context.operation === 'git.read'
 
+  if (context.operation === 'process.stop' && target.type === 'service-stop') {
+    return decision('allow', 'low', 'TASK_SERVICE_STOP', '允许停止当前任务启动的服务', target)
+  }
+
   if (readOperation) {
     return decision('allow', 'low', 'SAFE_READ', '允许工作区内只读操作', target)
   }
@@ -111,6 +117,7 @@ function evaluateMode(context: PolicyContext): PolicyDecision {
 }
 
 function riskFor(target: NormalizedOperationTarget): RiskLevel {
+  if (target.type === 'service-stop') return 'low'
   if (target.type === 'host-patch') return 'high'
   if (target.type === 'network') return 'high'
   if (target.type === 'git' && target.write) return 'high'

@@ -23,10 +23,11 @@ port.on('message', (event: { data: unknown }) => {
       const output = (stream: 'stdout' | 'stderr', text: string) => {
         port.postMessage({ type: 'output', stream, text })
       }
+      const started = (pid: number) => port.postMessage({ type: 'started', pid })
       const helper = join(__dirname, '../native/JobHost.exe').replace('app.asar', 'app.asar.unpacked')
       const result = process.platform === 'win32'
-        ? await runWindowsJob(helper, message.command, controller.signal, output)
-        : await runLocalCommand(message.command, controller.signal, output)
+        ? await runWindowsJob(helper, message.command, controller.signal, output, undefined, started)
+        : await runLocalCommand(message.command, controller.signal, output, started)
       port.postMessage({ type: 'result', result })
     } catch (error) {
       port.postMessage({ type: 'error', message: error instanceof Error ? error.message : 'COMMAND_FAILED' })

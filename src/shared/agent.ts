@@ -32,6 +32,8 @@ export const OPERATION_KINDS = [
   'fs.patch',
   'fs.apply-host',
   'process.run',
+  'process.start',
+  'process.stop',
   'network.enable',
   'git.read',
   'git.write'
@@ -156,6 +158,7 @@ export interface ToolExecutionContext {
   workspace: WorkspaceGrant
   environment: ExecutionEnvironment
   permissionMode: PermissionMode
+  dockerImageId?: string
   signal: AbortSignal
 }
 
@@ -173,6 +176,7 @@ export interface NormalizedCommand {
   cwd: string
   env: Record<string, string>
   timeoutMs: number
+  expectedPorts?: number[]
 }
 
 export interface CommandRiskSignals {
@@ -205,6 +209,11 @@ export type NormalizedOperationTarget =
       type: 'network'
       protocol: 'http:' | 'https:' | 'other'
       host: string
+      scope: 'once' | 'task'
+    }
+  | {
+      type: 'service-stop'
+      serviceId: string
     }
   | {
       type: 'git'
@@ -296,6 +305,8 @@ export interface ExecutionRequest {
   executable: string
   args: string[]
   timeoutMs: number
+  /** Trusted immutable image id captured when the task was created. */
+  dockerImageId?: string
   /** Trusted host tools may suppress raw output events and return only a sanitized result. */
   captureOnly?: boolean
 }
@@ -306,12 +317,49 @@ export interface ExecutionResult {
   stdout: string
   stderr: string
   truncated: boolean
+  sandboxChanges?: SandboxChangeManifest
+}
+
+export interface SandboxFileChange {
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+  beforeHash?: string
+  afterHash?: string
+  size?: number
+  diff?: string
+}
+
+export interface SandboxChangeManifest {
+  files: SandboxFileChange[]
+  added: number
+  modified: number
+  deleted: number
+  truncated: boolean
+}
+
+export interface ExecutionServiceRequest extends ExecutionRequest {
+  expectedPorts?: number[]
+}
+
+export interface ExecutionServiceInfo {
+  serviceId: string
+  pid: number
+  expectedPorts: number[]
+  startedAt: number
 }
 
 export interface ExecutionBackend {
   readonly environment: ExecutionEnvironment
   run: (request: ExecutionRequest, signal: AbortSignal) => Promise<ExecutionResult>
   stopTask: (taskId: string) => Promise<void>
+}
+
+export interface ServiceExecutionBackend extends ExecutionBackend {
+  startService: (
+    request: ExecutionServiceRequest,
+    signal: AbortSignal
+  ) => Promise<ExecutionServiceInfo>
+  stopService: (taskId: string, serviceId: string) => Promise<boolean>
 }
 
 export type TaskEventType =
@@ -346,6 +394,7 @@ export interface TaskSnapshot {
   ownerWebContentsId: number
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
+  dockerImageId?: string
   status: TaskStatus
   sequence: number
   createdAt: number

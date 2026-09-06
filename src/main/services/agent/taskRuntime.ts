@@ -42,6 +42,7 @@ interface RuntimeTask {
   controller: AbortController
   taskTimeoutMs: number
   toolTimeoutMs: number
+  dockerImageId?: string
   taskTimeout: TimerHandle | undefined
   queue: QueuedToolCall[]
   processing: boolean
@@ -62,6 +63,7 @@ export interface CreateTaskInput {
   ownerWebContentsId: number
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
+  dockerImageId?: string
   taskTimeoutMs?: number
   toolTimeoutMs?: number
 }
@@ -161,6 +163,7 @@ export class TaskRuntime {
       ownerWebContentsId: input.ownerWebContentsId,
       permissionMode: input.permissionMode,
       environment: input.environment,
+      dockerImageId: input.dockerImageId,
       now: this.now()
     })
     const task: RuntimeTask = {
@@ -170,6 +173,7 @@ export class TaskRuntime {
       controller: new AbortController(),
       taskTimeoutMs,
       toolTimeoutMs,
+      dockerImageId: input.dockerImageId,
       taskTimeout: undefined,
       queue: [],
       processing: false,
@@ -369,7 +373,7 @@ export class TaskRuntime {
         current.resolve(result)
         current = undefined
 
-        if (!result.ok) {
+        if (!result.ok && isTerminalToolFailureCode(result.error?.code)) {
           this.finish(task, 'failed', result.error?.code === 'TOOL_TIMEOUT' ? 'tool_timeout' : 'tool_failed')
           break
         }
@@ -403,6 +407,7 @@ export class TaskRuntime {
           workspace: task.workspace,
           environment: invocation.environment,
           permissionMode: invocation.permissionMode,
+          dockerImageId: task.dockerImageId,
           signal: controller.signal
         })
         .then((result) => ({ kind: 'result' as const, result }))
@@ -533,7 +538,9 @@ export class TaskRuntime {
       !Number.isSafeInteger(input.ownerWebContentsId) ||
       input.ownerWebContentsId <= 0 ||
       !isPermissionMode(input.permissionMode) ||
-      !isExecutionEnvironment(input.environment)
+      !isExecutionEnvironment(input.environment) ||
+      (input.dockerImageId !== undefined && !/^sha256:[a-f0-9]{64}$/i.test(input.dockerImageId)) ||
+      (input.environment !== 'docker' && input.dockerImageId !== undefined)
     ) {
       throw new TaskRuntimeError('INVALID_TASK_INPUT', 'Task context is invalid')
     }
@@ -696,4 +703,20 @@ function rejectedToolResult(error: unknown): ToolResult<unknown> {
       message: error instanceof Error ? error.message : 'Tool call was rejected'
     }
   }
+}
+
+/** Failures that indicate cancellation or a broken execution boundary. */
+export function isTerminalToolFailureCode(code: string | undefined): boolean {
+  return code === 'TASK_CANCELLED' ||
+    code === 'TOOL_TIMEOUT' ||
+    code === 'INVALID_TOOL_RESULT' ||
+    code === 'TOOL_EXECUTION_FAILED' ||
+    code === 'TOOL_RUNTIME_ERROR' ||
+    code === 'INVALID_ENVELOPE' ||
+    code === 'INVALID_JSON' ||
+    code === 'UNSAFE_ARGUMENTS' ||
+    code === 'INVALID_INVOCATION' ||
+    code === 'UNKNOWN_TOOL' ||
+    code === 'DUPLICATE_CALL_ID' ||
+    code === 'INVALID_TOOL_CALL'
 }

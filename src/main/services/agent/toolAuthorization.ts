@@ -17,7 +17,7 @@ export class ToolAuthorization {
 
   async authorize(invocation: ToolInvocation, context: ToolExecutionContext, definition: ToolDefinition): Promise<boolean> {
     if (context.signal.aborted) return false
-    const target = classifyOperation(definition.operation, invocation.args, context.workspace)
+    const target = classifyOperation(definition.operation, invocation.args, context.workspace, invocation.toolName)
     const decision = this.policy.evaluate({
       permissionMode: context.permissionMode, workspace: context.workspace,
       invocation, operation: definition.operation, target
@@ -29,11 +29,13 @@ export class ToolAuthorization {
       normalizedTarget: decision.normalizedTarget!,
       commandPrefix: target.type === 'command' ? target.commandPrefix : undefined
     }
-    if (context.permissionMode === 'smart-approval' && this.approvals.isTaskPrefixApproved(binding)) return true
+    const reusableCommand = context.permissionMode === 'smart-approval' &&
+      decision.reasonCode !== 'LONG_RUNNING_COMMAND_REQUIRES_APPROVAL'
+    if (reusableCommand && this.approvals.isTaskPrefixApproved(binding)) return true
     const request = createApprovalRequest(binding, {
       ...decision, summary: `${decision.summary}（${decision.reasonCode}）`
     }, {
-      scopeOptions: context.permissionMode === 'smart-approval' && binding.commandPrefix
+      scopeOptions: reusableCommand && binding.commandPrefix
         ? ['once', 'task-prefix'] : ['once']
     })
     this.approvals.create(request)

@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -7,6 +6,7 @@ import {
   type DragEvent,
   type ChangeEvent
 } from 'react'
+import { App as AntdApp } from 'antd'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
@@ -35,20 +35,17 @@ function formatBytes(n?: number): string {
 }
 
 export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
+  const { message: messageApi } = AntdApp.useApp()
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([])
-  const [notice, setNotice] = useState('')
   const [search, setSearch] = useState(false)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
-  const streamNotice = useChatStore((s) => s.notices[sessionId])
-  const clearStreamNotice = useChatStore((s) => s.clearNotice)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
-  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const config = useModelStore((s) => s.config)
   const activePreset = config?.presets.find((p) => p.id === config.activePresetId)
@@ -68,22 +65,9 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     !sending &&
     processingFiles.length === 0
 
-  useEffect(() => {
-    return () => {
-      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!streamNotice) return
-    const timer = setTimeout(() => clearStreamNotice(sessionId, streamNotice.id), 5000)
-    return () => clearTimeout(timer)
-  }, [clearStreamNotice, sessionId, streamNotice])
-
-  const showNotice = (message: string): void => {
-    setNotice(message)
-    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
-    noticeTimerRef.current = message ? setTimeout(() => setNotice(''), 3200) : null
+  const showNotice = (content: string, level: 'warning' | 'error' = 'warning'): void => {
+    if (!content) return
+    void messageApi.open({ type: level, content, duration: 4 })
   }
 
   const addFiles = async (incoming: File[]): Promise<void> => {
@@ -110,7 +94,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
         }
       })
     )
-    showNotice(errors[0] ?? '')
+    showNotice(errors[0] ?? '', 'error')
   }
 
   const removeAttachment = (id: string): void => {
@@ -126,13 +110,11 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     }
     const result = await send(sessionId, v, attachments, search)
     if (!result.ok) {
-      showNotice(result.error.message)
+      showNotice(result.error.message, 'error')
       return
     }
     setValue('')
     setAttachments([])
-    showNotice('')
-    clearStreamNotice(sessionId)
     if (taRef.current) taRef.current.style.height = 'auto'
   }
 
@@ -173,14 +155,6 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   return (
     <div className="shrink-0 px-4 pb-2 pt-3" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <div className="relative mx-auto max-w-[820px]">
-        {(notice || streamNotice?.message) && (
-          <div
-            role="alert"
-            className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2 rounded-md border border-warn/40 bg-bg-raised px-3 py-2 text-[12px] text-warn shadow-xl"
-          >
-            {notice || streamNotice?.message}
-          </div>
-        )}
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
           {(images.length > 0 || files.length > 0 || processingFiles.length > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-2.5">
@@ -249,10 +223,10 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
             style={{ height: 'auto' }}
           />
-          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2 pt-1">
+          <div className="flex min-w-0 items-center gap-1.5 px-2.5 pb-2 pt-1">
             <ModelSelector />
             <AgentControls workspaceId={workspaceId} />
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ml-auto flex shrink-0 items-center gap-1">
               {supportsBuiltInSearch(activePreset?.provider) && activePreset && (
                 <button
                   onClick={() => setSearch((v) => !v)}
@@ -326,7 +300,7 @@ function ModelSelector(): JSX.Element {
   }
 
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-txt-secondary hover:bg-bg-raised"
@@ -334,7 +308,7 @@ function ModelSelector(): JSX.Element {
         <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[9px] font-semibold text-white">
           {active.name.slice(0, 1).toUpperCase()}
         </span>
-        <span className="max-w-[150px] truncate">{active.name}</span>
+        <span className="max-w-[120px] truncate">{active.name}</span>
         <span className="rounded bg-bg-active px-1 text-[10px] text-txt-muted">{EFFORT_LABEL[effort]}</span>
         <Icon.ChevronDown size={13} className={open ? 'rotate-180' : ''} />
       </button>

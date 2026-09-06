@@ -33,6 +33,20 @@ describe('normalizeCommand', () => {
     expect(result.signals.deterministicCheck).toBe(true)
   })
 
+  it('validates and binds declared service ports into the normalized command', () => {
+    const result = normalizeCommand({
+      executable: 'npm', args: ['run', 'dev'], expectedPorts: [5173, 3000]
+    }, workspace)
+    expect(result.command.expectedPorts).toEqual([5173, 3000])
+    expect(result.signals.longRunning).toBe(true)
+    expect(() => normalizeCommand({
+      executable: 'npm', args: ['run', 'dev'], expectedPorts: [0]
+    }, workspace)).toThrow(/ports are invalid/)
+    expect(() => normalizeCommand({
+      executable: 'npm', args: ['run', 'dev'], expectedPorts: [3000, 3000]
+    }, workspace)).toThrow(/ports are invalid/)
+  })
+
   it('rejects raw shell strings and shell executables', () => {
     expect(() => normalizeCommand('npm test && del *', workspace)).toThrowError(
       new CommandPolicyError('INVALID_COMMAND', 'Command must use executable and argv fields')

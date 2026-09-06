@@ -5,7 +5,8 @@ import type { LocalCommand, CommandOutput } from './localCommand'
 
 /** JobHost is app-owned; never resolve this helper through project PATH. */
 export function runWindowsJob(helper: string, command: LocalCommand, signal: AbortSignal,
-  output: CommandOutput, onHost?: (pid: number) => void): Promise<ExecutionResult> {
+  output: CommandOutput, onHost?: (pid: number) => void,
+  onStarted?: (pid: number) => void): Promise<ExecutionResult> {
   if (signal.aborted) return Promise.reject(new Error('COMMAND_CANCELLED'))
   const start = Date.now()
   return new Promise((resolve, reject) => {
@@ -28,6 +29,10 @@ export function runWindowsJob(helper: string, command: LocalCommand, signal: Abo
       try {
         const message = JSON.parse(line)
         if (message.type === 'error') { error = new Error(message.message); return }
+        if (message.type === 'started' && Number.isInteger(message.pid) && message.pid > 0) {
+          onStarted?.(message.pid)
+          return
+        }
         if (message.type === 'exit' && Number.isInteger(message.exitCode)) { exitCode = message.exitCode; return }
         if (message.type !== 'output') return
         if (!['stdout', 'stderr'].includes(message.stream) || typeof message.text !== 'string') throw new Error()

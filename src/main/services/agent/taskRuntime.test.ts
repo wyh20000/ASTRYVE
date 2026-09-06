@@ -203,7 +203,7 @@ describe('TaskRuntime', () => {
     await expect(second).resolves.toMatchObject({ ok: false, error: { code: 'TASK_CANCELLED' } })
   })
 
-  it('fails the task and prevents queued calls when a tool returns an error', async () => {
+  it('keeps the task active so recoverable tool errors can be returned to the model', async () => {
     const execute = vi.fn(async () => ({ ok: false, error: { code: 'DENIED', message: 'No' } }))
     const { runtime } = createRuntime(execute)
     const task = createAndStart(runtime)
@@ -211,9 +211,10 @@ describe('TaskRuntime', () => {
     const second = runtime.submitNativeToolCall(task.id, nativeCall('call-2'))
 
     await expect(first).resolves.toMatchObject({ ok: false, error: { code: 'DENIED' } })
-    await expect(second).resolves.toMatchObject({ ok: false, error: { code: 'TASK_CANCELLED' } })
-    expect(execute).toHaveBeenCalledTimes(1)
-    expect(runtime.activeTaskCount).toBe(0)
+    await expect(second).resolves.toMatchObject({ ok: false, error: { code: 'DENIED' } })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(runtime.activeTaskCount).toBe(1)
+    runtime.cancelTask(task.id)
   })
 
   it('normalizes malformed tool results and closes both current and queued calls', async () => {
@@ -374,7 +375,7 @@ describe('TaskRuntime', () => {
     expect(completed.runtime.cancelWorkspace('workspace-1')).toBe(0)
     expect(completed.runtime.cancelOwner(101)).toBe(0)
 
-    const failed = createRuntime(async () => ({ ok: false, error: { code: 'FAIL', message: 'fail' } }))
+    const failed = createRuntime(async () => undefined as unknown as ToolResult<unknown>)
     const failedTask = createAndStart(failed.runtime)
     await failed.runtime.submitNativeToolCall(failedTask.id, nativeCall())
     expect(failed.runtime.cancelWorkspace('workspace-1')).toBe(0)

@@ -1,10 +1,15 @@
 import type { ExecutionBackend, ToolDefinition, ToolExecutionContext } from '../../../shared/agent'
 import { normalizeWorkspaceRelativePath } from './workspace'
 
-interface GitStatusArgs { action: 'status' }
-interface GitDiffArgs { action: 'diff'; staged?: boolean }
-interface GitLogArgs { action: 'log'; limit?: number }
-interface GitShowArgs { action: 'show'; revision: string; path: string }
+interface GitStatusArgs { action?: 'status' }
+interface GitDiffArgs { action?: 'diff'; staged?: boolean }
+interface GitLogArgs { action?: 'log'; limit?: number }
+interface GitShowArgs { action?: 'show'; revision: string; path: string }
+
+interface NotGitRepository {
+  isRepository: false
+  message: string
+}
 
 const REVISION = /^(?:HEAD(?:~\d+|\^\d*)?|[a-f0-9]{7,40}|refs\/(?:heads|tags)\/[A-Za-z0-9._/-]+)$/i
 
@@ -14,14 +19,14 @@ export function createGitReadTools(backend: ExecutionBackend): Array<ToolDefinit
 
 function statusTool(backend: ExecutionBackend): ToolDefinition<GitStatusArgs, unknown> {
   return definition('git.status', 'Return concise Git working-tree status without reading file contents.',
-    { action: { type: 'string', const: 'status' } }, ['action'],
+    { action: { type: 'string', const: 'status', description: 'Optional compatibility field.' } }, [],
     (value): value is GitStatusArgs => isAction(value, 'status', []),
     async (_input, context) => runGit(backend, context, ['status', '--short', '--untracked-files=all', '--', '.']))
 }
 
 function diffTool(backend: ExecutionBackend): ToolDefinition<GitDiffArgs, unknown> {
   return definition('git.diff', 'Return a safe text diff for non-sensitive changed files in the authorized project.',
-    { action: { type: 'string', const: 'diff' }, staged: { type: 'boolean' } }, ['action'],
+    { action: { type: 'string', const: 'diff', description: 'Optional compatibility field.' }, staged: { type: 'boolean' } }, [],
     (value): value is GitDiffArgs => isAction(value, 'diff', ['staged']) &&
       (value.staged === undefined || typeof value.staged === 'boolean'),
     async (input, context) => {
@@ -29,6 +34,7 @@ function diffTool(backend: ExecutionBackend): ToolDefinition<GitDiffArgs, unknow
       const prefix = staged ? ['diff', '--cached'] : ['diff']
       const names = await runGit(backend, context, [...prefix, '--name-only', '-z', '--'])
       if (!names.ok) return names
+      if (isNotGitRepository(names.value)) return names
       const raw = (names.value as { stdout: string }).stdout
       const paths: string[] = []
       let omitted = 0
@@ -49,7 +55,7 @@ function diffTool(backend: ExecutionBackend): ToolDefinition<GitDiffArgs, unknow
 
 function logTool(backend: ExecutionBackend): ToolDefinition<GitLogArgs, unknown> {
   return definition('git.log', 'Return recent Git commit hashes, dates and subjects.',
-    { action: { type: 'string', const: 'log' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, ['action'],
+    { action: { type: 'string', const: 'log', description: 'Optional compatibility field.' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, [],
     (value): value is GitLogArgs => isAction(value, 'log', ['limit']) &&
       (value.limit === undefined || isInteger(value.limit, 1, 50)),
     async (input, context) => runGit(backend, context, [
@@ -63,7 +69,7 @@ function showTool(backend: ExecutionBackend): ToolDefinition<GitShowArgs, unknow
       action: { type: 'string', const: 'show' },
       revision: { type: 'string', pattern: REVISION.source },
       path: { type: 'string' }
-    }, ['action', 'revision', 'path'],
+    }, ['revision', 'path'],
     (value): value is GitShowArgs => isAction(value, 'show', ['revision', 'path']) &&
       typeof value.revision === 'string' && REVISION.test(value.revision) &&
       typeof value.path === 'string' && value.path.length > 0,
@@ -83,23 +89,41 @@ function definition<T>(name: string, description: string, properties: Record<str
 }
 
 async function runGit(backend: ExecutionBackend, context: ToolExecutionContext, args: string[]) {
-  if (context.environment !== backend.environment) {
-    return { ok: false as const, error: { code: 'WRONG_EXECUTION_ENVIRONMENT', message: 'Git 工具执行环境不匹配' } }
-  }
+  // Git metadata is a bounded host-side read service, like workspace.readFile.
+  // Docker copies deliberately exclude .git, so the user's command execution
+  // environment must not reroute or disable these fixed read-only queries.
   try {
     const value = await backend.run({ taskId: context.taskId, callId: context.callId,
       workspace: context.workspace, executable: 'git', args, timeoutMs: 30_000, captureOnly: true }, context.signal)
-    if (value.exitCode !== 0) return { ok: false as const, error: {
-      code: 'GIT_COMMAND_FAILED', message: value.stderr.trim().slice(0, 2000) || `Git 命令退出码 ${value.exitCode}`
-    } }
+    if (value.exitCode !== 0) {
+      if (isNotRepositoryError(value.stderr)) {
+        return { ok: true as const, value: {
+          isRepository: false,
+          message: '当前授权项目不是 Git 仓库，可继续使用文件工具进行分析'
+        } satisfies NotGitRepository }
+      }
+      return { ok: false as const, error: {
+        code: 'GIT_COMMAND_FAILED', message: value.stderr.trim().slice(0, 2000) || `Git 命令退出码 ${value.exitCode}`
+      } }
+    }
     return { ok: true as const, value }
   } catch (error) { return failure(error) }
+}
+
+function isNotRepositoryError(stderr: string): boolean {
+  return /not a git repository/i.test(stderr)
+}
+
+function isNotGitRepository(value: unknown): value is NotGitRepository {
+  return Boolean(value && typeof value === 'object' &&
+    (value as { isRepository?: unknown }).isRepository === false)
 }
 
 function isAction(value: unknown, action: string, optional: string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  return record.action === action && Object.keys(record).every((key) => key === 'action' || optional.includes(key))
+  return (record.action === undefined || record.action === action) &&
+    Object.keys(record).every((key) => key === 'action' || optional.includes(key))
 }
 
 function isInteger(value: unknown, min: number, max: number): boolean {

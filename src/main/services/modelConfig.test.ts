@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-agent-test' } }))
 
 import {
+  automaticContextTokens,
   migrate,
   normalizeContextMessages,
   normalizePreset,
@@ -46,23 +47,31 @@ describe('normalizePreset', () => {
     expect('visionModel' in p).toBe(false)
   })
 
-  it('补齐缺省字段（id/name/contextMessages）', () => {
+  it('补齐缺省字段并自动使用内部记忆策略', () => {
     const p = normalizePreset({ provider: 'kimi' })
     expect(p.id).toBeTruthy()
     expect(p.name).toBe('Kimi')
-    expect(p.contextMessages).toBe(20)
+    expect(p.contextMessages).toBe(50)
   })
 
-  it('上下文消息数强制限制在 1–50', () => {
+  it('忽略旧配置中用户填写的消息条数', () => {
     expect(normalizePreset({ provider: 'deepseek', contextMessages: 20_000_000 }).contextMessages).toBe(50)
-    expect(normalizePreset({ provider: 'deepseek', contextMessages: -3 }).contextMessages).toBe(1)
+    expect(normalizePreset({ provider: 'deepseek', contextMessages: -3 }).contextMessages).toBe(50)
+  })
+
+  it('按提供方和模型名自动选择上下文预算', () => {
+    expect(automaticContextTokens('deepseek', 'deepseek-v4-pro')).toBe(600_000)
+    expect(automaticContextTokens('kimi', 'moonshot-v1-8k')).toBe(8_000)
+    expect(automaticContextTokens('custom', 'my-model')).toBe(128_000)
+    expect(normalizePreset({ provider: 'deepseek', model: 'deepseek-v4-pro', contextTokens: 8_000 }).contextTokens)
+      .toBe(600_000)
   })
 })
 
 describe('normalizeContextMessages', () => {
   it.each([
-    [undefined, 20],
-    ['abc', 20],
+    [undefined, 50],
+    ['abc', 50],
     [0, 1],
     [12.9, 12],
     [50, 50],

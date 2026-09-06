@@ -6,12 +6,15 @@ import { ok, err } from './result'
 import { cancelGeneration } from '../services/generationTasks'
 import { clearSessionWorkspace } from '../services/agent/workspaceManager'
 import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
+import { isVisibleMessage } from '../services/emptySessionCleanup'
 import {
   assertTrustedIpcSender,
   validateCreateSessionInput,
   validateSessionId,
   validationErrorMessage
 } from './validation'
+
+let pendingBlankSession: Promise<Awaited<ReturnType<ReturnType<typeof getStore>['createSession']>>> | undefined
 
 export function registerSessionIpc(): void {
   ipcMain.handle(IPC.session.list, async (event) => {
@@ -28,6 +31,13 @@ export function registerSessionIpc(): void {
       assertTrustedIpcSender(event)
       input = validateCreateSessionInput(input)
       const title = (input?.title ?? '').trim()
+      if (!title) {
+        if (!pendingBlankSession) {
+          pendingBlankSession = findOrCreateBlankSession(input?.projectPath ?? null)
+        }
+        try { return ok(await pendingBlankSession) }
+        finally { pendingBlankSession = undefined }
+      }
       return ok(await getStore().createSession(title, input?.projectPath ?? null))
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
@@ -72,4 +82,13 @@ export function registerSessionIpc(): void {
       return err('DB_ERR', String(e))
     }
   })
+}
+
+async function findOrCreateBlankSession(projectPath: string | null) {
+  for (const session of (await getStore().listSessions()).slice(0, 10_000)) {
+    if (session.title.trim()) continue
+    const messages = await getStore().listMessages(session.id)
+    if (!messages.some(isVisibleMessage)) return session
+  }
+  return getStore().createSession('', projectPath)
 }

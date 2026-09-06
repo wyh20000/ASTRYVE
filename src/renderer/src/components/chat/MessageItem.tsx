@@ -5,7 +5,6 @@ import { fullTime } from '../../lib/time'
 
 export function MessageItem({ message }: { message: Message }): JSX.Element {
   if (message.role === 'user') return <UserMessage message={message} />
-  if (message.status === 'error' && !message.content && !message.blocks?.length) return <></>
   return <AssistantMessage message={message} />
 }
 
@@ -67,6 +66,7 @@ function UserMessage({ message }: { message: Message }): JSX.Element {
 function AssistantMessage({ message }: { message: Message }): JSX.Element {
   const hasThinking = message.blocks?.some((block) => block.kind === 'thinking') ?? false
   const hasText = message.content.trim().length > 0
+  const hasBlocks = (message.blocks?.length ?? 0) > 0
   return (
     <div className="flex gap-3">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -76,8 +76,12 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
         <div className="flex items-center gap-2 text-[12px] font-medium text-txt-secondary">
           AI Agent
         </div>
-        {message.blocks && message.blocks.length > 0 ? (
-          <Blocks blocks={message.blocks} status={message.status} />
+        {hasBlocks ? (
+          <Blocks blocks={message.blocks ?? []} status={message.status} />
+        ) : message.status === 'error' && !hasText ? (
+          <div className="max-w-[520px] rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+            本次执行未完成，请重试。已完成的内容不会受影响。
+          </div>
         ) : (
           <RichText text={message.content} />
         )}

@@ -50,6 +50,16 @@ describe('toChatMessage', () => {
     expect(c.content).toBe('你好')
   })
 
+  it('回传助手思考内容以支持 DeepSeek 跨轮工具调用', () => {
+    const message: Message = {
+      ...textMsg('assistant', '结论'),
+      blocks: [{ kind: 'thinking', content: '完整思考内容' }]
+    }
+    expect(toChatMessage(message, false)).toMatchObject({
+      role: 'assistant', content: '结论', reasoning_content: '完整思考内容'
+    })
+  })
+
   it('无文字的图片消息在非视觉请求下 content 为空字符串', () => {
     const m: Message = { ...imgMsg(), content: '' }
     expect(toChatMessage(m, false).content).toBe('')

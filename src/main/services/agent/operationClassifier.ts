@@ -19,7 +19,8 @@ export class OperationClassificationError extends Error {
 export function classifyOperation(
   operation: OperationKind,
   input: unknown,
-  workspace: WorkspaceGrant
+  workspace: WorkspaceGrant,
+  toolName?: string
 ): NormalizedOperationTarget {
   const args = asRecord(input)
   switch (operation) {
@@ -27,6 +28,16 @@ export function classifyOperation(
       const classified = normalizeCommand(args, workspace)
       return { type: 'command', ...classified }
     }
+    case 'process.start': {
+      const classified = normalizeCommand(args, workspace)
+      return {
+        type: 'command',
+        ...classified,
+        signals: { ...classified.signals, longRunning: true }
+      }
+    }
+    case 'process.stop':
+      return { type: 'service-stop', serviceId: requireString(args.serviceId, 'serviceId') }
     case 'network.enable': {
       const rawUrl = requireString(args.url, 'url')
       let url: URL
@@ -38,14 +49,17 @@ export function classifyOperation(
       return {
         type: 'network',
         protocol: url.protocol === 'http:' || url.protocol === 'https:' ? url.protocol : 'other',
-        host: url.host.toLowerCase()
+        host: url.host.toLowerCase(),
+        scope: args.scope === 'task' ? 'task' : args.scope === 'once' ? 'once' : (() => {
+          throw new OperationClassificationError('Network scope is invalid')
+        })()
       }
     }
     case 'git.read':
     case 'git.write':
       return {
         type: 'git',
-        action: requireString(args.action, 'action').trim().toLowerCase(),
+        action: resolveGitAction(args.action, toolName),
         write: operation === 'git.write'
       }
     case 'fs.apply-host': {
@@ -75,6 +89,12 @@ export function classifyOperation(
       }
     }
   }
+}
+
+function resolveGitAction(value: unknown, toolName?: string): string {
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim().toLowerCase()
+  if (toolName?.startsWith('git.') && toolName.length > 4) return toolName.slice(4).toLowerCase()
+  throw new OperationClassificationError('action is invalid')
 }
 
 export function serializeOperationTarget(target: NormalizedOperationTarget): string {

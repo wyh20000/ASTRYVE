@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
-import { initStore } from './db'
+import { getStore, initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
 import { initSettings } from './services/settings'
 import { registerIpcHandlers } from './ipc'
@@ -16,6 +16,9 @@ import {
   cancelAllGenerations,
   cancelGenerationsForWebContents
 } from './services/generationTasks'
+import { refreshAgentExecutionCapabilities } from './services/agent/projectPreferences'
+import { cleanupInterruptedDockerResources, startDockerCleanupTimer } from './services/agent/dockerCleanup'
+import { cleanupEmptySessions } from './services/emptySessionCleanup'
 
 const isDev = !app.isPackaged
 
@@ -81,6 +84,18 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.AI_AGENT_DOCKER_EXECUTION_SMOKE === '1') {
+    try {
+      const { runDockerExecutionSmoke } = await import('./services/agent/dockerExecutionSmoke')
+      await runDockerExecutionSmoke()
+      console.log('PASS: filtered Docker execution, secret exclusion and forced cancellation')
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: Docker execution smoke', error)
+      app.exit(1)
+    }
+    return
+  }
   if (process.env.AI_AGENT_LOCAL_EXECUTION_SMOKE === '1') {
     try {
       const { runLocalExecutionSmoke } = await import('./services/agent/localExecutionSmoke')
@@ -94,6 +109,15 @@ app.whenReady().then(async () => {
     return
   }
   initSettings()
+  const dockerPreflight = refreshAgentExecutionCapabilities()
+  try {
+    const cleanup = await cleanupInterruptedDockerResources()
+    if (cleanup.containersRemoved) console.log('[agent] removed interrupted Docker resources', cleanup)
+  } catch (error) {
+    console.warn('[agent] Docker recovery unavailable:', error)
+  }
+  void dockerPreflight
+  startDockerCleanupTimer()
   initWorkspaceService()
   initTaskRuntime()
   try {
@@ -105,6 +129,12 @@ app.whenReady().then(async () => {
     console.warn('[agent] runtime persistence unavailable:', error)
   }
   await initStore()
+  try {
+    const removed = await cleanupEmptySessions(getStore())
+    if (removed) console.log('[session] removed empty sessions at startup:', removed)
+  } catch (error) {
+    console.warn('[session] startup empty-session cleanup failed:', error)
+  }
   initModelConfig()
   registerIpcHandlers()
   createWindow()
@@ -131,7 +161,16 @@ app.on('before-quit', (event) => {
   const timeout = new Promise<void>((resolve) => {
     timeoutHandle = setTimeout(resolve, 2_000)
   })
-  void Promise.race([flushTaskPersistence(), timeout])
+  const emptySessionCleanup = Promise.resolve()
+    .then(() => cleanupEmptySessions(getStore()))
+    .catch((error) => {
+      console.warn('[session] empty-session cleanup failed:', error)
+      return 0
+    })
+  void Promise.race([
+    Promise.all([flushTaskPersistence(), emptySessionCleanup]).then(() => undefined),
+    timeout
+  ])
     .catch((error) => console.warn('[agent] final task journal flush failed:', error))
     .finally(() => {
       if (timeoutHandle) clearTimeout(timeoutHandle)

@@ -4,7 +4,12 @@ import type { ExecutionResult } from '../../../shared/agent'
 import { validateLocalCommand, type LocalCommand, type CommandOutput } from './localCommand'
 
 /** Main-process transport; task policy and path verification precede this boundary. */
-export function executeInUtilityProcess(command: LocalCommand, signal: AbortSignal, output: CommandOutput): Promise<ExecutionResult> {
+export function executeInUtilityProcess(
+  command: LocalCommand,
+  signal: AbortSignal,
+  output: CommandOutput,
+  onStarted?: (pid: number) => void
+): Promise<ExecutionResult> {
   validateLocalCommand(command)
   if (signal.aborted) return Promise.reject(new Error('COMMAND_CANCELLED'))
   return new Promise((resolve, reject) => {
@@ -45,6 +50,8 @@ export function executeInUtilityProcess(command: LocalCommand, signal: AbortSign
       if (message?.type === 'output' && typeof message.text === 'string' &&
         (message.stream === 'stdout' || message.stream === 'stderr')) {
         output(message.stream, message.text)
+      } else if (message?.type === 'started' && Number.isInteger(message.pid) && message.pid > 0) {
+        onStarted?.(message.pid)
       } else if (message?.type === 'result') {
         const r = message.result
         if (!r || !(r.exitCode === null || Number.isInteger(r.exitCode)) ||
@@ -58,5 +65,29 @@ export function executeInUtilityProcess(command: LocalCommand, signal: AbortSign
       }
     })
     if (signal.aborted) abort()
+  })
+}
+
+export interface RunningUtilityService {
+  pid: number
+  completion: Promise<ExecutionResult>
+}
+
+/** Resolves on real child start while retaining a consumed completion promise for lifecycle cleanup. */
+export function startLongRunningInUtilityProcess(
+  command: LocalCommand,
+  signal: AbortSignal,
+  output: CommandOutput
+): Promise<RunningUtilityService> {
+  return new Promise((resolve, reject) => {
+    let started = false
+    const completion = executeInUtilityProcess(command, signal, output, (pid) => {
+      if (started) return
+      started = true
+      resolve({ pid, completion })
+    })
+    void completion.catch((error) => {
+      if (!started) reject(error)
+    })
   })
 }
