@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import hljs from 'highlight.js'
-import type { MessageBlock, MessageStatus, SourceCitation } from '@shared/types'
+import type { MessageBlock, MessageStatus, PatchDiffBlock, PatchDiffFile, SourceCitation } from '@shared/types'
 import MarkdownRenderer from './MarkdownRenderer'
 import { Icon } from '../ui/icons'
 import { escapeHtml } from '../../lib/escape'
@@ -49,7 +49,7 @@ export function Blocks({ blocks, status }: { blocks: MessageBlock[]; status: Mes
 function Block({ block, status }: { block: MessageBlock; status: MessageStatus }): JSX.Element | null {
   switch (block.kind) {
     case 'thinking':
-      return <ThinkingBlock content={block.content} seconds={block.seconds} status={status} />
+      return <ThinkingBlock content={block.content} seconds={block.seconds} status={block.done ? 'done' : status} />
     case 'text':
       return <RichText text={block.content} />
     case 'plan':
@@ -60,9 +60,134 @@ function Block({ block, status }: { block: MessageBlock; status: MessageStatus }
       return <CodeBlock language={block.language} code={block.code} filename={block.filename} />
     case 'sources':
       return <SourcesBlock sources={block.sources} />
+    case 'diff':
+      return <DiffBlock block={block} status={status} />
+    case 'command':
+      return <CommandBlock block={block} />
+    case 'report':
+      return <TaskReport block={block} />
     default:
       return null
   }
+}
+
+function TaskReport({ block }: { block: Extract<MessageBlock, { kind: 'report' }> }): JSX.Element {
+  const passed = block.tests.filter((test) => test.passed).length
+  return <div className="max-w-[720px] rounded-md border border-border bg-bg-panel p-3 text-[12px]">
+    <div className="mb-2 flex items-center gap-2 font-medium text-txt-primary"><Icon.Check size={14} className={block.unresolved.length ? 'text-warn' : 'text-ok'} />任务报告</div>
+    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-txt-secondary">
+      <span>修改文件</span><span>{block.files.length}</span>
+      <span>执行命令</span><span>{block.commands.length}</span>
+      <span>测试</span><span>{passed}/{block.tests.length} 通过</span>
+      <span>用户批准</span><span>{block.approvals.length}</span>
+    </div>
+    {block.unresolved.length > 0 && <div className="mt-2 border-t border-border pt-2 text-warn">未解决：{block.unresolved.join('；')}</div>}
+  </div>
+}
+
+function CommandBlock({ block }: { block: Extract<MessageBlock, { kind: 'command' }> }): JSX.Element {
+  const [open, setOpen] = useState(block.exitCode !== 0)
+  return (
+    <div className="max-w-[720px] overflow-hidden rounded-md border border-border bg-bg-panel">
+      <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-[12px] hover:bg-bg-raised" onClick={() => setOpen((v) => !v)}>
+        <Icon.Terminal size={14} className={block.exitCode === 0 ? 'text-ok' : 'text-red-300'} />
+        <span className="truncate font-mono text-txt-primary">{block.executable} {block.args.join(' ')}</span>
+        <span className="ml-auto text-txt-muted">{block.durationMs}ms · exit {block.exitCode ?? '—'}</span>
+        <Icon.ChevronDown size={13} className={open ? '' : '-rotate-90'} />
+      </button>
+      {open && <pre className="selectable max-h-72 overflow-auto border-t border-border bg-bg-app p-3 text-[11px] leading-5 text-txt-secondary">{[
+        block.stdout, block.stderr && `stderr:\n${block.stderr}`, block.truncated && '[输出已截断]'
+      ].filter(Boolean).join('\n')}</pre>}
+    </div>
+  )
+}
+
+function DiffBlock({ block, status }: { block: PatchDiffBlock; status: MessageStatus }): JSX.Element {
+  const [current, setCurrent] = useState(block)
+  const [openFiles, setOpenFiles] = useState(() => new Set(block.files.map((file) => file.path)))
+  const [rejecting, setRejecting] = useState<string>()
+  const [error, setError] = useState('')
+  useEffect(() => { setCurrent(block) }, [block.patchHash])
+  const reject = async (file: PatchDiffFile): Promise<void> => {
+    setRejecting(file.path)
+    setError('')
+    const result = await window.agent.workspace.rejectPatchFile({
+      taskId: current.taskId, patchHash: current.patchHash, path: file.path
+    })
+    if (result.ok) {
+      setCurrent(result.data)
+      setOpenFiles((previous) => {
+        const next = new Set(previous)
+        next.delete(file.path)
+        return next
+      })
+    } else setError(result.error.message)
+    setRejecting(undefined)
+  }
+  return (
+    <section className="max-w-[820px] overflow-hidden rounded-md border border-border bg-bg-panel">
+      <header className="flex items-center gap-2 border-b border-border px-3 py-2 text-[12px]">
+        <Icon.Edit size={14} className="text-accent" />
+        <span className="font-medium text-txt-primary">待写回变更</span>
+        <span className="text-txt-muted">{current.files.length} 个文件</span>
+        <span className="ml-auto font-mono text-ok">+{current.linesAdded}</span>
+        <span className="font-mono text-red-400">-{current.linesDeleted}</span>
+      </header>
+      {current.files.length === 0 ? (
+        <div className="px-3 py-3 text-[12px] text-txt-muted">所有文件均已拒绝，不会写回宿主项目。</div>
+      ) : current.files.map((file) => {
+        const open = openFiles.has(file.path)
+        return (
+          <div key={file.path} className="border-b border-border last:border-b-0">
+            <div className="flex items-center gap-2 px-3 py-2 text-[12px]">
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-txt-primary"
+                onClick={() => setOpenFiles((previous) => {
+                  const next = new Set(previous)
+                  if (next.has(file.path)) next.delete(file.path); else next.add(file.path)
+                  return next
+                })}
+                aria-expanded={open}
+              >
+                <Icon.ChevronRight size={13} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+                <span className="truncate font-mono text-txt-primary" title={file.path}>{file.path}</span>
+                {file.previousPath && <span className="truncate text-txt-muted">← {file.previousPath}</span>}
+              </button>
+              <span className="font-mono text-ok">+{file.linesAdded}</span>
+              <span className="font-mono text-red-400">-{file.linesDeleted}</span>
+              {status === 'streaming' && <button
+                type="button"
+                className="rounded border border-red-400/30 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                disabled={Boolean(rejecting)}
+                onClick={() => void reject(file)}
+              >{rejecting === file.path ? '拒绝中…' : '拒绝此文件'}</button>}
+            </div>
+            {open && <DiffCode diff={file.diff} />}
+          </div>
+        )
+      })}
+      <footer className="border-t border-border px-3 py-1.5 font-mono text-[10px] text-txt-muted">
+        SHA-256 {current.patchHash}
+      </footer>
+      {error && <div className="border-t border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{error}</div>}
+    </section>
+  )
+}
+
+function DiffCode({ diff }: { diff: string }): JSX.Element {
+  return (
+    <pre className="selectable max-h-96 overflow-auto border-t border-border bg-bg-app p-2 text-[11px] leading-5">
+      {diff.split('\n').map((line, index) => {
+        const style = line.startsWith('+') && !line.startsWith('+++')
+          ? 'bg-emerald-500/10 text-emerald-300'
+          : line.startsWith('-') && !line.startsWith('---')
+            ? 'bg-red-500/10 text-red-300'
+            : line.startsWith('@@') ? 'text-sky-300' : 'text-txt-secondary'
+        return <code key={index} className={`block min-w-max px-1 ${style}`}>{line || ' '}</code>
+      })}
+    </pre>
+  )
 }
 
 function prettyLang(lang: string): string {
@@ -118,7 +243,7 @@ function ThinkingBlock({
 }): JSX.Element {
   const finished = status === 'done' || status === 'error'
   const streaming = status === 'streaming'
-  const [open, setOpen] = useState(!finished)
+  const [open, setOpen] = useState(false)
   const [stick, setStick] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -178,7 +303,8 @@ function ThinkingBlock({
           className="flex w-fit items-center gap-1.5 rounded-full bg-bg-raised px-2.5 py-1 text-[12px] text-txt-secondary hover:bg-bg-active"
         >
           <Icon.Brain size={13} className="text-accent" />
-          思考过程
+          {streaming ? '思考中' : '思考过程'}
+          {streaming && <span className="thinking-dots" aria-label="思考中"><i /><i /><i /></span>}
           {finished && seconds != null && <span className="text-txt-muted">{seconds}s</span>}
           <Icon.ChevronDown size={13} />
         </button>

@@ -10,13 +10,18 @@ import type {
   PersistedTheme,
   Message,
   MessageNotice,
-  AgentProjectPreferences
+  AgentProjectPreferences,
+  RejectPatchFileInput,
+  TerminalOutput,
+  WorkspaceFilesChanged
 } from '@shared/types'
 import type {
   ActivateWorkspaceInput,
   WorkspaceListInput,
   WorkspaceReadInput,
+  WorkspaceSaveInput,
   WorkspaceReadManyInput,
+  WorkspaceFileSearchInput,
   WorkspaceSearchInput
 } from '@shared/agent'
 
@@ -40,9 +45,17 @@ const api: AgentApi = {
     select: () => ipcRenderer.invoke(IPC.workspace.select),
     activate: (input: ActivateWorkspaceInput) => ipcRenderer.invoke(IPC.workspace.activate, input),
     listFiles: (input: WorkspaceListInput) => ipcRenderer.invoke(IPC.workspace.listFiles, input),
+    findFiles: (input: WorkspaceFileSearchInput) => ipcRenderer.invoke(IPC.workspace.findFiles, input),
     readFile: (input: WorkspaceReadInput) => ipcRenderer.invoke(IPC.workspace.readFile, input),
+    saveFile: (input: WorkspaceSaveInput) => ipcRenderer.invoke(IPC.workspace.saveFile, input),
     readMany: (input: WorkspaceReadManyInput) => ipcRenderer.invoke(IPC.workspace.readMany, input),
-    searchText: (input: WorkspaceSearchInput) => ipcRenderer.invoke(IPC.workspace.searchText, input)
+    searchText: (input: WorkspaceSearchInput) => ipcRenderer.invoke(IPC.workspace.searchText, input),
+    rejectPatchFile: (input: RejectPatchFileInput) => ipcRenderer.invoke(IPC.workspace.rejectPatchFile, input)
+  },
+  terminal: {
+    open: (sessionId: string) => ipcRenderer.invoke(IPC.terminal.open, sessionId),
+    write: (terminalId: string, text: string) => ipcRenderer.invoke(IPC.terminal.write, terminalId, text),
+    close: (terminalId: string) => ipcRenderer.invoke(IPC.terminal.close, terminalId)
   },
   model: {
     getConfig: () => ipcRenderer.invoke(IPC.model.getConfig),
@@ -60,6 +73,16 @@ const api: AgentApi = {
     const listener = (_e: unknown, notice: MessageNotice): void => cb(notice)
     ipcRenderer.on(EVENTS.messageNotice, listener)
     return () => ipcRenderer.removeListener(EVENTS.messageNotice, listener)
+  },
+  onTerminalOutput: (cb: (output: TerminalOutput) => void) => {
+    const listener = (_e: unknown, output: TerminalOutput): void => cb(output)
+    ipcRenderer.on(EVENTS.terminalOutput, listener)
+    return () => ipcRenderer.removeListener(EVENTS.terminalOutput, listener)
+  },
+  onWorkspaceFilesChanged: (cb: (change: WorkspaceFilesChanged) => void) => {
+    const listener = (_e: unknown, change: WorkspaceFilesChanged): void => cb(change)
+    ipcRenderer.on(EVENTS.workspaceFilesChanged, listener)
+    return () => ipcRenderer.removeListener(EVENTS.workspaceFilesChanged, listener)
   },
   settings: {
     getTheme: () => ipcRenderer.invoke(IPC.settings.getTheme),

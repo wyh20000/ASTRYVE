@@ -57,7 +57,7 @@ describe('DenyFirstPolicyEngine', () => {
     )
   }
 
-  it('asks before local checks and project scripts even in smart mode', () => {
+  it('asks before local checks but allows low-risk declared checks in Docker smart mode', () => {
     expect(
       evaluate(
         'smart-approval',
@@ -71,8 +71,8 @@ describe('DenyFirstPolicyEngine', () => {
         'smart-approval',
         'process.run',
         classifyOperation('process.run', { executable: 'npm', args: ['run', 'test'] }, workspace)
-      ).reasonCode
-    ).toBe('PROJECT_SCRIPT_REQUIRES_APPROVAL')
+      )
+    ).toMatchObject({ outcome: 'allow', reasonCode: 'SANDBOX_DETERMINISTIC_CHECK' })
   })
 
   it('always asks to start a service and allows stopping a task-owned service', () => {

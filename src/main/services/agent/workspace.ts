@@ -1,5 +1,6 @@
 import { constants as fsConstants } from 'fs'
 import { open, lstat, readdir, realpath, stat } from 'fs/promises'
+import type { FileHandle } from 'fs/promises'
 import { homedir } from 'os'
 import {
   basename,
@@ -10,7 +11,7 @@ import {
   sep,
   win32
 } from 'path'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import type {
   WorkspaceFileContent,
   WorkspaceFileEntry,
@@ -71,6 +72,20 @@ export class WorkspaceError extends Error {
   ) {
     super(message)
     this.name = 'WorkspaceError'
+  }
+}
+
+function hashBuffer(content: Uint8Array): string {
+  return `sha256:${createHash('sha256').update(content).digest('hex')}`
+}
+
+async function writeHandle(handle: FileHandle, content: Buffer): Promise<void> {
+  await handle.truncate(0)
+  let offset = 0
+  while (offset < content.length) {
+    const { bytesWritten } = await handle.write(content, offset, content.length - offset, offset)
+    if (bytesWritten < 1) throw new WorkspaceError('ROOT_CHANGED', '文件写入未完成')
+    offset += bytesWritten
   }
 }
 
@@ -386,7 +401,11 @@ export class WorkspaceBoundaryService {
       if (isProbablyBinary(content)) throw new WorkspaceError('BINARY_FILE', '二进制文件不允许读取')
       let decoded: string
       try {
-        decoded = new TextDecoder('utf-8', { fatal: true }).decode(content)
+        // TextDecoder consumes an UTF-8 BOM by default. Validate with it, but
+        // expose the Node decoding so the text remains byte-reproducible for
+        // hash-bound edits and patches (including BOM and exact line endings).
+        new TextDecoder('utf-8', { fatal: true }).decode(content)
+        decoded = content.toString('utf8')
       } catch {
         throw new WorkspaceError('BINARY_FILE', '文件不是有效的 UTF-8 文本')
       }
@@ -394,11 +413,50 @@ export class WorkspaceBoundaryService {
         path: normalized.split(sep).join('/'),
         content: decoded,
         size: content.length,
-        encoding: 'utf-8'
+        encoding: 'utf-8',
+        hash: hashBuffer(content)
       }
     } finally {
       await handle.close()
     }
+  }
+
+  async saveFile(
+    workspaceId: string,
+    relativePath: string,
+    content: string,
+    expectedHash: string
+  ): Promise<WorkspaceFileContent> {
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > WORKSPACE_LIMITS.maxSingleFileBytes) {
+      throw new WorkspaceError('LIMIT_EXCEEDED', '文件内容超过 2MB 限制')
+    }
+    if (!/^sha256:[a-f0-9]{64}$/.test(expectedHash)) throw new WorkspaceError('INVALID_PATH', '文件版本哈希无效')
+    const normalized = normalizeWorkspaceRelativePath(relativePath)
+    const target = await this.resolveExisting(workspaceId, normalized, 'file')
+    const handle = await open(target, fsConstants.O_RDWR | (fsConstants.O_NOFOLLOW ?? 0))
+    let original: Buffer
+    try {
+      const before = await handle.stat()
+      if (!before.isFile()) throw new WorkspaceError('NOT_FILE', '目标不是普通文件')
+      original = await handle.readFile()
+      if (hashBuffer(original) !== expectedHash) {
+        throw new WorkspaceError('ROOT_CHANGED', '文件已被其他操作修改，请重新打开后再保存')
+      }
+      const next = Buffer.from(content, 'utf8')
+      try {
+        await writeHandle(handle, next)
+        await handle.sync()
+      } catch (error) {
+        await writeHandle(handle, original).catch(() => undefined)
+        await handle.sync().catch(() => undefined)
+        throw error
+      }
+    } finally {
+      await handle.close()
+    }
+    const saved = await this.readFile(workspaceId, normalized)
+    if (saved.content !== content) throw new WorkspaceError('ROOT_CHANGED', '保存后校验失败，请重新打开文件')
+    return saved
   }
 
   async readMany(workspaceId: string, paths: string[]): Promise<WorkspaceFileContent[]> {
@@ -461,6 +519,20 @@ export class WorkspaceBoundaryService {
       }
     }
     return matches
+  }
+
+  async findFiles(
+    workspaceId: string,
+    query: string,
+    relativePath = ''
+  ): Promise<WorkspaceFileEntry[]> {
+    if (!query || query.length > WORKSPACE_LIMITS.maxQueryChars || CONTROL_CHARACTERS.test(query)) {
+      throw new WorkspaceError('INVALID_PATH', '文件搜索关键词无效')
+    }
+    const needle = query.toLocaleLowerCase('en-US')
+    return (await this.listFiles(workspaceId, relativePath))
+      .filter((entry) => entry.kind === 'file' && entry.path.toLocaleLowerCase('en-US').includes(needle))
+      .slice(0, WORKSPACE_LIMITS.maxSearchResults)
   }
 
   private requireGrant(workspaceId: string): WorkspaceGrant {

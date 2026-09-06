@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1/P2 已完成；P3 已完成 M0–M4 及 M6 只读 Coding 核心（Agent 内核、权限审批、审计、本机命令、文件/搜索/Git 读取），Docker、编辑/diff 和 Skills 接入继续开发
+- **当前阶段**：P1/P2 已完成；P3 已完成 M0–M8（Agent 内核、权限审批、审计、本机/Docker 执行、文件/搜索/Git 读取、编辑/diff、安全写回、测试与任务工作区），Skills 接入继续开发
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
 
@@ -81,11 +81,11 @@ npm start
 - 🛡️ 本机 Coding 执行必须由用户显式选择；仅开放固定程序白名单和结构化参数，禁止 shell 字符串。
 - ⚙️ 命令在独立 Electron utility process 中运行；Windows 使用 Job Object 清理完整子进程树，支持停止、超时、输出限量和持久化审计。
 - 🔎 模型可按需列出/搜索/分段读取授权项目文件，并查看受限 Git status、diff、log、show；敏感路径、链接、二进制和生成目录被过滤。
-- 🐳 Docker 仍保持不可用且不会自动降级本机；文件读取、编辑与 diff 将在后续里程碑开放。
+- 🐳 Docker 断网沙箱、本机执行、结构化文本补丁、逐文件 diff 和经精确审批的宿主安全写回已开放。
 
 ## 后续阶段
 
-- 工作区文件读取、编辑器、diff 与 Docker 执行 → P3 后续里程碑
+- Skills、renderer sandbox 与全量安全验收 → P3 后续里程碑
 - 浏览器操控 / 集成发布 → P4
 
 > 新增能力请**先改文档（《01》《02》）再动代码**，严格遵循边界，避免范围蔓延。

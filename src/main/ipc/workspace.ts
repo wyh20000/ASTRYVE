@@ -4,7 +4,9 @@ import type {
   ActivateWorkspaceInput,
   WorkspaceListInput,
   WorkspaceReadInput,
+  WorkspaceSaveInput,
   WorkspaceReadManyInput,
+  WorkspaceFileSearchInput,
   WorkspaceSearchInput
 } from '@shared/agent'
 import { getStore } from '../db'
@@ -16,6 +18,9 @@ import {
 } from '../services/agent/workspaceManager'
 import { WorkspaceError } from '../services/agent/workspace'
 import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
+import { getPatchWorkspaceService, getTaskRuntime } from '../services/agent/taskRuntimeManager'
+import { PatchWorkspaceError } from '../services/agent/patchWorkspaceService'
+import type { RejectPatchFileInput } from '@shared/types'
 import { err, ok } from './result'
 import {
   InputValidationError,
@@ -28,6 +33,7 @@ import {
 
 function workspaceFailure(error: unknown) {
   if (error instanceof WorkspaceError) return err(error.code, error.message)
+  if (error instanceof PatchWorkspaceError) return err(error.code, error.message)
   if (error instanceof InputValidationError) {
     return err('INVALID_INPUT', validationErrorMessage(error))
   }
@@ -88,10 +94,10 @@ export function registerWorkspaceIpc(): void {
       assertTrustedIpcSender(event)
       if (!input || typeof input !== 'object') return err('INVALID_INPUT', '工作区参数无效')
       return ok(
-        await getWorkspaceService().listFiles(
+        (await getWorkspaceService().listDirectory(
           validateWorkspaceId(input.workspaceId),
-          validateWorkspaceRelativePath(input.path, true)
-        )
+          validateWorkspaceRelativePath(input.path, true), 0, 500
+        )).entries
       )
     } catch (error) {
       return workspaceFailure(error)
@@ -108,6 +114,39 @@ export function registerWorkspaceIpc(): void {
           validateWorkspaceRelativePath(input.path)
         )
       )
+    } catch (error) {
+      return workspaceFailure(error)
+    }
+  })
+
+  ipcMain.handle(IPC.workspace.saveFile, async (event, input?: WorkspaceSaveInput) => {
+    try {
+      assertTrustedIpcSender(event)
+      if (!input || typeof input !== 'object' || typeof input.content !== 'string' || typeof input.expectedHash !== 'string') {
+        return err('INVALID_INPUT', '保存文件参数无效')
+      }
+      return ok(await getWorkspaceService().saveFile(
+        validateWorkspaceId(input.workspaceId),
+        validateWorkspaceRelativePath(input.path),
+        input.content,
+        input.expectedHash
+      ))
+    } catch (error) {
+      return workspaceFailure(error)
+    }
+  })
+
+  ipcMain.handle(IPC.workspace.findFiles, async (event, input?: WorkspaceFileSearchInput) => {
+    try {
+      assertTrustedIpcSender(event)
+      if (!input || typeof input !== 'object' || typeof input.query !== 'string') {
+        return err('INVALID_INPUT', '文件搜索参数无效')
+      }
+      return ok(await getWorkspaceService().findFiles(
+        validateWorkspaceId(input.workspaceId),
+        input.query,
+        validateWorkspaceRelativePath(input.path, true)
+      ))
     } catch (error) {
       return workspaceFailure(error)
     }
@@ -141,6 +180,32 @@ export function registerWorkspaceIpc(): void {
           validateWorkspaceRelativePath(input.path, true)
         )
       )
+    } catch (error) {
+      return workspaceFailure(error)
+    }
+  })
+
+  ipcMain.handle(IPC.workspace.rejectPatchFile, async (event, input?: RejectPatchFileInput) => {
+    try {
+      assertTrustedIpcSender(event)
+      if (!input || typeof input !== 'object' || typeof input.taskId !== 'string' ||
+          typeof input.patchHash !== 'string' || typeof input.path !== 'string') {
+        return err('INVALID_INPUT', '补丁拒绝参数无效')
+      }
+      const task = getTaskRuntime().getTaskSnapshot(input.taskId)
+      if (!task || task.ownerWebContentsId !== event.sender.id) return err('NOT_FOUND', '任务不存在或不属于当前窗口')
+      const manifest = getPatchWorkspaceService().rejectFile(
+        task.id, task.workspaceId, input.patchHash, validateWorkspaceRelativePath(input.path)
+      )
+      const contents = new Map(getPatchWorkspaceService().previewContents(task.id)
+        .map((content) => [content.path, content]))
+      return ok({
+        kind: 'diff' as const, taskId: task.id, patchHash: manifest.patchHash,
+        files: manifest.files.map(({ path, previousPath, status, linesAdded, linesDeleted, diff }) => ({
+          path, previousPath, status, linesAdded, linesDeleted, diff, ...contents.get(path)
+        })),
+        linesAdded: manifest.linesAdded, linesDeleted: manifest.linesDeleted
+      })
     } catch (error) {
       return workspaceFailure(error)
     }

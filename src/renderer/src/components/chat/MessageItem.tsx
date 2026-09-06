@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Message } from '@shared/types'
 import { Blocks, RichText } from './Blocks'
 import { Icon } from '../ui/icons'
@@ -9,12 +10,27 @@ export function MessageItem({ message }: { message: Message }): JSX.Element {
 }
 
 function UserMessage({ message }: { message: Message }): JSX.Element {
+  const [copied, setCopied] = useState(false)
   const images = (message.attachments ?? []).filter((a) => a.kind === 'image')
   const files = (message.attachments ?? []).filter((a) => a.kind === 'file')
   return (
-    <div className="flex justify-end">
+    <div className="group flex justify-end">
       <div className="max-w-[78%]">
         <div className="mb-1 flex items-center justify-end gap-2">
+          {message.content.trim() && <button
+            type="button"
+            className="btn-icon h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            title={copied ? '已复制' : '复制消息'}
+            aria-label={copied ? '已复制' : '复制消息'}
+            onClick={() => {
+              void navigator.clipboard.writeText(message.content).then(() => {
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1200)
+              }).catch(() => undefined)
+            }}
+          >
+            {copied ? <Icon.Check size={13} /> : <Icon.Copy size={13} />}
+          </button>}
           <span className="text-[11px] text-txt-muted">{fullTime(message.timestamp)}</span>
           <span className="text-[11px] text-txt-secondary">我</span>
         </div>
@@ -68,14 +84,7 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
   const hasText = message.content.trim().length > 0
   const hasBlocks = (message.blocks?.length ?? 0) > 0
   return (
-    <div className="flex gap-3">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent">
-        <Icon.Brain size={15} className="text-white" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex items-center gap-2 text-[12px] font-medium text-txt-secondary">
-          AI Agent
-        </div>
+    <div className="min-w-0 space-y-2">
         {hasBlocks ? (
           <Blocks blocks={message.blocks ?? []} status={message.status} />
         ) : message.status === 'error' && !hasText ? (
@@ -86,15 +95,11 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
           <RichText text={message.content} />
         )}
         {message.status === 'streaming' && hasText && (
-          <span className="stream-cursor" role="status" aria-label="正在生成" />
+          <span className="reply-dots" role="status" aria-label="正在生成"><i /><i /><i /></span>
         )}
         {message.status === 'streaming' && !hasText && !hasThinking && (
-          <div className="w-full max-w-[420px] space-y-2" role="status" aria-label="正在生成回答">
-            <div className="h-3 w-4/5 animate-pulse rounded bg-bg-raised" />
-            <div className="h-3 w-3/5 animate-pulse rounded bg-bg-raised" />
-          </div>
+          <span className="reply-dots" role="status" aria-label="正在生成回答"><i /><i /><i /></span>
         )}
-      </div>
     </div>
   )
 }

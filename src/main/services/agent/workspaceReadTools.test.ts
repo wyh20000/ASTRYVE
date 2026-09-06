@@ -19,7 +19,10 @@ describe('workspace read tools', () => {
         entries: [{ path: 'src', name: 'src', kind: 'directory' as const }],
         nextOffset: 2
       })),
-      readFile: vi.fn(async () => ({ path: 'src/a.ts', content: 'one\ntwo\nthree', size: 13, encoding: 'utf-8' as const })),
+      readFile: vi.fn(async () => ({
+        path: 'src/a.ts', content: '\uFEFFone\r\ntwo\nthree', size: 17,
+        encoding: 'utf-8' as const, hash: 'sha256:exact'
+      })),
       searchText: vi.fn(async () => Array.from({ length: 3 }, (_, index) => ({
         path: 'src/a.ts', line: index + 1, column: 1, preview: 'hit'
       })))
@@ -40,7 +43,10 @@ describe('workspace read tools', () => {
     })
     const complete = await read.execute({ path: 'src/a.ts' }, context)
     expect(complete).toMatchObject({
-      ok: true, value: { content: 'one\ntwo\nthree', endLine: 3, truncated: false }
+      ok: true, value: {
+        content: '\uFEFFone\r\ntwo\nthree', endLine: 3, truncated: false,
+        contentExact: true, hash: 'sha256:exact'
+      }
     })
     expect(complete.value).not.toHaveProperty('nextStartLine')
     await expect(search.execute({ query: 'hit', limit: 2 }, context)).resolves.toMatchObject({

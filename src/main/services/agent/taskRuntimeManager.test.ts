@@ -37,6 +37,8 @@ describe('taskRuntimeManager', () => {
       'process.run', 'process.startService', 'process.stop',
       'docker.enableNetwork',
       'workspace.listFiles', 'workspace.readFile', 'workspace.searchText', 'workspace.findFiles',
+      'workspace.discoverChecks',
+      'workspace.patch', 'workspace.applyPatch',
       'git.status', 'git.diff', 'git.log', 'git.show'
     ])
     const task = runtime.createTask({

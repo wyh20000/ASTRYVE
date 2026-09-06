@@ -14,24 +14,28 @@ import { LocalExecutionBackend } from './localExecutionBackend'
 import { createProcessTools } from './processRunTool'
 import { getWorkspaceService } from './workspaceManager'
 import { getSessionWorkspaceId } from './workspaceManager'
-import { getAgentProjectPreferences } from '../settings'
-import { AGENT_EXECUTION_CAPABILITIES, defaultAgentProjectPreferences } from './projectPreferences'
 import { createWorkspaceReadTools } from './workspaceReadTools'
 import { createGitReadTools } from './gitReadTools'
 import { DockerExecutionBackend } from './dockerExecutionBackend'
 import { createDockerNetworkTool } from './dockerNetworkTool'
+import { PatchWorkspaceService } from './patchWorkspaceService'
+import { createWorkspacePatchTool } from './workspacePatchTool'
+import { createHostPatchTool } from './hostPatchTool'
+import { createScriptDiscoveryTool } from './scriptDiscoveryTool'
+import { refreshAgentExecutionCapabilities } from './projectPreferences'
 
 export async function createProjectTask(sessionId: string, ownerWebContentsId: number) {
-  const [{ BrowserWindow }, { getStore }, settings, workspaces, { AGENT_EXECUTION_CAPABILITIES }] = await Promise.all([
-    import('electron'), import('../../db'), import('../settings'), import('./workspaceManager'), import('./projectPreferences')
+  const [{ BrowserWindow }, { getStore }, settings, workspaces] = await Promise.all([
+    import('electron'), import('../../db'), import('../settings'), import('./workspaceManager')
   ])
+  const capabilities = await refreshAgentExecutionCapabilities()
   return launchProjectTask(sessionId, ownerWebContentsId, {
     sessionExists: async (id) => Boolean(await getStore().getSession(id)),
     activeWorkspace: workspaces.getSessionWorkspaceId,
     verifyWorkspace: async (id) => { await workspaces.getWorkspaceService().activate(id) },
     getGrant: (id) => workspaces.getWorkspaceService().getGrant(id),
     getPreferences: settings.getAgentProjectPreferences,
-    getCapabilities: () => ({ ...AGENT_EXECUTION_CAPABILITIES }),
+    getCapabilities: () => capabilities,
     ownerAlive: (id) => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents.id === id),
     createTask: (input) => getTaskRuntime().createTask(input)
   })
@@ -42,6 +46,7 @@ let runtime: TaskRuntime | null = null
 let journal: TaskEventJournal | null = null
 let unsubscribeJournal: (() => void) | null = null
 let auditJournal: AuditJournal | null = null
+let patchWorkspace: PatchWorkspaceService | null = null
 
 export function initTaskRuntime(): TaskRuntime {
   unsubscribeJournal?.()
@@ -75,11 +80,18 @@ export function initTaskRuntime(): TaskRuntime {
   for (const tool of createProcessTools(localBackend, dockerBackend)) registry.register(tool)
   registry.register(createDockerNetworkTool(dockerBackend))
   for (const tool of createWorkspaceReadTools(getWorkspaceService)) registry.register(tool)
+  registry.register(createScriptDiscoveryTool(getWorkspaceService))
+  patchWorkspace = new PatchWorkspaceService(getWorkspaceService)
+  registry.register(createWorkspacePatchTool(patchWorkspace))
+  registry.register(createHostPatchTool(patchWorkspace))
   for (const tool of createGitReadTools(localBackend)) registry.register(tool)
   runtime.subscribe((event) => {
     const status = runtime?.getTaskSnapshot(event.taskId)?.status
     if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) {
       authorization.revokeTask(event.taskId)
+      // A completed task may leave a patch waiting for approval in the next user message.
+      // Failed/cancelled tasks must not retain their overlays.
+      if (status !== 'completed') patchWorkspace?.clearTask(event.taskId)
       void localBackend.stopTask(event.taskId)
       void dockerBackend.stopTask(event.taskId)
     }
@@ -93,6 +105,7 @@ export async function initTaskPersistence(userDataPath: string): Promise<{
   removedInterruptedWrites: number
 }> {
   const activeRuntime = getTaskRuntime()
+  patchWorkspace?.setRuntimeRoot(join(userDataPath, 'agent-runtime', 'tasks'))
   auditJournal = new AuditJournal(join(userDataPath, 'agent-audit.json'))
   const store = new FileTaskEventStore(join(userDataPath, 'agent-task-journal.json'))
   const removedInterruptedWrites = await store.cleanupInterruptedWrites()
@@ -117,14 +130,15 @@ export function getToolRegistry(): ToolRegistry {
   return registry
 }
 
+export function getPatchWorkspaceService(): PatchWorkspaceService {
+  if (!patchWorkspace) throw new Error('Patch workspace service not initialized')
+  return patchWorkspace
+}
+
 /** Coding tools are opt-in per project. Unavailable Docker preferences keep ordinary chat working. */
 export function shouldUseProjectAgent(sessionId: string): boolean {
   const workspaceId = getSessionWorkspaceId(sessionId)
-  if (!workspaceId) return false
-  const preferences = getAgentProjectPreferences(workspaceId) ?? defaultAgentProjectPreferences(workspaceId)
-  return preferences.executionEnvironment === 'local'
-    ? AGENT_EXECUTION_CAPABILITIES.localAvailable
-    : AGENT_EXECUTION_CAPABILITIES.dockerAvailable
+  return Boolean(workspaceId)
 }
 
 export function cancelTasksForSession(sessionId: string, reason: string): number {
@@ -152,4 +166,5 @@ export function resetTaskRuntimeForTests(): void {
   runtime = null
   registry = null
   auditJournal = null
+  patchWorkspace = null
 }

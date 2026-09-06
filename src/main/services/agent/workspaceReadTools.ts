@@ -44,7 +44,7 @@ function listFilesTool(service: ServiceProvider): ToolDefinition<ListFilesArgs, 
 function readFileTool(service: ServiceProvider): ToolDefinition<ReadFileArgs, unknown> {
   return {
     name: 'workspace.readFile', operation: 'fs.read',
-    description: 'Read a UTF-8 text file inside the authorized project. Use line bounds for large files. Binary, sensitive, linked and out-of-project files are rejected.',
+    description: 'Read a UTF-8 text file inside the authorized project. For patching, read the whole file without line bounds: an untruncated result preserves the exact UTF-8 text, BOM and line endings, and its hash is the required expectedHash. Never patch from a truncated result. Use line bounds only for inspecting large files. Binary, sensitive, linked and out-of-project files are rejected.',
     parameters: { type: 'object', properties: {
       path: { type: 'string', description: 'Project-relative file path.' },
       startLine: { type: 'integer', minimum: 1 },
@@ -55,7 +55,15 @@ function readFileTool(service: ServiceProvider): ToolDefinition<ReadFileArgs, un
       (value.startLine === undefined || value.endLine === undefined || value.endLine >= value.startLine),
     execute: async (input, context) => safely(async () => {
       const file = await service().readFile(context.workspace.id, input.path)
-      const lines = file.content.split(/\r?\n/)
+      const lines = file.content.split(/\r\n|\n|\r/)
+      const wantsWholeFile = input.startLine === undefined && input.endLine === undefined
+      if (wantsWholeFile && file.content.length <= MAX_MODEL_FILE_CHARS) {
+        return {
+          path: file.path, content: file.content, size: file.size, startLine: 1,
+          endLine: lines.length, totalLines: lines.length, truncated: false,
+          contentExact: true, hash: file.hash
+        }
+      }
       const startLine = input.startLine ?? 1
       const requestedEnd = input.endLine ?? lines.length
       if (startLine > lines.length) throw new Error('起始行超出文件范围')
@@ -76,7 +84,8 @@ function readFileTool(service: ServiceProvider): ToolDefinition<ReadFileArgs, un
       const truncated = endLine < lines.length || requestedEnd < lines.length
       const result: Record<string, unknown> = {
         path: file.path, content: selected.join('\n'), size: file.size, startLine,
-        endLine, totalLines: lines.length, truncated
+        endLine, totalLines: lines.length, truncated,
+        contentExact: false, hash: file.hash
       }
       if (endLine < lines.length) result.nextStartLine = endLine + 1
       return result

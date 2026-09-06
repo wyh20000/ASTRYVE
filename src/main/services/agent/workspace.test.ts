@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { join, parse } from 'path'
@@ -84,11 +85,33 @@ describe('WorkspaceBoundaryService', () => {
     await expect(service.searchText(workspaceId, 'needle')).resolves.toEqual([
       expect.objectContaining({ path: 'README.md', line: 2, column: 1 })
     ])
+    await expect(service.findFiles(workspaceId, 'main')).resolves.toEqual([
+      expect.objectContaining({ path: 'src/main.ts', kind: 'file' })
+    ])
   })
 
   it('returns a bounded directory prefix instead of failing large listings', async () => {
     const files = await service.listFiles(workspaceId, '', 2)
     expect(files).toHaveLength(2)
+  })
+
+  it('saves an explicitly edited file and rejects a stale editor version', async () => {
+    const before = await service.readFile(workspaceId, 'src/main.ts')
+    const saved = await service.saveFile(workspaceId, 'src/main.ts', 'export const changed = true\n', before.hash)
+    expect(saved.content).toBe('export const changed = true\n')
+    expect(saved.hash).not.toBe(before.hash)
+    await expectWorkspaceError(
+      () => service.saveFile(workspaceId, 'src/main.ts', 'stale', before.hash),
+      'ROOT_CHANGED'
+    )
+  })
+
+  it('returns byte-reproducible UTF-8 text including BOM and mixed line endings', async () => {
+    const exact = '\uFEFFfirst\nsecond\r\n'
+    await writeFile(join(projectRoot, 'src', 'mixed.txt'), Buffer.from(exact, 'utf8'))
+    const result = await service.readFile(workspaceId, 'src/mixed.txt')
+    expect(result.content).toBe(exact)
+    expect(result.hash).toBe(`sha256:${createHash('sha256').update(Buffer.from(exact)).digest('hex')}`)
   })
 
   it('pages direct directory children without imposing a project-wide limit', async () => {

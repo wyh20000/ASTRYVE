@@ -110,6 +110,8 @@ export function normalizeCommand(input: unknown, workspace: WorkspaceGrant): Cla
   const executableName = path.basename(executable).toLowerCase()
   const tokens = [executableName, ...input.args.map((arg) => arg.toLowerCase())]
   const packageAction = getPackageAction(executableName, input.args)
+  const safeProjectCheck = packageAction === 'run' && typeof input.args[1] === 'string' &&
+    input.args[1].split(/[:-]/).some((part) => CHECK_COMMAND.test(part))
   const destructive =
     isDestructive(executableName, input.args) ||
     (WILDCARD.test(input.args.join(' ')) && ['rm', 'del', 'erase', 'rmdir'].includes(executableName))
@@ -129,7 +131,7 @@ export function normalizeCommand(input: unknown, workspace: WorkspaceGrant): Cla
         !destructive &&
         !SHELL_INTERPRETERS.has(executableName) &&
         !input.args.some((arg) => SHELL_SYNTAX.test(arg)) &&
-        DETERMINISTIC_CHECK_EXECUTABLES.has(executableName)
+        (DETERMINISTIC_CHECK_EXECUTABLES.has(executableName) || safeProjectCheck)
     }
   }
 }

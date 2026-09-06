@@ -47,6 +47,15 @@ describe('normalizeCommand', () => {
     }, workspace)).toThrow(/ports are invalid/)
   })
 
+  it('classifies declared npm verification scripts as deterministic project checks', () => {
+    for (const name of ['test', 'test:unit', 'typecheck', 'lint:ci', 'build']) {
+      const result = normalizeCommand({ executable: 'npm', args: ['run', name] }, workspace)
+      expect(result.signals).toMatchObject({ projectScript: true, deterministicCheck: true })
+    }
+    expect(normalizeCommand({ executable: 'npm', args: ['run', 'deploy'] }, workspace).signals.deterministicCheck)
+      .toBe(false)
+  })
+
   it('rejects raw shell strings and shell executables', () => {
     expect(() => normalizeCommand('npm test && del *', workspace)).toThrowError(
       new CommandPolicyError('INVALID_COMMAND', 'Command must use executable and argv fields')

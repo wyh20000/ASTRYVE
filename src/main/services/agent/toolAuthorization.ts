@@ -32,8 +32,11 @@ export class ToolAuthorization {
     const reusableCommand = context.permissionMode === 'smart-approval' &&
       decision.reasonCode !== 'LONG_RUNNING_COMMAND_REQUIRES_APPROVAL'
     if (reusableCommand && this.approvals.isTaskPrefixApproved(binding)) return true
+    const trustedSummary = definition.approvalSummary
+      ? await definition.approvalSummary(invocation.args, context)
+      : decision.summary
     const request = createApprovalRequest(binding, {
-      ...decision, summary: `${decision.summary}（${decision.reasonCode}）`
+      ...decision, summary: `${trustedSummary}（${decision.reasonCode}）`
     }, {
       scopeOptions: reusableCommand && binding.commandPrefix
         ? ['once', 'task-prefix'] : ['once']

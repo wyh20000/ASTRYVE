@@ -75,6 +75,14 @@ export interface WorkspaceFileContent {
   content: string
   size: number
   encoding: 'utf-8'
+  hash: string
+}
+
+export interface WorkspaceSaveInput {
+  workspaceId: string
+  path: string
+  content: string
+  expectedHash: string
 }
 
 export interface WorkspaceSearchMatch {
@@ -100,6 +108,12 @@ export interface WorkspaceReadManyInput {
 }
 
 export interface WorkspaceSearchInput {
+  workspaceId: string
+  query: string
+  path?: string
+}
+
+export interface WorkspaceFileSearchInput {
   workspaceId: string
   query: string
   path?: string
@@ -149,6 +163,8 @@ export interface ToolDefinition<TArgs = unknown, TResult = unknown> {
   description: string
   parameters: ToolInputSchema
   validateArgs: (input: unknown) => input is TArgs
+  /** Optional trusted approval text derived from main-process state, never from model-supplied preview text. */
+  approvalSummary?: (input: TArgs, context: ToolExecutionContext) => string | Promise<string>
   execute: (input: TArgs, context: ToolExecutionContext) => Promise<ToolResult<TResult>>
 }
 

@@ -104,7 +104,6 @@ function evaluateMode(context: PolicyContext): PolicyDecision {
     context.invocation.environment === 'docker' &&
     target.type === 'command' &&
     target.signals.deterministicCheck &&
-    !target.signals.projectScript &&
     !target.signals.shellSyntax &&
     !target.signals.destructive &&
     !target.signals.dependencyChange &&

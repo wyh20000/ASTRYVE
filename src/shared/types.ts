@@ -8,10 +8,12 @@ import type {
   PermissionMode,
   WorkspaceFileContent,
   WorkspaceFileEntry,
+  WorkspaceFileSearchInput,
   WorkspaceListInput,
   WorkspaceReadInput,
   WorkspaceReadManyInput,
   WorkspaceSearchInput,
+  WorkspaceSaveInput,
   WorkspaceSearchMatch,
   WorkspaceSummary
 } from './agent'
@@ -89,11 +91,64 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error'
 /** 结构化消息块（用于呈现思考态 / 执行计划 / 文件列表等） */
 export type MessageBlock =
   | { kind: 'text'; content: string }
-  | { kind: 'thinking'; content: string; seconds?: number }
+  | { kind: 'thinking'; content: string; seconds?: number; done?: boolean }
   | { kind: 'plan'; items: PlanItem[] }
   | { kind: 'files'; files: GeneratedFile[] }
   | { kind: 'code'; language: string; code: string; filename?: string }
   | { kind: 'sources'; sources: SourceCitation[] }
+  | PatchDiffBlock
+  | CommandOutputBlock
+  | TaskReportBlock
+
+export interface PatchDiffFile {
+  path: string
+  previousPath?: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed'
+  linesAdded: number
+  linesDeleted: number
+  diff: string
+  originalContent?: string
+  modifiedContent?: string
+}
+
+export interface PatchDiffBlock {
+  kind: 'diff'
+  taskId: string
+  patchHash: string
+  files: PatchDiffFile[]
+  linesAdded: number
+  linesDeleted: number
+}
+
+export interface RejectPatchFileInput {
+  taskId: string
+  patchHash: string
+  path: string
+}
+
+export interface CommandOutputBlock {
+  kind: 'command'
+  callId: string
+  executable: string
+  args: string[]
+  exitCode: number | null
+  durationMs: number
+  truncated: boolean
+  stdout: string
+  stderr: string
+}
+
+export interface TerminalSessionInfo { id: string; workspaceId: string; shell: string }
+export interface TerminalOutput { terminalId: string; stream: 'stdout' | 'stderr'; text: string }
+
+export interface TaskReportBlock {
+  kind: 'report'
+  files: Array<{ path: string; status: PatchDiffFile['status'] }>
+  commands: Array<{ command: string; exitCode: number | null; durationMs: number }>
+  tests: Array<{ command: string; passed: boolean }>
+  approvals: Array<{ toolName: string; target: string }>
+  unresolved: string[]
+}
 
 export interface PlanItem {
   order: number
@@ -238,9 +293,17 @@ export interface AgentApi {
       input: ActivateWorkspaceInput
     ) => Promise<IpcResult<{ workspace: WorkspaceSummary; session: Session }>>
     listFiles: (input: WorkspaceListInput) => Promise<IpcResult<WorkspaceFileEntry[]>>
+    findFiles: (input: WorkspaceFileSearchInput) => Promise<IpcResult<WorkspaceFileEntry[]>>
     readFile: (input: WorkspaceReadInput) => Promise<IpcResult<WorkspaceFileContent>>
+    saveFile: (input: WorkspaceSaveInput) => Promise<IpcResult<WorkspaceFileContent>>
     readMany: (input: WorkspaceReadManyInput) => Promise<IpcResult<WorkspaceFileContent[]>>
     searchText: (input: WorkspaceSearchInput) => Promise<IpcResult<WorkspaceSearchMatch[]>>
+    rejectPatchFile: (input: RejectPatchFileInput) => Promise<IpcResult<PatchDiffBlock>>
+  }
+  terminal: {
+    open: (sessionId: string) => Promise<IpcResult<TerminalSessionInfo>>
+    write: (terminalId: string, text: string) => Promise<IpcResult<{ written: boolean }>>
+    close: (terminalId: string) => Promise<IpcResult<{ closed: boolean }>>
   }
   model: {
     getConfig: () => Promise<IpcResult<ModelConfig>>
@@ -251,6 +314,8 @@ export interface AgentApi {
   }
   onMessageStreamed: (cb: (m: Message) => void) => () => void
   onMessageNotice: (cb: (notice: MessageNotice) => void) => () => void
+  onTerminalOutput: (cb: (output: TerminalOutput) => void) => () => void
+  onWorkspaceFilesChanged: (cb: (change: WorkspaceFilesChanged) => void) => () => void
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>
     setTheme: (t: PersistedTheme) => Promise<IpcResult<PersistedTheme>>
@@ -262,4 +327,9 @@ export interface AgentApi {
   window: {
     setTitleBarOverlay: (opts?: { color: string; symbolColor: string }) => Promise<IpcResult<boolean>>
   }
+}
+
+export interface WorkspaceFilesChanged {
+  workspaceId: string
+  paths: string[]
 }

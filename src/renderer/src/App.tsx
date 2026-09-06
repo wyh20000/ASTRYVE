@@ -13,6 +13,7 @@ import { useModelStore } from './stores/modelStore'
 import { useThemeStore } from './stores/themeStore'
 import { getTheme } from './theme/theme'
 import { useWorkspaceStore } from './stores/workspaceStore'
+import WorkspacePanel from './components/layout/WorkspacePanel'
 
 function AppShell(): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
@@ -24,6 +25,7 @@ function AppShell(): JSX.Element {
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
+  const workspaceOpen = useUiStore((s) => s.workspaceOpen)
   const loadModel = useModelStore((s) => s.load)
   const loadWorkspaces = useWorkspaceStore((s) => s.load)
 
@@ -80,6 +82,7 @@ function AppShell(): JSX.Element {
           <Sidebar />
           {sidebarOpen && <ResizeHandle />}
           <ChatPanel />
+          {workspaceOpen && <WorkspacePanel />}
         </div>
       )}
       <StatusBar />

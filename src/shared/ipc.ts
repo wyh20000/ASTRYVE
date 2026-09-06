@@ -23,9 +23,17 @@ export const IPC = {
     select: 'workspace:select',
     activate: 'workspace:activate',
     listFiles: 'workspace:list-files',
+    findFiles: 'workspace:find-files',
     readFile: 'workspace:read-file',
+    saveFile: 'workspace:save-file',
     readMany: 'workspace:read-many',
-    searchText: 'workspace:search-text'
+    searchText: 'workspace:search-text',
+    rejectPatchFile: 'workspace:reject-patch-file'
+  },
+  terminal: {
+    open: 'terminal:open',
+    write: 'terminal:write',
+    close: 'terminal:close'
   },
   model: {
     getConfig: 'model:get-config',
@@ -48,5 +56,7 @@ export const IPC = {
 /** 主进程 → 渲染进程的事件推送 channel */
 export const EVENTS = {
   messageStreamed: 'message:streamed',
-  messageNotice: 'message:notice'
+  messageNotice: 'message:notice',
+  terminalOutput: 'terminal:output',
+  workspaceFilesChanged: 'workspace:files-changed'
 } as const

@@ -40,15 +40,20 @@ import {
 import {
   cancelTasksForSession,
   createProjectTask,
+  getPatchWorkspaceService,
   getTaskRuntime,
   getToolRegistry,
   shouldUseProjectAgent
 } from '../services/agent/taskRuntimeManager'
 import { runToolCallingLoop } from '../services/agent/toolCallingLoop'
 import { getWorkspaceService, restoreSessionWorkspace } from '../services/agent/workspaceManager'
-import { buildCodingSystemPrompt } from '../services/agent/codingPrompt'
+import { buildCodingSystemPrompt, codingReasoningEffort } from '../services/agent/codingPrompt'
 import {
   appendToolTimelineText,
+  appendToolTimelineThinking,
+  appendPatchTimeline,
+  appendCommandTimeline,
+  appendTaskReport,
   createToolTimeline,
   resetToolTimeline,
   updateToolTimeline
@@ -93,7 +98,7 @@ export function registerMessageIpc(): void {
       await autoTitle(input.sessionId, input.content)
       await getStore().touchSession(input.sessionId)
       // 触发回复（配置了模型则调用真实流式，否则回退 Mock）
-      void runReply(event.sender, input.sessionId, stored, docTexts, input.search === true)
+      void runReply(event.sender, input.sessionId, input.content, stored, docTexts, input.search === true)
       return ok(user)
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
@@ -154,6 +159,7 @@ async function prepareAttachments(attachments: Attachment[]): Promise<{
 async function runReply(
   wc: WebContents,
   sessionId: string,
+  userRequest: string,
   attachments: Attachment[],
   docTexts: string[],
   search: boolean
@@ -170,6 +176,7 @@ async function runReply(
   const projectEligible = !vision && !search
   let useProjectAgent = false
   let agentTaskId: string | undefined
+  let agentWorkspaceId: string | undefined
   let agentWorkspaceRoot: string | undefined
   let agentExecutionEnvironment: 'local' | 'docker' | undefined
   try {
@@ -183,6 +190,7 @@ async function runReply(
       try {
         const agentTask = await createProjectTask(sessionId, wc.id)
         agentTaskId = agentTask.id
+        agentWorkspaceId = agentTask.workspaceId
         agentWorkspaceRoot = getWorkspaceService().getGrant(agentTask.workspaceId)?.rootPath
         agentExecutionEnvironment = agentTask.environment
       } catch (error) {
@@ -196,13 +204,14 @@ async function runReply(
     await runModelReply(
       wc,
       preset,
-      cfg.reasoningEffort,
+      useProjectAgent ? codingReasoningEffort(cfg.reasoningEffort, userRequest) : cfg.reasoningEffort,
       sessionId,
       vision,
       docTexts,
       useSearch,
       task.controller.signal,
       agentTaskId,
+      agentWorkspaceId,
       agentWorkspaceRoot,
       agentExecutionEnvironment
     )
@@ -255,6 +264,7 @@ async function runModelReply(
   search: boolean,
   signal: AbortSignal,
   agentTaskId?: string,
+  agentWorkspaceId?: string,
   agentWorkspaceRoot?: string,
   agentExecutionEnvironment?: 'local' | 'docker'
 ): Promise<void> {
@@ -303,8 +313,11 @@ async function runModelReply(
   const emit = async (status: MessageStatus): Promise<void> => {
     const blocks: MessageBlock[] = []
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
-    if (thinking) blocks.push({ kind: 'thinking', content: thinking })
-    if (agentTaskId) blocks.push(...timeline.blocks)
+    if (!agentTaskId && thinking) blocks.push({ kind: 'thinking', content: thinking })
+    if (agentTaskId) {
+      blocks.push(...timeline.blocks)
+      if (activity) blocks.push({ kind: 'thinking', content: activity })
+    }
     else if (content) blocks.push({ kind: 'text', content })
     if (sources.length) blocks.push({ kind: 'sources', sources })
     const msg: Message = {
@@ -341,7 +354,10 @@ async function runModelReply(
     signal
   }
   const onEvent = async (ev: StreamEvent): Promise<void> => {
-    if (ev.reasoning) reasoning += ev.reasoning
+    if (ev.reasoning) {
+      reasoning += ev.reasoning
+      if (agentTaskId) appendToolTimelineThinking(timeline, ev.reasoning)
+    }
     if (ev.content) {
       content += ev.content
       if (agentTaskId) appendToolTimelineText(timeline, ev.content)
@@ -363,14 +379,26 @@ async function runModelReply(
   while (true) {
     try {
       if (agentTaskId) {
-        const result = await runToolCallingLoop({
-          taskRuntime: getTaskRuntime(),
+        const taskRuntime = getTaskRuntime()
+        let activeTool: { toolName: string; args: unknown } | undefined
+        const approvals: Array<{ toolName: string; target: string }> = []
+        const unsubscribeApprovals = taskRuntime.subscribe((event) => {
+          const payload = event.payload as { to?: unknown }
+          if (event.taskId === agentTaskId && event.type === 'task.status-changed' &&
+              payload.to === 'waiting-approval' && activeTool) {
+            approvals.push({ toolName: activeTool.toolName, target: approvalTarget(activeTool.args) })
+          }
+        })
+        let result
+        try { result = await runToolCallingLoop({
+          taskRuntime,
           registry: getToolRegistry(),
           taskId: agentTaskId,
           model: runtime,
           messages: history,
           onEvent,
           onToolActivity: async (tool) => {
+            activeTool = tool.status === 'requested' ? { toolName: tool.toolName, args: tool.args } : undefined
             const baseTitle = describeToolActivity(tool.toolName, tool.args, tool.result)
             const failure = tool.status === 'completed' && tool.ok === false
               ? toolFailureDescription(tool.result)
@@ -381,12 +409,35 @@ async function runModelReply(
               failure ? `${baseTitle}（未完成：${failure}）` : baseTitle,
               tool.status === 'completed' && tool.ok === true
             )
+            if (tool.status === 'completed' && tool.ok === true && tool.toolName === 'workspace.patch' &&
+                isPatchManifest(tool.result)) {
+              appendPatchTimeline(
+                timeline,
+                agentTaskId,
+                tool.result,
+                getPatchWorkspaceService().previewContents(agentTaskId)
+              )
+            }
+            if (tool.status === 'completed' && tool.ok === true && tool.toolName === 'workspace.applyPatch' &&
+                isPatchManifest(tool.result) && agentWorkspaceId && !wc.isDestroyed()) {
+              wc.send(EVENTS.workspaceFilesChanged, {
+                workspaceId: agentWorkspaceId,
+                paths: tool.result.files.flatMap((file) => file.previousPath
+                  ? [file.previousPath, file.path]
+                  : [file.path])
+              })
+            }
+            if (tool.status === 'completed' && tool.ok === true && tool.toolName === 'process.run' &&
+                isCommandResult(tool.result) && isCommandInput(tool.args)) {
+              appendCommandTimeline(timeline, tool.callId, tool.args, tool.result)
+            }
             await emit('streaming')
           },
           maxToolResultChars: Math.max(20_000, Math.min(400_000, Math.floor((preset.contextTokens ?? 128_000) * 1.4)))
-        })
+        }) } finally { unsubscribeApprovals() }
         if (result.status === 'failed') {
           const failureMessage = result.error?.message ?? 'Coding 任务执行失败'
+          appendTaskReport(timeline, approvals, failureMessage)
           if (!content.trim()) {
             appendToolTimelineText(timeline, `本次执行未完成：${failureMessage}。请重试。`)
           }
@@ -397,6 +448,7 @@ async function runModelReply(
           })
           return
         }
+        appendTaskReport(timeline, approvals)
       } else if (useSearch) {
         if (preset.provider === 'deepseek') await streamDeepSeekSearch(runtime, history, onEvent)
         else await streamSearchChat(runtime, history, onEvent)
@@ -498,6 +550,9 @@ function describeToolActivity(toolName: string, args: unknown, result?: unknown)
   if (toolName === 'workspace.searchText') return `搜索正文：${clean(input.query) || '关键词'}`
   if (toolName === 'workspace.findFiles') return `查找文件：${clean(input.query) || '文件名'}`
   if (toolName === 'workspace.listFiles') return `查看目录：${clean(input.path) || '项目根目录'}`
+  if (toolName === 'workspace.discoverChecks') return '发现项目测试与构建脚本'
+  if (toolName === 'workspace.patch') return `生成沙箱补丁：${clean(input.path) || '项目文件'}`
+  if (toolName === 'workspace.applyPatch') return result ? '已验证并写回补丁' : '等待批准写回补丁'
   if (toolName.startsWith('git.')) return `查看 Git：${toolName.slice(4)}`
   return `使用工具：${toolName.slice(0, 100)}`
 }
@@ -510,6 +565,42 @@ function toolFailureDescription(result: unknown): string {
   return typeof message === 'string'
     ? message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120)
     : '工具返回错误'
+}
+
+function isPatchManifest(value: unknown): value is import('../services/agent/patchWorkspaceService').PatchManifest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.patchHash === 'string' && Array.isArray(candidate.files) &&
+    typeof candidate.linesAdded === 'number' && typeof candidate.linesDeleted === 'number'
+}
+
+function isCommandInput(value: unknown): value is { executable: string; args: string[] } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.executable === 'string' && Array.isArray(candidate.args) &&
+    candidate.args.every((arg) => typeof arg === 'string')
+}
+
+function isCommandResult(value: unknown): value is {
+  exitCode: number | null; durationMs: number; truncated: boolean; stdout: string; stderr: string
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return (candidate.exitCode === null || Number.isInteger(candidate.exitCode)) &&
+    typeof candidate.durationMs === 'number' && typeof candidate.truncated === 'boolean' &&
+    typeof candidate.stdout === 'string' && typeof candidate.stderr === 'string'
+}
+
+function approvalTarget(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '已批准操作'
+  const input = value as Record<string, unknown>
+  if (typeof input.path === 'string') return input.path.slice(0, 160)
+  if (Array.isArray(input.paths)) return input.paths.filter((path) => typeof path === 'string').slice(0, 5).join(', ').slice(0, 160)
+  if (typeof input.executable === 'string') {
+    const args = Array.isArray(input.args) ? input.args.filter((arg) => typeof arg === 'string').slice(0, 5).join(' ') : ''
+    return `${input.executable} ${args}`.trim().slice(0, 160)
+  }
+  return '已批准操作'
 }
 
 function modelErrorMessage(detail: string, retryable: boolean, retried: boolean, hasContent: boolean): string {

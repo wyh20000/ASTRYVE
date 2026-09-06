@@ -1,5 +1,6 @@
 import {
   useRef,
+  useEffect,
   useState,
   type KeyboardEvent,
   type ClipboardEvent,
@@ -17,6 +18,7 @@ import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumen
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { AgentControls } from './AgentControls'
+import { stepInputHistory, type InputHistoryState } from './inputHistory'
 
 const MAX_H = 200
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
@@ -43,7 +45,11 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
+  const inputHistory = useChatStore((state) => (state.messages[sessionId] ?? [])
+    .filter((message) => message.role === 'user' && message.content.trim())
+    .map((message) => message.content))
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const historyState = useRef<InputHistoryState>({ index: null, draft: '' })
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
 
@@ -55,6 +61,11 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const workspaceId = useWorkspaceStore((state) =>
     state.recent.find((workspace) => workspace.displayPath === projectPath)?.id
   )
+
+  useEffect(() => {
+    historyState.current = { index: null, draft: '' }
+    setValue('')
+  }, [sessionId])
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')
@@ -114,11 +125,31 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       return
     }
     setValue('')
+    historyState.current = { index: null, draft: '' }
     setAttachments([])
     if (taRef.current) taRef.current.style.height = 'auto'
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    const atFirstLine = e.currentTarget.selectionStart <= value.indexOf('\n') || !value.includes('\n')
+    const lastBreak = value.lastIndexOf('\n')
+    const atLastLine = e.currentTarget.selectionEnd > lastBreak
+    if (!e.altKey && !e.ctrlKey && !e.metaKey &&
+        ((e.key === 'ArrowUp' && atFirstLine) || (e.key === 'ArrowDown' && atLastLine))) {
+      const direction = e.key === 'ArrowUp' ? 'previous' : 'next'
+      const next = stepInputHistory(inputHistory, value, historyState.current, direction)
+      if (next.value !== value || next.state.index !== historyState.current.index) {
+        e.preventDefault()
+        historyState.current = next.state
+        setValue(next.value)
+        requestAnimationFrame(() => {
+          autosize()
+          const textarea = taRef.current
+          if (textarea) textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+        })
+      }
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void doSend()
@@ -215,6 +246,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             value={value}
             onChange={(e) => {
               setValue(e.target.value)
+              historyState.current = { index: null, draft: e.target.value }
               autosize()
             }}
             onKeyDown={onKeyDown}

@@ -6,6 +6,7 @@ import { registerWindowIpc } from './window'
 import { registerModelIpc } from './model'
 import { registerSettingsIpc } from './settings'
 import { registerWorkspaceIpc } from './workspace'
+import { registerTerminalIpc } from './terminal'
 import { ok, err } from './result'
 import { assertTrustedIpcSender } from './validation'
 
@@ -25,4 +26,5 @@ export function registerIpcHandlers(): void {
   registerModelIpc()
   registerSettingsIpc()
   registerWorkspaceIpc()
+  registerTerminalIpc()
 }
