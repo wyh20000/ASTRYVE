@@ -11,14 +11,14 @@ import { App as AntdApp } from 'antd'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
-import type { ReasoningEffort, Attachment } from '@shared/types'
-import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import type { ReasoningEffort, Attachment, UserInputRequest } from '@shared/types'
+import { supportsImageInput } from '@shared/modelCapabilities'
 import { Icon } from '../ui/icons'
 import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
-import { AgentControls } from './AgentControls'
 import { stepInputHistory, type InputHistoryState } from './inputHistory'
+import { useSkillStore } from '../../stores/skillStore'
 
 const MAX_H = 200
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
@@ -41,10 +41,13 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([])
-  const [search, setSearch] = useState(false)
+  const [slashDismissed, setSlashDismissed] = useState(false)
+  const [slashIndex, setSlashIndex] = useState(0)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
+  const inputRequest = useChatStore((s) => s.inputRequests[sessionId])
+  const clearInputRequest = useChatStore((s) => s.clearInputRequest)
   const inputHistory = useChatStore((state) => (state.messages[sessionId] ?? [])
     .filter((message) => message.role === 'user' && message.content.trim())
     .map((message) => message.content))
@@ -52,6 +55,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const historyState = useRef<InputHistoryState>({ index: null, draft: '' })
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
+  const slashMenuRef = useRef<HTMLDivElement>(null)
 
   const config = useModelStore((s) => s.config)
   const activePreset = config?.presets.find((p) => p.id === config.activePresetId)
@@ -61,10 +65,18 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const workspaceId = useWorkspaceStore((state) =>
     state.recent.find((workspace) => workspace.displayPath === projectPath)?.id
   )
+  const skills = useSkillStore((state) => state.items)
+  const loadSkills = useSkillStore((state) => state.load)
+
+  useEffect(() => {
+    void loadSkills(workspaceId)
+  }, [workspaceId, loadSkills])
 
   useEffect(() => {
     historyState.current = { index: null, draft: '' }
     setValue('')
+    setSlashDismissed(false)
+    setSlashIndex(0)
   }, [sessionId])
 
   const images = attachments.filter((a) => a.kind === 'image')
@@ -74,7 +86,27 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     (value.trim().length > 0 || attachments.length > 0) &&
     !!sessionId &&
     !sending &&
+    !inputRequest &&
     processingFiles.length === 0
+  const slashQuery = /^\/([a-z0-9_-]*)$/i.exec(value.trim())?.[1]?.toLowerCase()
+  const slashSkills = slashQuery === undefined ? [] : skills
+    .filter((skill) => skill.active && skill.enabled && !skill.errors.length && skill.name.includes(slashQuery))
+    .slice(0, 8)
+  const slashMenuOpen = slashQuery !== undefined && slashSkills.length > 0 && !slashDismissed
+
+  useEffect(() => {
+    setSlashIndex((current) => Math.min(current, Math.max(0, slashSkills.length - 1)))
+  }, [slashQuery, slashSkills.length])
+
+  useEffect(() => {
+    if (!slashMenuOpen) return
+    const dismissOutside = (event: PointerEvent): void => {
+      const target = event.target as Node | null
+      if (target && target !== taRef.current && !slashMenuRef.current?.contains(target)) setSlashDismissed(true)
+    }
+    document.addEventListener('pointerdown', dismissOutside)
+    return () => document.removeEventListener('pointerdown', dismissOutside)
+  }, [slashMenuOpen])
 
   const showNotice = (content: string, level: 'warning' | 'error' = 'warning'): void => {
     if (!content) return
@@ -119,7 +151,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       showNotice('信息不能发送，此模型无法进行图片处理')
       return
     }
-    const result = await send(sessionId, v, attachments, search)
+    const result = await send(sessionId, v, attachments)
     if (!result.ok) {
       showNotice(result.error.message, 'error')
       return
@@ -130,7 +162,36 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     if (taRef.current) taRef.current.style.height = 'auto'
   }
 
+  const chooseSlashSkill = (index: number): void => {
+    const skill = slashSkills[index]
+    if (!skill) return
+    setValue(`/${skill.name} `)
+    setSlashDismissed(true)
+    historyState.current = { index: null, draft: `/${skill.name} ` }
+    requestAnimationFrame(() => {
+      autosize()
+      taRef.current?.focus()
+    })
+  }
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (slashMenuOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashIndex((current) => moveSlashSelection(current, slashSkills.length, e.key === 'ArrowDown' ? 1 : -1))
+        return
+      }
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+        e.preventDefault()
+        chooseSlashSkill(slashIndex)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashDismissed(true)
+        return
+      }
+    }
     const atFirstLine = e.currentTarget.selectionStart <= value.indexOf('\n') || !value.includes('\n')
     const lastBreak = value.lastIndexOf('\n')
     const atLastLine = e.currentTarget.selectionEnd > lastBreak
@@ -186,6 +247,9 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   return (
     <div className="shrink-0 px-4 pb-2 pt-3" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <div className="relative mx-auto max-w-[820px]">
+        {inputRequest && <UserInputCard request={inputRequest} onResolved={() => {
+          clearInputRequest(sessionId, inputRequest.id)
+        }} />}
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
           {(images.length > 0 || files.length > 0 || processingFiles.length > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-2.5">
@@ -246,29 +310,39 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             value={value}
             onChange={(e) => {
               setValue(e.target.value)
+              setSlashDismissed(false)
+              setSlashIndex(0)
               historyState.current = { index: null, draft: e.target.value }
               autosize()
             }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder="向 AI Agent 发送消息..."
+            disabled={Boolean(inputRequest)}
+            placeholder={inputRequest ? '请先回答上方问题…' : '向 AI Agent 发送消息...'}
             className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
             style={{ height: 'auto' }}
           />
-          <div className="flex min-w-0 items-center gap-1.5 px-2.5 pb-2 pt-1">
-            <ModelSelector />
-            <AgentControls workspaceId={workspaceId} />
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              {supportsBuiltInSearch(activePreset?.provider) && activePreset && (
-                <button
-                  onClick={() => setSearch((v) => !v)}
-                  className={`chip border ${search ? 'border-accent bg-accent-dim/20 text-accent' : 'border-border text-txt-muted hover:text-txt-secondary'}`}
-                  title={`联网搜索（${activePreset.provider === 'deepseek' ? 'DeepSeek' : 'Kimi'}）`}
-                >
-                  <Icon.Search size={12} />
-                  {search ? '联网已开' : '联网'}
+          {slashMenuOpen && (
+            <div ref={slashMenuRef} role="listbox" aria-label="Skill 快捷指令"
+              className="absolute bottom-[48px] left-2 right-2 z-40 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
+              <div className="border-b border-border px-3 py-2 text-[11px] text-txt-muted">快捷指令 · 选择 Skill</div>
+              {slashSkills.map((skill, index) => (
+                <button key={skill.id} type="button" role="option" aria-selected={index === slashIndex}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === slashIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
+                  onMouseEnter={() => setSlashIndex(index)} onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseSlashSkill(index)}>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium text-txt-primary">/{skill.name}</span>
+                    <span className="block truncate text-[10px] text-txt-muted">{skill.displayName} · {skill.description}</span>
+                  </span>
                 </button>
-              )}
+              ))}
+            </div>
+          )}
+          <div className="chat-input-toolbar flex min-w-0 items-center gap-1.5 px-2.5 pb-2 pt-1">
+            <ModelSelector />
+            <div className="ml-auto flex shrink-0 items-center gap-1">
               <button className="btn-icon" title="附件（PDF/Word/Excel/CSV）" onClick={() => docRef.current?.click()}>
                 <Icon.Paperclip size={16} />
               </button>
@@ -313,6 +387,72 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   )
 }
 
+function UserInputCard({ request, onResolved }: { request: UserInputRequest; onResolved: () => void }): JSX.Element {
+  const [index, setIndex] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const question = request.questions[index]
+  const answer = question ? answers[question.id] ?? '' : ''
+  const isLast = index === request.questions.length - 1
+
+  useEffect(() => {
+    setIndex(0); setAnswers({}); setSubmitting(false); setError('')
+  }, [request.id])
+
+  if (!question) return <></>
+  const setAnswer = (value: string): void => setAnswers((current) => ({ ...current, [question.id]: value }))
+  const submit = async (): Promise<void> => {
+    if (!answer.trim()) return
+    if (!isLast) { setIndex((current) => current + 1); return }
+    setSubmitting(true); setError('')
+    const result = await window.agent.message.respondInput({
+      requestId: request.id,
+      sessionId: request.sessionId,
+      answers: { ...answers, [question.id]: answer.trim() }
+    })
+    if (result.ok) onResolved()
+    else { setError(result.error.message); setSubmitting(false) }
+  }
+
+  return <div className="mb-2 overflow-hidden rounded-xl border border-accent/45 bg-bg-raised shadow-xl">
+    <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-dim/30 text-accent"><Icon.Brain size={12} /></span>
+      <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-txt-primary">{question.header || 'AI 需要你的选择'}</span>
+      <span className="text-[10px] text-txt-muted">{index + 1}/{request.questions.length}</span>
+    </div>
+    <div className="px-3 py-2.5">
+      <p className="mb-2 text-[12px] leading-5 text-txt-primary">{question.question}</p>
+      {question.options?.length ? <div className="mb-2 grid gap-1.5 sm:grid-cols-2">
+        {question.options.map((option) => <button key={option.label} type="button" onClick={() => setAnswer(option.label)}
+          className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${answer === option.label
+            ? 'border-accent bg-accent-dim/20 text-txt-primary' : 'border-border bg-bg-panel text-txt-secondary hover:border-border-strong'}`}>
+          <span className="block text-[11px] font-medium">{option.label}</span>
+          {option.description && <span className="mt-0.5 block text-[10px] leading-4 text-txt-muted">{option.description}</span>}
+        </button>)}
+      </div> : null}
+      <textarea rows={2} value={answer} onChange={(event) => setAnswer(event.target.value)}
+        placeholder={question.options?.length ? '也可以填写自定义回答…' : '填写回答…'}
+        className="block max-h-24 w-full resize-none rounded-lg border border-border bg-bg-app px-2.5 py-2 text-[11px] leading-4 text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent" />
+      <div className="mt-2 flex items-center gap-2">
+        {error && <span className="min-w-0 flex-1 truncate text-[10px] text-red-300">{error}</span>}
+        {!error && <span className="flex-1 text-[10px] text-txt-muted">回答会传回当前任务，AI 将继续执行</span>}
+        {index > 0 && <button type="button" disabled={submitting} onClick={() => setIndex((current) => current - 1)}
+          className="rounded-md px-2.5 py-1.5 text-[11px] text-txt-secondary hover:bg-bg-active">上一个</button>}
+        <button type="button" disabled={!answer.trim() || submitting} onClick={() => void submit()}
+          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-white disabled:opacity-40">
+          {submitting ? '提交中…' : isLast ? '提交并继续' : '下一个'}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+export function moveSlashSelection(current: number, count: number, delta: -1 | 1): number {
+  if (count <= 0) return 0
+  return (current + delta + count) % count
+}
+
 function ModelSelector(): JSX.Element {
   const config = useModelStore((s) => s.config)
   const activate = useModelStore((s) => s.activate)
@@ -340,7 +480,7 @@ function ModelSelector(): JSX.Element {
         <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[9px] font-semibold text-white">
           {active.name.slice(0, 1).toUpperCase()}
         </span>
-        <span className="max-w-[120px] truncate">{active.name}</span>
+        <span className="max-w-[150px] truncate" title={`${active.name} · ${active.model}`}>{active.name}</span>
         <span className="rounded bg-bg-active px-1 text-[10px] text-txt-muted">{EFFORT_LABEL[effort]}</span>
         <Icon.ChevronDown size={13} className={open ? 'rotate-180' : ''} />
       </button>

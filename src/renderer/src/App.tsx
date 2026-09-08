@@ -14,6 +14,7 @@ import { useThemeStore } from './stores/themeStore'
 import { getTheme } from './theme/theme'
 import { useWorkspaceStore } from './stores/workspaceStore'
 import WorkspacePanel from './components/layout/WorkspacePanel'
+import ApprovalDialog from './components/chat/ApprovalDialog'
 
 function AppShell(): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
@@ -21,6 +22,10 @@ function AppShell(): JSX.Element {
   const activeId = useSessionStore((s) => s.activeId)
   const load = useChatStore((s) => s.load)
   const upsertMessage = useChatStore((s) => s.upsertMessage)
+  const setInputRequest = useChatStore((s) => s.setInputRequest)
+  const clearInputRequest = useChatStore((s) => s.clearInputRequest)
+  const setApprovalRequest = useChatStore((s) => s.setApprovalRequest)
+  const clearApprovalRequest = useChatStore((s) => s.clearApprovalRequest)
   const create = useSessionStore((s) => s.create)
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
@@ -40,6 +45,18 @@ function AppShell(): JSX.Element {
     const unsub = window.agent.onMessageStreamed((m) => upsertMessage(m))
     return unsub
   }, [upsertMessage])
+
+  useEffect(() => window.agent.onUserInputRequested(setInputRequest), [setInputRequest])
+
+  useEffect(() => window.agent.onUserInputResolved((request) => {
+    clearInputRequest(request.sessionId, request.id)
+  }), [clearInputRequest])
+
+  useEffect(() => window.agent.onApprovalRequested(setApprovalRequest), [setApprovalRequest])
+
+  useEffect(() => window.agent.onApprovalResolved((request) => {
+    clearApprovalRequest(request.sessionId, request.id)
+  }), [clearApprovalRequest])
 
   useEffect(() => {
     const unsub = window.agent.onMessageNotice((notice) => {
@@ -86,6 +103,7 @@ function AppShell(): JSX.Element {
         </div>
       )}
       <StatusBar />
+      <ApprovalDialog />
     </div>
   )
 }

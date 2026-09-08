@@ -135,6 +135,11 @@ export function getPatchWorkspaceService(): PatchWorkspaceService {
   return patchWorkspace
 }
 
+export function writeAgentAudit(event: import('../../../shared/agent').AuditEvent): void {
+  if (!auditJournal) throw new Error('审计日志尚未初始化')
+  auditJournal.write(event)
+}
+
 /** Coding tools are opt-in per project. Unavailable Docker preferences keep ordinary chat working. */
 export function shouldUseProjectAgent(sessionId: string): boolean {
   const workspaceId = getSessionWorkspaceId(sessionId)

@@ -1,0 +1,99 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { ApprovalScope } from '@shared/agent'
+import type { ApprovalUiRequest } from '@shared/types'
+import { useChatStore } from '../../stores/chatStore'
+import { Icon } from '../ui/icons'
+
+export default function ApprovalDialog(): JSX.Element | null {
+  const requests = useChatStore((state) => state.approvalRequests)
+  const clear = useChatStore((state) => state.clearApprovalRequest)
+  const request = useMemo(() => Object.values(requests)
+    .filter((item) => item && item.expiresAt > Date.now())
+    .sort((left, right) => (right?.expiresAt ?? 0) - (left?.expiresAt ?? 0))[0], [requests])
+  if (!request) return null
+  return <ApprovalDialogView request={request} onClear={() => clear(request.sessionId, request.id)} />
+}
+
+export function ApprovalDialogView({ request, onClear }: {
+  request: ApprovalUiRequest
+  onClear: () => void
+}): JSX.Element {
+  const [submitting, setSubmitting] = useState<ApprovalScope | 'deny'>()
+  const [error, setError] = useState('')
+
+  useEffect(() => { setSubmitting(undefined); setError('') }, [request?.id])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') void respond(undefined)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [request?.id])
+
+  const respond = async (scope?: ApprovalScope): Promise<void> => {
+    if (submitting) return
+    setSubmitting(scope ?? 'deny'); setError('')
+    const result = await window.agent.approval.respond({ requestId: request.id, scope })
+    if (result.ok) onClear()
+    else { setSubmitting(undefined); setError(result.error.message) }
+  }
+  const riskTone = riskClass(request.risk)
+
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 px-4 py-10 backdrop-blur-[2px]"
+    role="dialog" aria-modal="true" aria-labelledby="approval-title">
+    <section className="flex max-h-[min(620px,calc(100vh-80px))] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-panel shadow-2xl">
+      <header className="flex items-start gap-3 border-b border-border px-4 py-3.5">
+        <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${riskTone.icon}`}>
+          <Icon.Shield size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h2 id="approval-title" className="truncate text-[14px] font-semibold text-txt-primary">{request.title}</h2>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${riskTone.badge}`}>{request.risk}</span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-txt-muted">{request.summary}</p>
+        </div>
+      </header>
+
+      <div className="min-h-0 overflow-y-auto px-4 py-3">
+        <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[11px]">
+          <span className="text-txt-muted">操作</span><span className="text-txt-secondary">{request.operation}</span>
+          <span className="text-txt-muted">环境</span><span className="text-txt-secondary">{request.environment}</span>
+          <span className="text-txt-muted">目标</span>
+          <code className="min-w-0 break-words rounded-md bg-bg-app px-2 py-1.5 font-mono text-[10px] leading-4 text-txt-primary">{request.target}</code>
+        </div>
+        {request.details && <details className="group mt-3 rounded-lg border border-border bg-bg-app">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-[11px] text-txt-secondary">
+            <Icon.ChevronRight size={11} className="transition-transform group-open:rotate-90" />
+            查看完整参数
+          </summary>
+          <pre className="selectable max-h-44 overflow-auto whitespace-pre-wrap break-words border-t border-border px-3 py-2 font-mono text-[10px] leading-4 text-txt-muted">{request.details}{request.detailsTruncated ? '\n\n[内容过长，界面已截断；审批仍绑定完整参数]' : ''}</pre>
+        </details>}
+        <p className="mt-3 text-[10px] leading-4 text-txt-muted">拒绝后不会执行该操作。批准只对当前显示且经过安全绑定的操作有效。</p>
+        {error && <p className="mt-2 text-[11px] text-red-300">{error}</p>}
+      </div>
+
+      <footer className="flex flex-wrap justify-end gap-2 border-t border-border bg-bg-raised/50 px-4 py-3">
+        <button type="button" disabled={Boolean(submitting)} onClick={() => void respond()}
+          className="rounded-lg border border-border px-3 py-2 text-[11px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
+          {submitting === 'deny' ? '拒绝中…' : '拒绝'}
+        </button>
+        {request.scopeOptions.includes('task-prefix') && <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('task-prefix')}
+          className="rounded-lg border border-border-strong px-3 py-2 text-[11px] text-txt-primary hover:bg-bg-active disabled:opacity-50">
+          {submitting === 'task-prefix' ? '批准中…' : '本任务允许相同命令'}
+        </button>}
+        <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('once')}
+          className="rounded-lg bg-accent px-3.5 py-2 text-[11px] font-medium text-white hover:bg-accent/85 disabled:opacity-50">
+          {submitting === 'once' ? '批准中…' : '仅批准本次'}
+        </button>
+      </footer>
+    </section>
+  </div>
+}
+
+function riskClass(label: string): { icon: string; badge: string } {
+  if (label === '严重风险') return { icon: 'bg-red-500/15 text-red-300', badge: 'bg-red-500/15 text-red-300' }
+  if (label === '高风险') return { icon: 'bg-amber-500/15 text-amber-300', badge: 'bg-amber-500/15 text-amber-300' }
+  if (label === '中等风险') return { icon: 'bg-orange-500/15 text-orange-300', badge: 'bg-orange-500/15 text-orange-300' }
+  return { icon: 'bg-accent-dim/25 text-accent', badge: 'bg-accent-dim/25 text-accent' }
+}

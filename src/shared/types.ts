@@ -5,6 +5,7 @@
 import type {
   ActivateWorkspaceInput,
   ExecutionEnvironment,
+  ApprovalScope,
   PermissionMode,
   WorkspaceFileContent,
   WorkspaceFileEntry,
@@ -96,6 +97,7 @@ export type MessageBlock =
   | { kind: 'files'; files: GeneratedFile[] }
   | { kind: 'code'; language: string; code: string; filename?: string }
   | { kind: 'sources'; sources: SourceCitation[] }
+  | { kind: 'skills'; skills: Array<{ name: string; displayName: string; source: SkillSource; version?: string }>; trigger?: string }
   | PatchDiffBlock
   | CommandOutputBlock
   | TaskReportBlock
@@ -207,9 +209,100 @@ export interface SendMessageInput {
   sessionId: string
   content: string
   attachments?: Attachment[]
-  /** 是否启用当前提供方的内置联网搜索 */
+  /** @deprecated 联网能力现由应用按模型接口自动启用；仅为旧客户端兼容保留。 */
   search?: boolean
+  skillIds?: string[]
 }
+
+export interface UserInputOption {
+  label: string
+  description?: string
+}
+
+export interface UserInputQuestion {
+  id: string
+  header?: string
+  question: string
+  options?: UserInputOption[]
+}
+
+export interface UserInputRequest {
+  id: string
+  sessionId: string
+  questions: UserInputQuestion[]
+}
+
+export interface UserInputResponse {
+  requestId: string
+  sessionId: string
+  answers: Record<string, string>
+}
+
+export interface ApprovalUiRequest {
+  id: string
+  sessionId: string
+  title: string
+  summary: string
+  workspace: string
+  environment: 'Docker 沙箱' | '本机执行'
+  operation: string
+  risk: '低风险' | '中等风险' | '高风险' | '严重风险'
+  target: string
+  details?: string
+  detailsTruncated?: boolean
+  scopeOptions: ApprovalScope[]
+  expiresAt: number
+}
+
+export interface ApprovalUiResponse {
+  requestId: string
+  scope?: ApprovalScope
+}
+
+export type SkillSource = 'builtin' | 'installed' | 'codex' | 'agents' | 'project'
+
+export type SkillInstallKind = 'builtin' | 'github' | 'local' | 'external'
+
+export interface SkillMetadata {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  source: SkillSource
+  enabled: boolean
+  active: boolean
+  autoTrigger: boolean
+  requestedTools: string[]
+  allowedTools: string[]
+  resources: string[]
+  invocation: 'user' | 'model'
+  toolPolicy: 'inherit' | 'declared'
+  installKind: SkillInstallKind
+  repository?: string
+  installUrl?: string
+  version?: string
+  license?: string
+  updateAvailable?: boolean
+  errors: string[]
+  shadowedBy?: string
+}
+
+export interface SkillListInput { workspaceId?: string }
+export interface SkillToggleInput { id: string; enabled: boolean; workspaceId?: string }
+export interface SkillCatalogInput { query?: string }
+export interface SkillCatalogItem {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  repository: string
+  installUrl: string
+  publisher: string
+  featured: boolean
+  installed: boolean
+}
+export interface SkillInstallInput { url: string; workspaceId?: string }
+export interface SkillUninstallInput { id: string; workspaceId?: string }
 
 /** 模型提供方（DeepSeek / Kimi / 自定义 OpenAI 兼容） */
 export type ModelProvider = 'deepseek' | 'kimi' | 'custom'
@@ -285,6 +378,10 @@ export interface AgentApi {
     list: (sessionId: string) => Promise<IpcResult<Message[]>>
     send: (input: SendMessageInput) => Promise<IpcResult<Message>>
     stop: (sessionId: string) => Promise<IpcResult<{ stopped: boolean }>>
+    respondInput: (input: UserInputResponse) => Promise<IpcResult<{ accepted: boolean }>>
+  }
+  approval: {
+    respond: (input: ApprovalUiResponse) => Promise<IpcResult<{ accepted: boolean }>>
   }
   workspace: {
     listRecent: () => Promise<IpcResult<WorkspaceSummary[]>>
@@ -314,8 +411,20 @@ export interface AgentApi {
   }
   onMessageStreamed: (cb: (m: Message) => void) => () => void
   onMessageNotice: (cb: (notice: MessageNotice) => void) => () => void
+  onUserInputRequested: (cb: (request: UserInputRequest) => void) => () => void
+  onUserInputResolved: (cb: (request: Pick<UserInputRequest, 'id' | 'sessionId'>) => void) => () => void
+  onApprovalRequested: (cb: (request: ApprovalUiRequest) => void) => () => void
+  onApprovalResolved: (cb: (request: Pick<ApprovalUiRequest, 'id' | 'sessionId'>) => void) => () => void
   onTerminalOutput: (cb: (output: TerminalOutput) => void) => () => void
   onWorkspaceFilesChanged: (cb: (change: WorkspaceFilesChanged) => void) => () => void
+  skills: {
+    list: (input: SkillListInput) => Promise<IpcResult<SkillMetadata[]>>
+    catalog: (input?: SkillCatalogInput) => Promise<IpcResult<SkillCatalogItem[]>>
+    install: (input: SkillInstallInput) => Promise<IpcResult<SkillMetadata[]>>
+    importLocal: (input: SkillListInput) => Promise<IpcResult<SkillMetadata[]>>
+    uninstall: (input: SkillUninstallInput) => Promise<IpcResult<SkillMetadata[]>>
+    setEnabled: (input: SkillToggleInput) => Promise<IpcResult<SkillMetadata[]>>
+  }
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>
     setTheme: (t: PersistedTheme) => Promise<IpcResult<PersistedTheme>>

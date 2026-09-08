@@ -60,6 +60,8 @@ function Block({ block, status }: { block: MessageBlock; status: MessageStatus }
       return <CodeBlock language={block.language} code={block.code} filename={block.filename} />
     case 'sources':
       return <SourcesBlock sources={block.sources} />
+    case 'skills':
+      return <SkillBlock block={block} />
     case 'diff':
       return <DiffBlock block={block} status={status} />
     case 'command':
@@ -69,6 +71,17 @@ function Block({ block, status }: { block: MessageBlock; status: MessageStatus }
     default:
       return null
   }
+}
+
+function SkillBlock({ block }: { block: Extract<MessageBlock, { kind: 'skills' }> }): JSX.Element {
+  return <div className="flex max-w-[720px] flex-wrap items-center gap-2 rounded-md border border-accent/30 bg-accent-dim/10 px-3 py-2 text-[11px]">
+    <Icon.Brain size={13} className="text-accent" />
+    <span className="text-txt-secondary">本轮已加载</span>
+    {block.skills.map((skill) => <span key={`${skill.source}:${skill.name}`} className="rounded bg-bg-raised px-2 py-0.5 text-txt-primary">
+      /{skill.name}{skill.version ? ` · ${skill.version}` : ''}
+    </span>)}
+    {block.trigger && <span className="ml-auto text-txt-muted">由 {block.trigger} 触发</span>}
+  </div>
 }
 
 function TaskReport({ block }: { block: Extract<MessageBlock, { kind: 'report' }> }): JSX.Element {
@@ -384,7 +397,7 @@ function PlanBlock({ items }: { items: { order: number; title: string; done: boo
 function FilesBlock({ files }: { files: { path: string; addedLines: number }[] }): JSX.Element {
   const [open, setOpen] = useState(true)
   return (
-    <div className="w-fit min-w-[320px] overflow-hidden rounded-md border border-border bg-bg-panel">
+    <div className="w-fit min-w-[240px] max-w-full overflow-hidden rounded-md border border-border bg-bg-panel">
       <button
         className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[13px] font-medium text-txt-primary hover:bg-bg-raised"
         onClick={() => setOpen((v) => !v)}

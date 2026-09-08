@@ -88,13 +88,17 @@ export function validateSendMessageInput(value: unknown): SendMessageInput {
     invalid('消息内容无效或过长')
   }
   if (input.search != null && typeof input.search !== 'boolean') invalid('联网参数无效')
+  if (input.skillIds != null && (!Array.isArray(input.skillIds) || input.skillIds.length > 5 ||
+      input.skillIds.some((id) => typeof id !== 'string' || !/^[a-z]+:[a-f0-9]{12}:[a-z0-9_-]{2,64}$/.test(id)))) {
+    invalid('Skill 选择无效')
+  }
   if (input.attachments != null && !Array.isArray(input.attachments)) invalid('附件列表无效')
   const attachments = (input.attachments ?? []).map(validateAttachment)
   if (attachments.length > MAX_ATTACHMENTS) invalid(`一次最多发送 ${MAX_ATTACHMENTS} 个附件`)
   const total = attachments.reduce((sum, attachment) => sum + dataUrlBytes(attachment.dataRef), 0)
   if (total > MAX_ATTACHMENTS_BYTES) invalid('附件总大小不能超过 64MB')
   if (!input.content.trim() && attachments.length === 0) invalid('消息不能为空')
-  return { ...input, content: input.content, attachments }
+  return { ...input, content: input.content, attachments, skillIds: input.skillIds ? [...new Set(input.skillIds)] : undefined }
 }
 
 function validateModelPreset(value: unknown): ModelPreset {

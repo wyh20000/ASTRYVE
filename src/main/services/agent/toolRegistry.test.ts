@@ -137,6 +137,14 @@ describe('ToolRegistry', () => {
     })
   })
 
+  it('filters provider-visible tools without changing the execution registry', () => {
+    const registry = new ToolRegistry()
+    registry.register(readTool())
+    expect(registry.listNativeFunctionTools(new Set())).toEqual([])
+    expect(registry.listNativeFunctionTools(new Set(['workspace.readFile']))).toHaveLength(1)
+    expect(registry.validate(invocation()).name).toBe('workspace.readFile')
+  })
+
   it('rejects open or malformed tool schemas', () => {
     const registry = new ToolRegistry()
     expectRegistryError(

@@ -13,7 +13,16 @@ import type {
   AgentProjectPreferences,
   RejectPatchFileInput,
   TerminalOutput,
-  WorkspaceFilesChanged
+  WorkspaceFilesChanged,
+  SkillListInput,
+  SkillToggleInput,
+  SkillCatalogInput,
+  SkillInstallInput,
+  SkillUninstallInput,
+  UserInputRequest,
+  UserInputResponse,
+  ApprovalUiRequest,
+  ApprovalUiResponse
 } from '@shared/types'
 import type {
   ActivateWorkspaceInput,
@@ -38,7 +47,11 @@ const api: AgentApi = {
   message: {
     list: (sessionId: string) => ipcRenderer.invoke(IPC.message.list, sessionId),
     send: (input: SendMessageInput) => ipcRenderer.invoke(IPC.message.send, input),
-    stop: (sessionId: string) => ipcRenderer.invoke(IPC.message.stop, sessionId)
+    stop: (sessionId: string) => ipcRenderer.invoke(IPC.message.stop, sessionId),
+    respondInput: (input: UserInputResponse) => ipcRenderer.invoke(IPC.message.respondInput, input)
+  },
+  approval: {
+    respond: (input: ApprovalUiResponse) => ipcRenderer.invoke(IPC.approval.respond, input)
   },
   workspace: {
     listRecent: () => ipcRenderer.invoke(IPC.workspace.recent),
@@ -51,6 +64,14 @@ const api: AgentApi = {
     readMany: (input: WorkspaceReadManyInput) => ipcRenderer.invoke(IPC.workspace.readMany, input),
     searchText: (input: WorkspaceSearchInput) => ipcRenderer.invoke(IPC.workspace.searchText, input),
     rejectPatchFile: (input: RejectPatchFileInput) => ipcRenderer.invoke(IPC.workspace.rejectPatchFile, input)
+  },
+  skills: {
+    list: (input: SkillListInput) => ipcRenderer.invoke(IPC.skills.list, input),
+    catalog: (input?: SkillCatalogInput) => ipcRenderer.invoke(IPC.skills.catalog, input),
+    install: (input: SkillInstallInput) => ipcRenderer.invoke(IPC.skills.install, input),
+    importLocal: (input: SkillListInput) => ipcRenderer.invoke(IPC.skills.importLocal, input),
+    uninstall: (input: SkillUninstallInput) => ipcRenderer.invoke(IPC.skills.uninstall, input),
+    setEnabled: (input: SkillToggleInput) => ipcRenderer.invoke(IPC.skills.setEnabled, input)
   },
   terminal: {
     open: (sessionId: string) => ipcRenderer.invoke(IPC.terminal.open, sessionId),
@@ -73,6 +94,26 @@ const api: AgentApi = {
     const listener = (_e: unknown, notice: MessageNotice): void => cb(notice)
     ipcRenderer.on(EVENTS.messageNotice, listener)
     return () => ipcRenderer.removeListener(EVENTS.messageNotice, listener)
+  },
+  onUserInputRequested: (cb: (request: UserInputRequest) => void) => {
+    const listener = (_e: unknown, request: UserInputRequest): void => cb(request)
+    ipcRenderer.on(EVENTS.userInputRequested, listener)
+    return () => ipcRenderer.removeListener(EVENTS.userInputRequested, listener)
+  },
+  onUserInputResolved: (cb: (request: Pick<UserInputRequest, 'id' | 'sessionId'>) => void) => {
+    const listener = (_e: unknown, request: Pick<UserInputRequest, 'id' | 'sessionId'>): void => cb(request)
+    ipcRenderer.on(EVENTS.userInputResolved, listener)
+    return () => ipcRenderer.removeListener(EVENTS.userInputResolved, listener)
+  },
+  onApprovalRequested: (cb: (request: ApprovalUiRequest) => void) => {
+    const listener = (_e: unknown, request: ApprovalUiRequest): void => cb(request)
+    ipcRenderer.on(EVENTS.approvalRequested, listener)
+    return () => ipcRenderer.removeListener(EVENTS.approvalRequested, listener)
+  },
+  onApprovalResolved: (cb: (request: Pick<ApprovalUiRequest, 'id' | 'sessionId'>) => void) => {
+    const listener = (_e: unknown, request: Pick<ApprovalUiRequest, 'id' | 'sessionId'>): void => cb(request)
+    ipcRenderer.on(EVENTS.approvalResolved, listener)
+    return () => ipcRenderer.removeListener(EVENTS.approvalResolved, listener)
   },
   onTerminalOutput: (cb: (output: TerminalOutput) => void) => {
     const listener = (_e: unknown, output: TerminalOutput): void => cb(output)

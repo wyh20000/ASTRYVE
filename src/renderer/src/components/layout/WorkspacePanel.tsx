@@ -10,6 +10,7 @@ import WorkspaceResizeHandle from './WorkspaceResizeHandle'
 import MonacoPreview from './MonacoPreview'
 import MonacoDiffPreview from './MonacoDiffPreview'
 import { hydrateLegacyDiff, visibleDiffContents } from './legacyDiff'
+import { directoriesToRefresh } from './workspaceRefresh'
 
 type View = 'files' | 'diff' | 'steps' | 'output' | 'terminal'
 
@@ -24,6 +25,7 @@ export default function WorkspacePanel(): JSX.Element | null {
   const [view, setView] = useState<View>('files')
   const [explorerOpen, setExplorerOpen] = useState(true)
   const [directories, setDirectories] = useState<Record<string, WorkspaceFileEntry[]>>({})
+  const [fileTreeRevision, setFileTreeRevision] = useState(0)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [openFiles, setOpenFiles] = useState<WorkspaceFileContent[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string>()
@@ -97,8 +99,21 @@ export default function WorkspacePanel(): JSX.Element | null {
 
   useEffect(() => window.agent.onWorkspaceFilesChanged((change) => {
     if (!workspace || change.workspaceId !== workspace.id) return
+    setFileTreeRevision((revision) => revision + 1)
+    const directoryPaths = directoriesToRefresh(change.paths, Object.keys(directories))
+    void Promise.all(directoryPaths.map(async (path) => ({
+      path,
+      result: await window.agent.workspace.listFiles({ workspaceId: workspace.id, path })
+    }))).then((updates) => {
+      setDirectories((current) => {
+        const next = { ...current }
+        for (const update of updates) if (update.result.ok) next[update.path] = update.result.data
+        return next
+      })
+    })
     const changed = new Set(change.paths)
-    const refreshable = openFiles.filter((file) => changed.has(file.path) && !dirtyPaths.has(file.path))
+    const refreshable = openFiles.filter((file) =>
+      (change.paths.length === 0 || changed.has(file.path)) && !dirtyPaths.has(file.path))
     if (!refreshable.length) return
     void Promise.all(refreshable.map((file) =>
       window.agent.workspace.readFile({ workspaceId: workspace.id, path: file.path })
@@ -179,7 +194,8 @@ export default function WorkspacePanel(): JSX.Element | null {
     setExpanded((value) => new Set(value).add(path))
   }
 
-  return <><WorkspaceResizeHandle /><aside style={{ width }} className="flex shrink-0 flex-col border-l border-border bg-bg-panel">
+  return <><WorkspaceResizeHandle /><aside style={{ width, minWidth: 380, maxWidth: '55vw' }}
+    className="flex shrink flex-col border-l border-border bg-bg-panel">
     <div className="flex h-10 shrink-0 items-center border-b border-border bg-bg-panel px-2">
       {([['files', '文件'], ['diff', `Diff${diffs.length ? ` ${diffs.length}` : ''}`], ['steps', '步骤'],
         ['output', `输出${commands.length ? ` ${commands.length}` : ''}`], ['terminal', '终端']] as const)
@@ -218,7 +234,8 @@ export default function WorkspacePanel(): JSX.Element | null {
           </div>
         </section>
         {explorerOpen && <Explorer workspaceId={workspace.id} directories={directories} expanded={expanded}
-          activePath={editorPath} loading={loading} onDirectory={toggleDirectory} onFile={selectFile} />}
+          activePath={editorPath} loading={loading} revision={fileTreeRevision}
+          onDirectory={toggleDirectory} onFile={selectFile} />}
       </div>
     </div> : <AuxiliaryView view={view} plans={plans} commands={commands} activeId={activeId ?? undefined}
       terminalId={terminalId} terminalOutput={terminalOutput} terminalInput={terminalInput}
@@ -261,9 +278,9 @@ function Breadcrumb({ workspace, path, dirty, saving, error, onSave }: {
   </div>
 }
 
-function Explorer({ workspaceId, directories, expanded, activePath, loading, onDirectory, onFile }: {
+function Explorer({ workspaceId, directories, expanded, activePath, loading, revision, onDirectory, onFile }: {
   workspaceId: string; directories: Record<string, WorkspaceFileEntry[]>; expanded: Set<string>; activePath?: string
-  loading: boolean; onDirectory: (path: string) => Promise<void>; onFile: (path: string) => Promise<void>
+  loading: boolean; revision: number; onDirectory: (path: string) => Promise<void>; onFile: (path: string) => Promise<void>
 }): JSX.Element {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<WorkspaceFileEntry[]>([])
@@ -281,8 +298,9 @@ function Explorer({ workspaceId, directories, expanded, activePath, loading, onD
       })
     }, 180)
     return () => { current = false; window.clearTimeout(timer) }
-  }, [query, workspaceId])
-  return <aside className="flex w-[230px] shrink-0 flex-col border-l border-border bg-bg-panel">
+  }, [query, workspaceId, revision])
+  return <aside className="flex shrink-0 flex-col border-l border-border bg-bg-panel"
+    style={{ width: 'clamp(170px, 30%, 230px)' }}>
     <div className="border-b border-border p-2">
       <label className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-bg-app px-2 focus-within:border-accent">
         <Icon.Search size={12} className="shrink-0 text-txt-muted" />

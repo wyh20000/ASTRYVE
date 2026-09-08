@@ -19,6 +19,7 @@ import {
 import { refreshAgentExecutionCapabilities } from './services/agent/projectPreferences'
 import { cleanupInterruptedDockerResources, startDockerCleanupTimer } from './services/agent/dockerCleanup'
 import { cleanupEmptySessions } from './services/emptySessionCleanup'
+import { initSkillRegistry } from './services/agent/skillManager'
 
 const isDev = !app.isPackaged
 
@@ -120,6 +121,7 @@ app.whenReady().then(async () => {
   startDockerCleanupTimer()
   initWorkspaceService()
   initTaskRuntime()
+  initSkillRegistry(app.getPath('userData'))
   try {
     const recovery = await initTaskPersistence(app.getPath('userData'))
     if (recovery.staleTasks || recovery.removedResources || recovery.removedInterruptedWrites) {

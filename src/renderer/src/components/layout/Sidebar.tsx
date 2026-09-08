@@ -23,7 +23,7 @@ export default function Sidebar(): JSX.Element {
   }
 
   return (
-    <aside className="flex shrink-0 flex-col bg-bg-panel" style={{ width: sidebarWidth }}>
+    <aside className="flex min-w-[220px] shrink-0 flex-col bg-bg-panel" style={{ width: sidebarWidth, maxWidth: '32vw' }}>
       {/* 顶栏 */}
       <div className="flex h-12 items-center gap-2 px-3">
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent">

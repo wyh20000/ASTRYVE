@@ -10,7 +10,7 @@ import {
   PROVIDER_PRESETS,
   toPublicModelConfig
 } from './modelConfig'
-import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import { prefersBuiltInSearch, supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 
 describe('normalizePreset', () => {
   it('Kimi 预设只使用当前模型，不附加备用视觉模型', () => {
@@ -169,7 +169,19 @@ describe('supportsBuiltInSearch', () => {
   it('只为已适配内置搜索协议的提供方开放入口', () => {
     expect(supportsBuiltInSearch('deepseek')).toBe(true)
     expect(supportsBuiltInSearch('kimi')).toBe(true)
-    expect(supportsBuiltInSearch('custom')).toBe(false)
+    expect(supportsBuiltInSearch('custom')).toBe(true)
     expect(supportsBuiltInSearch(undefined)).toBe(false)
+  })
+})
+
+describe('prefersBuiltInSearch', () => {
+  it('routes obvious current-information questions to search', () => {
+    expect(prefersBuiltInSearch('帮我查一下今天的新闻')).toBe(true)
+    expect(prefersBuiltInSearch('look up the latest framework release')).toBe(true)
+  })
+
+  it('keeps code and file changes in the project agent', () => {
+    expect(prefersBuiltInSearch('参考最新官方文档修改这个文件')).toBe(false)
+    expect(prefersBuiltInSearch('修复联网按钮的代码')).toBe(false)
   })
 })

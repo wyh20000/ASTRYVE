@@ -55,8 +55,8 @@ export class ToolRegistry {
     }))
   }
 
-  listNativeFunctionTools(): NativeFunctionToolDefinition[] {
-    return [...this.tools.values()].map(({ name, description, parameters }) => ({
+  listNativeFunctionTools(allowedNames?: ReadonlySet<string>): NativeFunctionToolDefinition[] {
+    return [...this.tools.values()].filter(({ name }) => !allowedNames || allowedNames.has(name)).map(({ name, description, parameters }) => ({
       type: 'function',
       function: {
         name,

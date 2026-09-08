@@ -9,7 +9,9 @@ import type {
   MessageStatus,
   ModelConfig,
   MessageNotice,
-  SourceCitation
+  SourceCitation,
+  SkillMetadata,
+  UserInputResponse
 } from '@shared/types'
 import { getStore } from '../db'
 import { buildMockReply } from '../services/mockAgent'
@@ -28,7 +30,7 @@ import { getModelConfig, getActivePreset } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
 import { fitHistoryToTokenBudget, toChatMessage, injectDocuments } from '../services/history'
 import { ok, err } from './result'
-import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import { prefersBuiltInSearch, supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { extractSourceCitations } from '@shared/searchSources'
 import {
   addGenerationTimer,
@@ -45,9 +47,12 @@ import {
   getToolRegistry,
   shouldUseProjectAgent
 } from '../services/agent/taskRuntimeManager'
-import { runToolCallingLoop } from '../services/agent/toolCallingLoop'
+import { runInteractiveChatLoop, runToolCallingLoop } from '../services/agent/toolCallingLoop'
+import { requestUserInput, submitUserInput } from '../services/agent/userInput'
 import { getWorkspaceService, restoreSessionWorkspace } from '../services/agent/workspaceManager'
 import { buildCodingSystemPrompt, codingReasoningEffort } from '../services/agent/codingPrompt'
+import { auditSkillUse, resolveSkills } from '../services/agent/skillManager'
+import { composeSkillSystemPrompt, replaceActiveUserRequest } from '../services/agent/skillConversation'
 import {
   appendToolTimelineText,
   appendToolTimelineThinking,
@@ -98,7 +103,7 @@ export function registerMessageIpc(): void {
       await autoTitle(input.sessionId, input.content)
       await getStore().touchSession(input.sessionId)
       // 触发回复（配置了模型则调用真实流式，否则回退 Mock）
-      void runReply(event.sender, input.sessionId, input.content, stored, docTexts, input.search === true)
+      void runReply(event.sender, input.sessionId, input.content, input.skillIds ?? [], stored, docTexts)
       return ok(user)
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
@@ -114,6 +119,17 @@ export function registerMessageIpc(): void {
       return ok({ stopped: generationStopped || taskStopped })
     } catch (e) {
       return err('STOP_ERR', String(e))
+    }
+  })
+
+  ipcMain.handle(IPC.message.respondInput, (event, input: UserInputResponse) => {
+    try {
+      assertTrustedIpcSender(event)
+      return submitUserInput(input, event.sender.id)
+        ? ok({ accepted: true })
+        : err('INPUT_REQUEST_EXPIRED', '这个问题已失效，请等待 AI 的最新状态')
+    } catch (e) {
+      return err('INVALID_INPUT', validationErrorMessage(e))
     }
   })
 }
@@ -160,9 +176,9 @@ async function runReply(
   wc: WebContents,
   sessionId: string,
   userRequest: string,
+  explicitSkillIds: string[],
   attachments: Attachment[],
-  docTexts: string[],
-  search: boolean
+  docTexts: string[]
 ): Promise<void> {
   const task = beginGeneration(sessionId, wc.id)
   const cfg = getModelConfig()
@@ -172,31 +188,65 @@ async function runReply(
     return
   }
   const vision = attachments.some((a) => a.kind === 'image')
-  const useSearch = search && supportsBuiltInSearch(preset.provider) && !vision
-  const projectEligible = !vision && !search
+  const projectEligible = !vision
   let useProjectAgent = false
   let agentTaskId: string | undefined
   let agentWorkspaceId: string | undefined
   let agentWorkspaceRoot: string | undefined
   let agentExecutionEnvironment: 'local' | 'docker' | undefined
+  let skillPrompt = ''
+  let modelUserRequest = userRequest
+  let allowedToolNames: Set<string> | undefined
+  let activeSkills: SkillMetadata[] = []
+  let skillTrigger: string | undefined
   try {
+    const session = await getStore().getSession(sessionId)
     if (projectEligible) {
-      const session = await getStore().getSession(sessionId)
       await restoreSessionWorkspace(sessionId, session?.projectPath)
-      useProjectAgent = shouldUseProjectAgent(sessionId)
+      const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
+      useProjectAgent = shouldUseProjectAgent(sessionId) &&
+        (explicitSkill || !prefersBuiltInSearch(userRequest))
     }
+    // 普通问答自动开放模型厂商的联网工具；项目编码任务优先保留本地工具链。
+    const useSearch = !vision && !useProjectAgent && supportsBuiltInSearch(preset.provider)
     if (useProjectAgent) {
       cancelTasksForSession(sessionId, 'replaced')
       try {
         const agentTask = await createProjectTask(sessionId, wc.id)
         agentTaskId = agentTask.id
         agentWorkspaceId = agentTask.workspaceId
-        agentWorkspaceRoot = getWorkspaceService().getGrant(agentTask.workspaceId)?.rootPath
+        const grant = getWorkspaceService().getGrant(agentTask.workspaceId)
+        agentWorkspaceRoot = grant?.rootPath
         agentExecutionEnvironment = agentTask.environment
+        if (grant) {
+          const resolved = await resolveSkills(userRequest, explicitSkillIds, grant)
+          skillPrompt = resolved.prompt
+          modelUserRequest = resolved.cleanedRequest
+          allowedToolNames = resolved.allowedToolNames
+          activeSkills = resolved.skills
+          skillTrigger = resolved.trigger
+          auditSkillUse(agentTask.id, agentTask.workspaceId, resolved.skills)
+        }
       } catch (error) {
+        if (agentTaskId) cancelTasksForSession(sessionId, 'skill_setup_failed')
         sendMessageNotice(wc, {
           id: randomUUID(), sessionId, level: 'error',
           message: error instanceof Error ? error.message : '项目任务无法启动'
+        })
+        return
+      }
+    } else {
+      try {
+        const resolved = await resolveSkills(userRequest, explicitSkillIds)
+        skillPrompt = resolved.prompt
+        modelUserRequest = resolved.cleanedRequest
+        activeSkills = resolved.skills
+        skillTrigger = resolved.trigger
+        auditSkillUse(`chat-${sessionId}`, 'none', resolved.skills)
+      } catch (error) {
+        sendMessageNotice(wc, {
+          id: randomUUID(), sessionId, level: 'error',
+          message: error instanceof Error ? error.message : 'Skill 无法加载'
         })
         return
       }
@@ -213,7 +263,12 @@ async function runReply(
       agentTaskId,
       agentWorkspaceId,
       agentWorkspaceRoot,
-      agentExecutionEnvironment
+      agentExecutionEnvironment,
+      skillPrompt,
+      allowedToolNames,
+      modelUserRequest,
+      activeSkills,
+      skillTrigger
     )
   } finally {
     finishGeneration(sessionId, task)
@@ -239,18 +294,23 @@ async function buildHistory(
   contextTokens: number,
   coding = false,
   workspaceRoot?: string,
-  executionEnvironment?: 'local' | 'docker'
+  executionEnvironment?: 'local' | 'docker',
+  skillPrompt = '',
+  activeRequest?: string
 ): Promise<ChatMessage[]> {
   const msgs = await getStore().listMessages(sessionId)
   const history: ChatMessage[] = msgs
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
     .filter((m) => m.content.trim().length > 0 || (m.attachments ?? []).length > 0)
     .map((m) => toChatMessage(m, vision))
-  const systemPrompt = coding
-    ? `${AGENT_SYSTEM_PROMPT}\n\n${buildCodingSystemPrompt(workspaceRoot, executionEnvironment)}`
-    : AGENT_SYSTEM_PROMPT
+  const systemPrompt = composeSkillSystemPrompt(
+    AGENT_SYSTEM_PROMPT,
+    coding ? buildCodingSystemPrompt(workspaceRoot, executionEnvironment) : undefined,
+    skillPrompt
+  )
   const combined = [{ role: 'system' as const, content: systemPrompt }, ...history]
   injectDocuments(combined, docTexts)
+  replaceActiveUserRequest(combined, activeRequest)
   return fitHistoryToTokenBudget(combined, coding ? Math.max(1_000, Math.floor(contextTokens * 0.55)) : contextTokens)
 }
 
@@ -266,7 +326,12 @@ async function runModelReply(
   agentTaskId?: string,
   agentWorkspaceId?: string,
   agentWorkspaceRoot?: string,
-  agentExecutionEnvironment?: 'local' | 'docker'
+  agentExecutionEnvironment?: 'local' | 'docker',
+  skillPrompt = '',
+  allowedToolNames?: ReadonlySet<string>,
+  activeRequest?: string,
+  activeSkills: SkillMetadata[] = [],
+  skillTrigger?: string
 ): Promise<void> {
   const id = randomUUID()
   const timestamp = Date.now()
@@ -312,6 +377,9 @@ async function runModelReply(
 
   const emit = async (status: MessageStatus): Promise<void> => {
     const blocks: MessageBlock[] = []
+    if (activeSkills.length) blocks.push({ kind: 'skills', trigger: skillTrigger, skills: activeSkills.map((skill) => ({
+      name: skill.name, displayName: skill.displayName, source: skill.source, version: skill.version
+    })) })
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
     if (!agentTaskId && thinking) blocks.push({ kind: 'thinking', content: thinking })
     if (agentTaskId) {
@@ -342,7 +410,9 @@ async function runModelReply(
     preset.contextTokens ?? 128_000,
     Boolean(agentTaskId),
     agentWorkspaceRoot,
-    agentExecutionEnvironment
+    agentExecutionEnvironment,
+    skillPrompt,
+    activeRequest
   )
   const runtime = {
     provider: preset.provider,
@@ -397,6 +467,11 @@ async function runModelReply(
           model: runtime,
           messages: history,
           onEvent,
+          allowedToolNames,
+          requireInitialTool: activeSkills.length === 0,
+          requestUserInput: (args) => requestUserInput(
+            wc, sessionId, args, taskRuntime.getTaskSignal(agentTaskId)
+          ),
           onToolActivity: async (tool) => {
             activeTool = tool.status === 'requested' ? { toolName: tool.toolName, args: tool.args } : undefined
             const baseTitle = describeToolActivity(tool.toolName, tool.args, tool.result)
@@ -430,6 +505,9 @@ async function runModelReply(
             if (tool.status === 'completed' && tool.ok === true && tool.toolName === 'process.run' &&
                 isCommandResult(tool.result) && isCommandInput(tool.args)) {
               appendCommandTimeline(timeline, tool.callId, tool.args, tool.result)
+              if (agentWorkspaceId && !wc.isDestroyed()) {
+                wc.send(EVENTS.workspaceFilesChanged, { workspaceId: agentWorkspaceId, paths: [] })
+              }
             }
             await emit('streaming')
           },
@@ -449,9 +527,16 @@ async function runModelReply(
           return
         }
         appendTaskReport(timeline, approvals)
+      } else if (activeSkills.length) {
+        await runInteractiveChatLoop({
+          model: runtime,
+          messages: history,
+          onEvent,
+          requestUserInput: (args) => requestUserInput(wc, sessionId, args, signal)
+        })
       } else if (useSearch) {
-        if (preset.provider === 'deepseek') await streamDeepSeekSearch(runtime, history, onEvent)
-        else await streamSearchChat(runtime, history, onEvent)
+        if (preset.provider === 'kimi') await streamSearchChat(runtime, history, onEvent)
+        else await streamDeepSeekSearch(runtime, history, onEvent)
       }
       else await streamChat(runtime, history, onEvent)
       if (useSearch) {

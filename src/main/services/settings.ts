@@ -13,6 +13,7 @@ interface SettingsFile {
   db?: DbConfig
   workspaces?: WorkspaceGrant[]
   agentProjects?: Record<string, AgentProjectPreferences>
+  disabledSkills?: string[]
 }
 
 const DEFAULTS: { theme: PersistedTheme; db: DbConfig } = {
@@ -25,11 +26,13 @@ let data: {
   db: DbConfig
   workspaces: WorkspaceGrant[]
   agentProjects: Record<string, AgentProjectPreferences>
+  disabledSkills: string[]
 } = {
   theme: { ...DEFAULTS.theme, overrides: { ...DEFAULTS.theme.overrides } },
   db: { ...DEFAULTS.db },
   workspaces: [],
-  agentProjects: {}
+  agentProjects: {},
+  disabledSkills: []
 }
 
 function file(): string {
@@ -52,6 +55,11 @@ export function initSettings(): void {
               isAgentProjectPreferences(value) && value.workspaceId === workspaceId
           )
         )
+      }
+      if (Array.isArray(raw.disabledSkills)) {
+        data.disabledSkills = raw.disabledSkills.filter((id): id is string =>
+          typeof id === 'string' && /^[a-z]+:[a-f0-9]{12}:[a-z0-9_-]{1,64}$/.test(id)
+        ).slice(0, 500)
       }
     }
   } catch (e) {
@@ -124,6 +132,19 @@ export function setAgentProjectPreferences(
     throw error
   }
   return { ...preferences }
+}
+
+export function getDisabledSkillIds(): Set<string> {
+  return new Set(data.disabledSkills)
+}
+
+export function setSkillEnabled(id: string, enabled: boolean): void {
+  if (!/^[a-z]+:[a-f0-9]{12}:[a-z0-9_-]{1,64}$/.test(id)) throw new Error('Skill 标识无效')
+  const previous = data.disabledSkills
+  const disabled = new Set(previous)
+  if (enabled) disabled.delete(id); else disabled.add(id)
+  data.disabledSkills = [...disabled].slice(0, 500)
+  try { persist(true) } catch (error) { data.disabledSkills = previous; throw error }
 }
 
 function isAgentProjectPreferences(value: unknown): value is AgentProjectPreferences {

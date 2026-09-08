@@ -241,3 +241,17 @@ body {
   max-width: 100%;
   border-radius: 6px;
 }
+
+/* 窄窗口保持对话输入工具栏单行可用。模型名称始终显示。 */
+@media (max-width: 1500px) {
+  .chat-input-toolbar {
+    gap: 0.2rem;
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+  }
+
+  .chat-input-toolbar .chip {
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+}

@@ -9,6 +9,10 @@ import {
 } from '../modelProvider'
 import { isTerminalToolFailureCode, type TaskRuntime } from './taskRuntime'
 import type { ToolRegistry } from './toolRegistry'
+import {
+  REQUEST_USER_INPUT_TOOL,
+  REQUEST_USER_INPUT_TOOL_NAME
+} from './userInput'
 
 // This is an emergency runaway fuse, not a normal task/product limit.
 const DEFAULT_MAX_TOOL_ROUNDS = 64
@@ -41,6 +45,9 @@ export interface RunToolCallingLoopInput {
   maxToolRounds?: number
   maxToolResultChars?: number
   runRound?: RunRound
+  allowedToolNames?: ReadonlySet<string>
+  requireInitialTool?: boolean
+  requestUserInput?: (args: unknown) => Promise<ToolResult<unknown>>
 }
 
 export interface ToolCallingLoopResult {
@@ -67,7 +74,11 @@ export async function runToolCallingLoop(
   }
 
   const messages = [...input.messages]
-  const tools = input.registry.listNativeFunctionTools()
+  const tools = [
+    ...input.registry.listNativeFunctionTools(input.allowedToolNames),
+    ...(input.requestUserInput ? [REQUEST_USER_INPUT_TOOL] : [])
+  ]
+  const exposedToolNames = new Set(tools.map((tool) => tool.function.name))
   const runRound = input.runRound ?? streamChatTurn
   let acceptedToolResultChars = 0
   let hasUsedTool = false
@@ -84,7 +95,7 @@ export async function runToolCallingLoop(
 
   try {
     for (let round = 1; round <= maxRounds; round += 1) {
-      const requireTool = tools.length > 0 && !hasUsedTool
+      const requireTool = input.requireInitialTool !== false && tools.length > 0 && !hasUsedTool
       const bufferedEvents: StreamEvent[] = []
       const turn = await runRound(
         { ...input.model, signal },
@@ -130,11 +141,20 @@ export async function runToolCallingLoop(
       for (const call of calls) {
         let parsedArgs: unknown
         try { parsedArgs = JSON.parse(call.function.arguments) } catch { parsedArgs = undefined }
-        await input.onToolActivity?.({
+        const isUserInput = call.type === 'function' && call.function.name === REQUEST_USER_INPUT_TOOL_NAME
+        if (!isUserInput) await input.onToolActivity?.({
           callId: call.id, toolName: call.function.name, args: parsedArgs, status: 'requested'
         })
-        const result = await input.taskRuntime.submitNativeToolCall(input.taskId, call)
-        await input.onToolActivity?.({
+        let result: ToolResult<unknown>
+        if (isUserInput && input.requestUserInput) {
+          try { result = await input.requestUserInput(parsedArgs) }
+          catch (error) { result = { ok: false, error: { code: 'INVALID_USER_INPUT_REQUEST', message: String((error as Error)?.message ?? error) } } }
+        } else {
+          result = call.type !== 'function' || exposedToolNames.has(call.function.name)
+            ? await input.taskRuntime.submitNativeToolCall(input.taskId, call)
+            : { ok: false, error: { code: 'SKILL_TOOL_NOT_ALLOWED', message: '当前 Skill 未声明此工具，调用已阻止' } }
+        }
+        if (!isUserInput) await input.onToolActivity?.({
           callId: call.id, toolName: call.function.name, args: parsedArgs,
           status: 'completed', ok: result.ok,
           result: result.ok ? result.value : { error: result.error }
@@ -190,6 +210,55 @@ export async function runToolCallingLoop(
     input.taskRuntime.failTask(input.taskId, 'model_tool_loop_failed')
     throw error
   }
+}
+
+export interface RunInteractiveChatLoopInput {
+  model: RuntimeModel
+  messages: ChatMessage[]
+  onEvent: OnEvent
+  requestUserInput: (args: unknown) => Promise<ToolResult<unknown>>
+  maxRounds?: number
+  runRound?: RunRound
+}
+
+/** A small provider-native loop for non-project conversations that only exposes user interaction. */
+export async function runInteractiveChatLoop(input: RunInteractiveChatLoopInput): Promise<void> {
+  const messages = [...input.messages]
+  const runRound = input.runRound ?? streamChatTurn
+  const maxRounds = Math.max(1, Math.min(input.maxRounds ?? 16, 32))
+  for (let round = 0; round < maxRounds; round += 1) {
+    const turn = await runRound(input.model, messages, input.onEvent, {
+      tools: [REQUEST_USER_INPUT_TOOL],
+      toolChoice: 'auto'
+    })
+    messages.push(turn.message)
+    const calls = turn.message.tool_calls ?? []
+    if (!calls.length) {
+      await input.onEvent({ done: true })
+      return
+    }
+    for (const call of calls) {
+      let result: ToolResult<unknown>
+      if (call.type !== 'function' || call.function.name !== REQUEST_USER_INPUT_TOOL_NAME) {
+        result = { ok: false, error: { code: 'TOOL_NOT_AVAILABLE', message: '此对话只支持向用户提问' } }
+      } else {
+        try {
+          result = await input.requestUserInput(JSON.parse(call.function.arguments))
+        } catch (error) {
+          result = { ok: false, error: { code: 'INVALID_USER_INPUT_REQUEST', message: String((error as Error)?.message ?? error) } }
+        }
+      }
+      messages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        name: call.function.name,
+        content: JSON.stringify(result)
+      })
+    }
+  }
+  messages.push({ role: 'system', content: '停止继续提问；请根据已收到的回答给出当前结论。' })
+  await runRound(input.model, messages, input.onEvent, { tools: [], toolChoice: 'none' })
+  await input.onEvent({ done: true })
 }
 
 function serializeToolResult(result: ToolResult<unknown>): string | null {

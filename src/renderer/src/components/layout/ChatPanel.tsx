@@ -15,7 +15,7 @@ export default function ChatPanel(): JSX.Element {
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-bg-app">
+    <main className="flex min-w-[340px] flex-1 flex-col bg-bg-app">
       {/* 顶部 tab */}
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
         <button
@@ -37,10 +37,10 @@ export default function ChatPanel(): JSX.Element {
 
       {/* 标题 + 徽标 */}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
-        <span className="selectable text-[13px] font-medium text-txt-primary">
+        <span className="selectable min-w-0 flex-1 truncate text-[13px] font-medium text-txt-primary">
           {active?.title || '新对话'}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {active && <WorkspacePicker sessionId={active.id} projectPath={active.projectPath} />}
           {active?.projectPath && <button className="btn-icon" title="切换任务工作区" onClick={toggleWorkspace}>
             <Icon.Layout size={15} />

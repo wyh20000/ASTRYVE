@@ -3,6 +3,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import {
   InputValidationError,
   assertTrustedIpcSender,
+  validateSendMessageInput,
   validateWorkspaceId,
   validateWorkspaceRelativePath
 } from './validation'
@@ -29,5 +30,11 @@ describe('workspace IPC validation', () => {
     expect(() => assertTrustedIpcSender(eventFor('https://evil.example/'))).toThrow(
       InputValidationError
     )
+  })
+
+  it('accepts bounded Skill ids and rejects forged selections', () => {
+    const id = `project:${'a'.repeat(12)}:code-review`
+    expect(validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'review', skillIds: [id, id] }).skillIds).toEqual([id])
+    expect(() => validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'review', skillIds: ['../skill'] })).toThrow(InputValidationError)
   })
 })

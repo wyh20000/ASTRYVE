@@ -16,7 +16,11 @@ export const IPC = {
   message: {
     list: 'message:list',
     send: 'message:send',
-    stop: 'message:stop'
+    stop: 'message:stop',
+    respondInput: 'message:respond-input'
+  },
+  approval: {
+    respond: 'approval:respond'
   },
   workspace: {
     recent: 'workspace:recent',
@@ -29,6 +33,14 @@ export const IPC = {
     readMany: 'workspace:read-many',
     searchText: 'workspace:search-text',
     rejectPatchFile: 'workspace:reject-patch-file'
+  },
+  skills: {
+    list: 'skills:list',
+    catalog: 'skills:catalog',
+    install: 'skills:install',
+    importLocal: 'skills:import-local',
+    uninstall: 'skills:uninstall',
+    setEnabled: 'skills:set-enabled'
   },
   terminal: {
     open: 'terminal:open',
@@ -57,6 +69,10 @@ export const IPC = {
 export const EVENTS = {
   messageStreamed: 'message:streamed',
   messageNotice: 'message:notice',
+  userInputRequested: 'message:user-input-requested',
+  userInputResolved: 'message:user-input-resolved',
+  approvalRequested: 'approval:requested',
+  approvalResolved: 'approval:resolved',
   terminalOutput: 'terminal:output',
   workspaceFilesChanged: 'workspace:files-changed'
 } as const

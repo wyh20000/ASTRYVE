@@ -3,10 +3,14 @@ import { useUiStore } from '../../stores/uiStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { useModelStore } from '../../stores/modelStore'
 import { THEMES, getTheme, normalizeHex, type ThemePreset } from '../../theme/theme'
-import type { ModelProvider, ModelConfig, ModelPreset } from '@shared/types'
+import type { ModelProvider, ModelConfig, ModelPreset, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
 import { Icon } from '../ui/icons'
+import { useSkillStore } from '../../stores/skillStore'
+import { useSessionStore } from '../../stores/sessionStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { AgentSettingsSection } from '../chat/AgentControls'
 
-type Section = 'theme' | 'model'
+type Section = 'theme' | 'model' | 'agent' | 'skills'
 
 const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
   deepseek: {
@@ -43,16 +47,202 @@ export default function SettingsPage(): JSX.Element {
         <nav className="flex-1 space-y-1 px-2">
           <NavItem active={section === 'theme'} icon={<Icon.Settings size={14} />} label="主题设置" onClick={() => setSection('theme')} />
           <NavItem active={section === 'model'} icon={<Icon.Brain size={14} />} label="模型设置" onClick={() => setSection('model')} />
+          <NavItem active={section === 'agent'} icon={<Icon.Shield size={14} />} label="Agent 设置" onClick={() => setSection('agent')} />
+          <NavItem active={section === 'skills'} icon={<Icon.FileDir size={14} />} label="Skills" onClick={() => setSection('skills')} />
         </nav>
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[760px] px-6 py-6">
-          {section === 'theme' ? <ThemeSection /> : <ModelSection />}
+          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : <SkillsSection />}
         </div>
       </div>
     </div>
   )
+}
+
+export function SkillsSection(): JSX.Element {
+  const activeId = useSessionStore((state) => state.activeId)
+  const projectPath = useSessionStore((state) => state.sessions.find((session) => session.id === activeId)?.projectPath)
+  const workspaceId = useWorkspaceStore((state) => state.recent.find((workspace) => workspace.displayPath === projectPath)?.id)
+  const items = useSkillStore((state) => state.items)
+  const catalog = useSkillStore((state) => state.catalog)
+  const loading = useSkillStore((state) => state.loading)
+  const mutating = useSkillStore((state) => state.mutating)
+  const error = useSkillStore((state) => state.error)
+  const load = useSkillStore((state) => state.load)
+  const loadCatalog = useSkillStore((state) => state.loadCatalog)
+  const install = useSkillStore((state) => state.install)
+  const importLocal = useSkillStore((state) => state.importLocal)
+  const uninstall = useSkillStore((state) => state.uninstall)
+  const setEnabled = useSkillStore((state) => state.setEnabled)
+  const [tab, setTab] = useState<'installed' | 'market'>('installed')
+  const [query, setQuery] = useState('')
+  const [source, setSource] = useState<'all' | SkillSource>('all')
+  const [githubUrl, setGithubUrl] = useState('')
+  const [expandedId, setExpandedId] = useState<string>()
+  useEffect(() => { void load(workspaceId); void loadCatalog() }, [load, loadCatalog, workspaceId])
+  useEffect(() => {
+    if (tab !== 'market') return
+    const timer = setTimeout(() => { void loadCatalog(query) }, 250)
+    return () => clearTimeout(timer)
+  }, [tab, query, loadCatalog])
+  const visibleItems = items.filter((skill) => (source === 'all' || skill.source === source) &&
+    (!query || `${skill.name} ${skill.displayName} ${skill.description}`.toLowerCase().includes(query.toLowerCase())))
+  return <div className="pb-12">
+    <div className="flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">技能</h1>
+        <p className="mt-1 text-[12px] text-txt-muted">通过任务专用技能扩展 AI 的能力</p>
+      </div>
+      <details className="group relative z-20">
+        <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[12px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
+          添加 <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="absolute right-0 top-full mt-1.5 w-[360px] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
+          <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active"
+            disabled={mutating} onClick={() => void importLocal()}>
+            <Icon.Folder size={14} className="text-txt-muted" />
+            <span><strong className="block font-medium text-txt-primary">从本机导入</strong><span className="text-[10px] text-txt-muted">选择 Skill 或 Skill Pack 目录</span></span>
+          </button>
+          <div className="my-1 border-t border-border" />
+          <div className="px-3 py-1 text-[10px] text-txt-muted">从 GitHub 地址添加</div>
+          <div className="flex gap-1.5 px-1 pb-1">
+            <input className="input h-8 min-w-0 flex-1 text-[11px]" value={githubUrl} onChange={(event) => setGithubUrl(event.target.value)}
+              placeholder="https://github.com/owner/repo" />
+            <button className="btn shrink-0 rounded-md bg-accent px-3 text-[11px] text-white disabled:opacity-40"
+              disabled={mutating || !githubUrl.trim()} onClick={() => void install(githubUrl.trim()).then((ok) => { if (ok) setGithubUrl('') })}>
+              {mutating ? '添加中…' : '添加'}
+            </button>
+          </div>
+        </div>
+      </details>
+    </div>
+    <div className="mt-6 flex items-center gap-6 border-b border-border">
+      <button className={`-mb-px border-b-2 pb-2.5 text-[12px] font-medium ${tab === 'installed' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('installed')}>已安装</button>
+      <button className={`-mb-px border-b-2 pb-2.5 text-[12px] font-medium ${tab === 'market' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('market')}>技能市场</button>
+    </div>
+    <div className="mt-5 flex gap-2">
+      <div className="relative min-w-0 flex-1">
+        <Icon.Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
+        <input className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[12px]" value={query}
+          onChange={(event) => setQuery(event.target.value)} placeholder="搜索技能" />
+      </div>
+      {tab === 'installed' && <select aria-label="筛选 Skill 来源" className="input h-9 w-[124px] rounded-full bg-bg-raised px-3 text-[11px]"
+        value={source} onChange={(event) => setSource(event.target.value as 'all' | SkillSource)}>
+        <option value="all">全部来源</option>
+        <option value="project">项目</option>
+        <option value="installed">应用安装</option>
+        <option value="codex">Codex</option>
+        <option value="agents">Agents</option>
+        <option value="builtin">内置</option>
+      </select>}
+    </div>
+    {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{error}</div>}
+    {tab === 'installed' ? <section className="mt-7">
+      <div className="mb-2 flex items-center gap-2">
+        <h2 className="text-[13px] font-semibold text-txt-primary">已安装</h2>
+        <span className="text-[10px] tabular-nums text-txt-muted">{visibleItems.length}</span>
+      </div>
+      <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
+        {visibleItems.map((skill) => <InstalledSkillRow key={skill.id} skill={skill} expanded={expandedId === skill.id}
+          mutating={mutating} onExpand={() => setExpandedId((current) => current === skill.id ? undefined : skill.id)}
+          onToggle={() => void setEnabled(skill.id, !skill.enabled)} onUpdate={() => void install(skill.installUrl!)}
+          onUninstall={() => void uninstall(skill.id)} />)}
+      </div>
+      {!loading && !visibleItems.length && <EmptySkills label="没有找到已安装的 Skill" />}
+    </section> : <section className="mt-7">
+      <div className="mb-2 flex items-center gap-2">
+        <h2 className="text-[13px] font-semibold text-txt-primary">技能市场</h2>
+        <span className="text-[10px] tabular-nums text-txt-muted">{catalog.length}</span>
+      </div>
+      <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
+        {catalog.map((skill) => <MarketSkillRow key={skill.id} skill={skill} mutating={mutating}
+          onInstall={() => void install(skill.installUrl)} />)}
+      </div>
+      {!loading && !catalog.length && <EmptySkills label="没有找到匹配的 Skill" />}
+    </section>}
+    <p className="mt-8 border-t border-border pt-4 text-[10px] leading-5 text-txt-muted">
+      项目与 Codex/Agents 目录只读发现；第三方 Skill 不会自动执行脚本，也不能提升工具权限。输入 <code>/</code> 调用。
+    </p>
+  </div>
+}
+
+function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUpdate, onUninstall }: {
+  skill: SkillMetadata
+  expanded: boolean
+  mutating: boolean
+  onExpand: () => void
+  onToggle: () => void
+  onUpdate: () => void
+  onUninstall: () => void
+}): JSX.Element {
+  return <article className={`border-b border-border py-3 ${skill.errors.length ? 'text-red-300' : ''}`}>
+    <div className="flex min-h-[42px] items-center gap-2.5">
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={onExpand}>
+        <SkillGlyph muted={!skill.active} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <strong className="truncate text-[12px] font-medium text-txt-primary">{skill.displayName}</strong>
+            {skill.invocation === 'user' && <span className="shrink-0 text-[9px] text-txt-muted">/{skill.name}</span>}
+          </span>
+          <span className="mt-0.5 block line-clamp-2 text-[10px] leading-4 text-txt-muted">{skill.description}</span>
+        </span>
+      </button>
+      <button type="button" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${skill.enabled ? 'text-txt-secondary' : 'text-txt-muted hover:bg-bg-raised'}`}
+        disabled={Boolean(skill.errors.length)} onClick={onToggle}>
+        {skill.enabled ? <Icon.Check size={14} /> : <span className="h-3 w-3 rounded-full border border-border-strong" />}
+      </button>
+    </div>
+    {expanded && <div className="ml-9 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] leading-5 text-txt-muted">
+      <div>{skillSourceLabel(skill.source)} · {skill.invocation === 'user' ? '仅快捷指令' : '可自动触发'}</div>
+      <div>{skill.toolPolicy === 'inherit' ? '沿用任务工具，仍受权限审批' : `声明 ${skill.allowedTools.length} 个工具，仍受权限审批`}</div>
+      {skill.repository && <div>{skill.repository}{skill.version ? ` @ ${skill.version.slice(0, 8)}` : ''}</div>}
+      {skill.shadowedBy && <div className="text-warn">已被高优先级同名项覆盖</div>}
+      {skill.allowedTools.map((tool) => <div key={tool} className="font-mono">{tool}</div>)}
+      {skill.resources.map((resource) => <div key={resource}>资源：{resource}</div>)}
+      {skill.errors.map((message) => <div key={message} className="text-red-300">{message}</div>)}
+      {skill.source === 'installed' && <div className="mt-2 flex gap-2">
+        {skill.installUrl && <button className="text-txt-secondary hover:text-txt-primary" disabled={mutating} onClick={onUpdate}>检查更新</button>}
+        <button className="text-red-300/80 hover:text-red-300" disabled={mutating} onClick={onUninstall}>卸载</button>
+      </div>}
+    </div>}
+  </article>
+}
+
+function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogItem; mutating: boolean; onInstall: () => void }): JSX.Element {
+  return <article className="flex min-h-[72px] items-center gap-2.5 border-b border-border py-3">
+    <SkillGlyph />
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-1.5">
+        <strong className="truncate text-[12px] font-medium text-txt-primary">{skill.displayName}</strong>
+        {skill.featured && <span className="text-[9px] text-accent">推荐</span>}
+      </div>
+      <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-txt-muted">{skill.description}</p>
+      <span className="mt-0.5 block truncate text-[9px] text-txt-muted">{skill.publisher}</span>
+    </div>
+    <button className={`flex h-7 shrink-0 items-center justify-center rounded-full px-2.5 text-[10px] ${skill.installed ? 'text-txt-muted' : 'bg-bg-raised text-txt-secondary hover:bg-bg-active hover:text-txt-primary'}`}
+      disabled={mutating || skill.installed} onClick={onInstall}>{skill.installed ? <Icon.Check size={13} /> : '添加'}</button>
+  </article>
+}
+
+function SkillGlyph({ muted = false }: { muted?: boolean }): JSX.Element {
+  return <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-dim ${muted ? 'text-txt-muted' : 'text-accent'}`}>
+    <Icon.Brain size={13} />
+  </span>
+}
+
+function EmptySkills({ label }: { label: string }): JSX.Element {
+  return <div className="py-14 text-center text-[11px] text-txt-muted">{label}</div>
+}
+
+function skillSourceLabel(source: import('@shared/types').SkillSource): string {
+  if (source === 'project') return '项目'
+  if (source === 'installed') return '已安装'
+  if (source === 'codex') return 'Codex'
+  if (source === 'agents') return 'Agents'
+  return '内置'
 }
 
 function NavItem({
@@ -382,6 +572,7 @@ function ModelSection(): JSX.Element {
                 <div className="flex items-center gap-2 text-[13px] text-txt-primary">
                   {p.name}
                   <span className="rounded bg-bg-active px-1.5 text-[10px] text-txt-muted">{p.provider}</span>
+                  <span className="text-[10px] text-txt-muted">联网自动</span>
                 </div>
                 <div className="truncate text-[11px] text-txt-muted">{p.model}</div>
               </div>
@@ -400,7 +591,7 @@ function ModelSection(): JSX.Element {
       </Group>
       <Group title="说明">
         <p className="text-[12px] leading-relaxed text-txt-secondary">
-          可配置多个模型端点，对话输入框下方可通过下拉快速切换，并选择「低 / 中 / 高」推理等级（发送时作为 reasoning_effort 传给模型）。未配置时回退本地演示（Mock）。
+          可配置多个模型端点，对话输入框下方可通过下拉快速切换，并选择「低 / 中 / 高」推理等级。联网检索无需单独开关：普通问答会自动向模型提供厂商搜索能力；项目编码任务仍优先使用项目工具。自定义端点不兼容 Responses web_search 时会自动回退普通回答。未配置时回退本地演示（Mock）。
         </p>
       </Group>
     </>

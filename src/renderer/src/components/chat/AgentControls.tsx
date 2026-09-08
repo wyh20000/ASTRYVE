@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { ExecutionEnvironment, PermissionMode } from '@shared/agent'
 import type { AgentExecutionCapabilities } from '@shared/types'
 import { useAgentSettingsStore } from '../../stores/agentSettingsStore'
+import { useSessionStore } from '../../stores/sessionStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { Icon } from '../ui/icons'
 
 export const PERMISSION_OPTIONS: Array<{
@@ -90,7 +92,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
         title={workspaceId ? permission?.description : '请先选择项目工作区'}
       >
         <Icon.Shield size={12} />
-        {loading ? '读取中' : permissionModeLabel(project?.preferences.permissionMode)}
+        <span className="responsive-control-label">{loading ? '读取中' : permissionModeLabel(project?.preferences.permissionMode)}</span>
         <Icon.ChevronDown size={11} />
       </button>
       {project?.preferences.executionEnvironment === 'docker' && <button
@@ -102,7 +104,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
         title={selectedImage ? `${selectedImage.repository}:${selectedImage.tag} · ${selectedImage.imageId}` : '本机没有可选择的 Docker 镜像'}
       >
         <Icon.Container size={12} />
-        <span className="truncate">{selectedImage ? `${selectedImage.repository}:${selectedImage.tag}` : '选择镜像'}</span>
+        <span className="responsive-control-label truncate">{selectedImage ? `${selectedImage.repository}:${selectedImage.tag}` : '选择镜像'}</span>
         <Icon.ChevronDown size={11} />
       </button>}
       <button
@@ -114,8 +116,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
         title={workspaceId ? environment?.description : '请先选择项目工作区'}
       >
         <Icon.Container size={12} />
-        {executionEnvironmentLabel(project?.preferences.executionEnvironment)}
-        {unavailable && ' · 不可用'}
+        <span className="responsive-control-label">{executionEnvironmentLabel(project?.preferences.executionEnvironment)}{unavailable && ' · 不可用'}</span>
         <Icon.ChevronDown size={11} />
       </button>
       {error && <div role="alert" className="absolute bottom-full left-0 z-50 mb-2 max-w-[360px] rounded-md border border-border bg-bg-raised px-3 py-2 text-[11px] text-warn shadow-xl">
@@ -199,6 +200,136 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
       )}
     </div>
   )
+}
+
+/** 设置页中的项目级 Agent 配置。对话输入区只保留模型选择，避免频繁误触执行策略。 */
+export function AgentSettingsSection(): JSX.Element {
+  const activeId = useSessionStore((state) => state.activeId)
+  const projectPath = useSessionStore((state) =>
+    state.sessions.find((session) => session.id === activeId)?.projectPath
+  )
+  const workspace = useWorkspaceStore((state) =>
+    state.recent.find((item) => item.displayPath === projectPath)
+  )
+  const workspaceId = workspace?.id
+  const project = useAgentSettingsStore((state) =>
+    workspaceId ? state.projects[workspaceId] : undefined
+  )
+  const loading = useAgentSettingsStore((state) =>
+    workspaceId ? state.loading[workspaceId] : false
+  )
+  const error = useAgentSettingsStore((state) =>
+    workspaceId ? state.errors[workspaceId] : undefined
+  )
+  const load = useAgentSettingsStore((state) => state.load)
+  const setPermissionMode = useAgentSettingsStore((state) => state.setPermissionMode)
+  const setExecutionEnvironment = useAgentSettingsStore((state) => state.setExecutionEnvironment)
+  const setDockerImage = useAgentSettingsStore((state) => state.setDockerImage)
+
+  useEffect(() => {
+    if (workspaceId) void load(workspaceId)
+  }, [load, workspaceId])
+
+  const environment = project?.preferences.executionEnvironment
+  const images = project?.capabilities.dockerImages ?? []
+
+  return <div className="pb-12">
+    <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">Agent 设置</h1>
+    <p className="mt-1 text-[12px] text-txt-muted">配置当前项目的执行位置、权限审批和 Docker 镜像</p>
+
+    <div className="mt-6 rounded-xl border border-border bg-bg-panel">
+      <div className="border-b border-border px-4 py-3">
+        <div className="text-[13px] font-medium text-txt-primary">当前项目</div>
+        <div className="mt-1 truncate text-[11px] text-txt-muted">
+          {workspace ? `${workspace.name} · ${workspace.displayPath}` : '请先返回对话并选择一个项目'}
+        </div>
+      </div>
+
+      {!workspaceId ? <div className="px-4 py-10 text-center text-[12px] text-txt-muted">选择项目后即可配置 Agent</div>
+        : !project ? <div className="px-4 py-10 text-center text-[12px] text-txt-muted">{loading ? '正在读取项目设置…' : '项目设置尚未加载'}</div>
+        : <div className="divide-y divide-border">
+          <SettingsChoice
+            title="权限审批"
+            description="决定 Agent 在执行写入、命令和联网操作前是否需要批准。"
+            options={PERMISSION_OPTIONS}
+            value={project.preferences.permissionMode}
+            disabled={loading}
+            onChange={(value) => void setPermissionMode(workspaceId, value as PermissionMode)}
+            icon="shield"
+          />
+          <SettingsChoice
+            title="执行环境"
+            description="项目任务可以在隔离的 Docker 沙箱或当前电脑上执行。"
+            options={ENVIRONMENT_OPTIONS.map((option) => ({
+              ...option,
+              disabled: option.value === 'docker'
+                ? !project.capabilities.dockerAvailable
+                : !project.capabilities.localAvailable,
+              description: option.value === 'docker' && !project.capabilities.dockerAvailable
+                ? dockerStatusText(project.capabilities.dockerReason, project.capabilities.dockerPreflight)
+                : option.description
+            }))}
+            value={environment}
+            disabled={loading}
+            onChange={(value) => void setExecutionEnvironment(workspaceId, value as ExecutionEnvironment)}
+            icon="container"
+          />
+          {environment === 'docker' && <section className="px-4 py-4">
+            <h2 className="text-[13px] font-medium text-txt-primary">Docker 镜像</h2>
+            <p className="mt-1 text-[11px] text-txt-muted">选择本机已有镜像。Agent 启动命令会覆盖镜像 entrypoint。</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {images.map((image) => {
+                const selected = image.imageId === project.preferences.dockerImageId
+                return <button key={image.imageId} type="button" disabled={loading}
+                  onClick={() => void setDockerImage(workspaceId, image.imageId)}
+                  className={`flex min-w-0 items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${selected ? 'border-accent bg-accent-dim/10' : 'border-border bg-bg-app hover:border-border-strong'}`}>
+                  <Icon.Container size={15} className={selected ? 'mt-0.5 text-accent' : 'mt-0.5 text-txt-muted'} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] text-txt-primary">{image.repository}:{image.tag}</span>
+                    <span className="mt-0.5 block truncate font-mono text-[9px] text-txt-muted">{image.digest ?? image.imageId}</span>
+                  </span>
+                  {selected && <Icon.Check size={14} className="mt-0.5 shrink-0 text-accent" />}
+                </button>
+              })}
+              {!images.length && <div className="col-span-full rounded-lg border border-dashed border-border px-3 py-6 text-center text-[11px] text-txt-muted">本机没有可用的 Docker 镜像</div>}
+            </div>
+          </section>}
+        </div>}
+    </div>
+    {error && <div role="alert" className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{error}</div>}
+    <p className="mt-4 text-[10px] leading-5 text-txt-muted">这些设置按项目保存。联网检索由模型能力自动提供，不需要在每次对话中手动开关。</p>
+  </div>
+}
+
+function SettingsChoice({ title, description, options, value, disabled, onChange, icon }: {
+  title: string
+  description: string
+  options: Array<{ value: string; label: string; description: string; disabled?: boolean }>
+  value?: string
+  disabled: boolean
+  onChange: (value: string) => void
+  icon: 'shield' | 'container'
+}): JSX.Element {
+  return <section className="px-4 py-4">
+    <h2 className="text-[13px] font-medium text-txt-primary">{title}</h2>
+    <p className="mt-1 text-[11px] text-txt-muted">{description}</p>
+    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      {options.map((option) => {
+        const selected = option.value === value
+        return <button key={option.value} type="button" disabled={disabled || option.disabled}
+          onClick={() => onChange(option.value)}
+          className={`flex min-h-[78px] items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${selected ? 'border-accent bg-accent-dim/10' : 'border-border bg-bg-app hover:border-border-strong'}`}>
+          <span className={selected ? 'mt-0.5 text-accent' : 'mt-0.5 text-txt-muted'}>
+            {icon === 'shield' ? <Icon.Shield size={15} /> : <Icon.Container size={15} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1 text-[12px] text-txt-primary">{option.label}{selected && <Icon.Check size={12} className="text-accent" />}</span>
+            <span className="mt-1 block text-[10px] leading-4 text-txt-muted">{option.description}</span>
+          </span>
+        </button>
+      })}
+    </div>
+  </section>
 }
 
 export function dockerStatusText(

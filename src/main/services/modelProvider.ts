@@ -393,7 +393,7 @@ function responseSources(response: ResponsesCompletedBody | undefined): SourceCi
   return [...seen.values()].slice(0, 12)
 }
 
-function deepSeekResponsesUrl(baseUrl: string): string {
+function responsesSearchUrl(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '')
   try {
     const url = new URL(base)
@@ -428,17 +428,28 @@ function responseInput(
     }))
 }
 
-/** DeepSeek Responses API 内置 web_search；搜索与续推均由服务端完成。 */
+/**
+ * Responses API 内置 web_search。DeepSeek 直接支持；自定义 OpenAI 兼容端点
+ * 按标准协议尝试，不兼容时由上层自动回退普通 Chat Completions。
+ */
 export async function streamDeepSeekSearch(
   runtime: RuntimeModel,
   messages: ChatMessage[],
   onEvent: OnEvent
 ): Promise<void> {
-  const endpoint = deepSeekResponsesUrl(runtime.baseUrl)
+  const endpoint = responsesSearchUrl(runtime.baseUrl)
   const started = Date.now()
   const effort = runtime.reasoningEffort
   const reasoningEffort = effort === 'low' ? 'low' : effort === 'high' ? 'max' : 'high'
-  console.log('[model] deepseek web search request model=' + runtime.model + ' url=' + endpoint)
+  console.log('[model] responses web search request model=' + runtime.model + ' url=' + endpoint)
+
+  const body: Record<string, unknown> = {
+    model: runtime.model,
+    input: responseInput(messages),
+    stream: true,
+    tools: [{ type: 'web_search' }]
+  }
+  if (runtime.provider === 'deepseek') body.reasoning = { effort: reasoningEffort }
 
   const request = await fetchWithRequestTimeout(endpoint, {
     method: 'POST',
@@ -446,14 +457,7 @@ export async function streamDeepSeekSearch(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${runtime.apiKey}`
     },
-    body: JSON.stringify({
-      model: runtime.model,
-      input: responseInput(messages),
-      stream: true,
-      tools: [{ type: 'web_search' }],
-      tool_choice: { type: 'web_search' },
-      reasoning: { effort: reasoningEffort }
-    })
+    body: JSON.stringify(body)
   }, runtime.signal)
   const res = request.response
   console.log(
@@ -492,7 +496,7 @@ export async function streamDeepSeekSearch(
         const sources = responseSources(event.response)
         if (sources.length) await onEvent({ sources })
       } else if (event.type === 'response.incomplete' || event.type === 'response.failed') {
-        const detail = event.error?.message ?? event.response?.error?.message ?? 'DeepSeek 联网响应未完成'
+        const detail = event.error?.message ?? event.response?.error?.message ?? '联网响应未完成'
         throw new Error(detail)
       }
     })

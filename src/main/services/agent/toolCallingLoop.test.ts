@@ -3,7 +3,7 @@ import type { ChatCompletionTurn, ChatMessage } from '../modelProvider'
 import type { ToolDefinition } from '../../../shared/agent'
 import { TaskRuntime } from './taskRuntime'
 import { ToolRegistry } from './toolRegistry'
-import { runToolCallingLoop } from './toolCallingLoop'
+import { runInteractiveChatLoop, runToolCallingLoop } from './toolCallingLoop'
 
 const workspace = {
   id: 'workspace-1',
@@ -66,6 +66,50 @@ function finalTurn(): ChatCompletionTurn {
 }
 
 describe('runToolCallingLoop', () => {
+  it('pauses for user input and continues the same project tool loop with the answer', async () => {
+    const { registry, runtime, task } = setup()
+    const seenMessages: ChatMessage[][] = []
+    const request = vi.fn(async () => ({ ok: true as const, value: { answers: [{ id: 'q1', answer: '按推荐' }] } }))
+    let round = 0
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      messages: [{ role: 'user', content: 'interview me' }], onEvent: () => undefined,
+      allowedToolNames: new Set(), requireInitialTool: false, requestUserInput: request,
+      runRound: async (_model, messages, _event, options) => {
+        seenMessages.push([...messages]); round += 1
+        expect(options.tools?.some((tool) => tool.function.name === 'request_user_input')).toBe(true)
+        return round === 1 ? {
+          message: { role: 'assistant', content: null, tool_calls: [{
+            id: 'question-1', type: 'function', function: {
+              name: 'request_user_input', arguments: '{"questions":[{"id":"q1","question":"怎么做？"}]}'
+            }
+          }] }, finishReason: 'tool_calls'
+        } : finalTurn()
+      }
+    })
+    expect(result.status).toBe('completed')
+    expect(request).toHaveBeenCalledOnce()
+    expect(seenMessages[1].at(-1)).toMatchObject({ role: 'tool', name: 'request_user_input', content: expect.stringContaining('按推荐') })
+  })
+
+  it('exposes and executes only tools allowed by the selected Skill', async () => {
+    const { registry, runtime, task } = setup()
+    let calls = 0
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      allowedToolNames: new Set(['other.tool']), onEvent: () => undefined,
+      runRound: async (_model, _messages, _event, options) => {
+        calls += 1
+        expect(options.tools).toEqual([])
+        expect(options.toolChoice).toBe('none')
+        return finalTurn()
+      }
+    })
+    expect(result.status).toBe('completed')
+    expect(calls).toBe(1)
+  })
   it('sends closed schemas, executes native calls, and returns tool results to the next round', async () => {
     const { registry, runtime, task } = setup()
     const seenMessages: ChatMessage[][] = []
@@ -288,5 +332,42 @@ describe('runToolCallingLoop', () => {
       onEvent: () => undefined, maxToolResultChars: 1000, runRound: async () => toolTurn() })
     expect(result).toMatchObject({ status: 'failed', error: { code: 'TOOL_RESULT_BUDGET' } })
     expect(runtime.activeTaskCount).toBe(0)
+  })
+
+  it('lets an explicitly activated conversational Skill answer without forcing an unrelated project tool', async () => {
+    const { registry, runtime, task } = setup()
+    let choice: unknown
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, requireInitialTool: false,
+      runRound: async (_model, _messages, _onEvent, options) => { choice = options.toolChoice; return finalTurn() }
+    })
+    expect(choice).toBe('auto')
+    expect(result).toMatchObject({ status: 'completed', rounds: 1 })
+    expect(runtime.activeTaskCount).toBe(0)
+  })
+})
+
+describe('runInteractiveChatLoop', () => {
+  it('supports the same question/answer continuation without a project workspace', async () => {
+    const messagesByRound: ChatMessage[][] = []
+    let round = 0
+    await runInteractiveChatLoop({
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      messages: [{ role: 'user', content: 'grill this plan' }],
+      onEvent: () => undefined,
+      requestUserInput: async () => ({ ok: true, value: { answers: [{ id: 'q1', answer: 'A' }] } }),
+      runRound: async (_model, messages, _event, options) => {
+        messagesByRound.push([...messages]); round += 1
+        expect(options.tools?.[0].function.name).toBe('request_user_input')
+        return round === 1 ? {
+          message: { role: 'assistant', content: null, tool_calls: [{ id: 'q', type: 'function',
+            function: { name: 'request_user_input', arguments: '{"questions":[{"id":"q1","question":"Pick"}]}' } }] },
+          finishReason: 'tool_calls'
+        } : finalTurn()
+      }
+    })
+    expect(messagesByRound[1].at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('"answer":"A"') })
   })
 })

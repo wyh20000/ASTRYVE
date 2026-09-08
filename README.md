@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1/P2 已完成；P3 已完成 M0–M8（Agent 内核、权限审批、审计、本机/Docker 执行、文件/搜索/Git 读取、编辑/diff、安全写回、测试与任务工作区），Skills 接入继续开发
+- **当前阶段**：P1/P2 已完成；P3 已完成 M0–M9（Agent 内核、权限审批、审计、本机/Docker 执行、文件/搜索/Git 读取、编辑/diff、安全写回、任务工作区与 Skills），下一步为 M10 Renderer Sandbox
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
 
@@ -55,6 +55,9 @@ npm start
 | [docs/05-二阶段未完成项.md](docs/05-二阶段未完成项.md) | P2 收口结果与外部联调项 |
 | [docs/06-安全加固与沙盒设计.md](docs/06-安全加固与沙盒设计.md) | P2 后安全加固与 renderer sandbox 设计 |
 | [docs/07-第三阶段计划.md](docs/07-第三阶段计划.md) | P3 Agent 执行内核、Coding、权限、Docker 与 Skills 计划 |
+| [docs/09-Skills规范.md](docs/09-Skills规范.md) | M9 第三方 Skill 格式、来源、安装、触发、权限与审计规范 |
+| [docs/10-DeepSeek-Skills调用适配.md](docs/10-DeepSeek-Skills调用适配.md) | DeepSeek system message、原生工具调用与思考轮次适配 |
+| [docs/verification/M9-页面验证测试单.md](docs/verification/M9-页面验证测试单.md) | M9 可由非开发人员执行的页面与安全验收清单 |
 
 ## P1 已实现（M0–M6）
 
@@ -82,10 +85,11 @@ npm start
 - ⚙️ 命令在独立 Electron utility process 中运行；Windows 使用 Job Object 清理完整子进程树，支持停止、超时、输出限量和持久化审计。
 - 🔎 模型可按需列出/搜索/分段读取授权项目文件，并查看受限 Git status、diff、log、show；敏感路径、链接、二进制和生成目录被过滤。
 - 🐳 Docker 断网沙箱、本机执行、结构化文本补丁、逐文件 diff 和经精确审批的宿主安全写回已开放。
+- 🧩 Skills 支持应用私有安装、Codex/Agents 目录只读发现、本机 Skill Pack 导入、GitHub/精选市场安装，以及 `/skill-name` 本轮真实调用；安装内容不会自动执行，也不能扩大工具权限。
 
 ## 后续阶段
 
-- Skills、renderer sandbox 与全量安全验收 → P3 后续里程碑
+- Renderer sandbox 与全量安全验收 → P3 后续里程碑
 - 浏览器操控 / 集成发布 → P4
 
 > 新增能力请**先改文档（《01》《02》）再动代码**，严格遵循边界，避免范围蔓延。

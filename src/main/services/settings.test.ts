@@ -32,4 +32,21 @@ describe('project settings persistence', () => {
     expect(reloaded.getAgentProjectPreferences(first.workspaceId)).toEqual(first)
     expect(reloaded.getAgentProjectPreferences(second.workspaceId)).toEqual(second)
   })
+
+  it('persists disabled Skills and rolls back a failed save', async () => {
+    state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-skill-settings-test-'))
+    vi.resetModules()
+    const settings = await import('./settings')
+    const id = `project:${'a'.repeat(12)}:x`
+    settings.setSkillEnabled(id, false)
+    expect(settings.getDisabledSkillIds()).toEqual(new Set([id]))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw new Error('disk error') })
+    expect(() => settings.setSkillEnabled(id, true)).toThrow('项目设置保存失败')
+    expect(settings.getDisabledSkillIds()).toEqual(new Set([id]))
+    vi.resetModules()
+    const reloaded = await import('./settings')
+    reloaded.initSettings()
+    expect(reloaded.getDisabledSkillIds()).toEqual(new Set([id]))
+  })
 })

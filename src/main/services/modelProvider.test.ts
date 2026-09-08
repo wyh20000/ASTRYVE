@@ -305,7 +305,7 @@ describe('streamSearchChat', () => {
 })
 
 describe('streamDeepSeekSearch', () => {
-  it('通过 Responses API 强制 web_search 并解析流式正文、思考和引用', async () => {
+  it('通过 Responses API 自动提供 web_search 并解析流式正文、思考和引用', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       sseResponse([
         'event: response.reasoning_text.delta',
@@ -327,6 +327,7 @@ describe('streamDeepSeekSearch', () => {
 
     await streamDeepSeekSearch(
       {
+        provider: 'deepseek',
         baseUrl: 'https://api.deepseek.com/v1',
         apiKey: 'key',
         model: 'deepseek-v4-pro',
@@ -348,9 +349,9 @@ describe('streamDeepSeekSearch', () => {
       model: 'deepseek-v4-pro',
       stream: true,
       tools: [{ type: 'web_search' }],
-      tool_choice: { type: 'web_search' },
       reasoning: { effort: 'max' }
     })
+    expect(body).not.toHaveProperty('tool_choice')
     expect(body.input).toEqual([
       { role: 'system', content: '请给出处' },
       { role: 'user', content: '今天的新闻' }
@@ -362,6 +363,26 @@ describe('streamDeepSeekSearch', () => {
       sources: [{ title: '官方来源', url: 'https://example.com/source' }]
     })
     expect(events.at(-1)).toEqual({ activity: '', done: true })
+  })
+
+  it('让自定义 Responses 端点获得联网工具但不携带 DeepSeek 专用推理参数', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"answer"}',
+      '',
+      'data: {"type":"response.completed","response":{"output":[]}}',
+      ''
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    await streamDeepSeekSearch(
+      { provider: 'custom', baseUrl: 'https://compatible.example.com/v1', apiKey: 'key', model: 'model-x', reasoningEffort: 'high' },
+      [{ role: 'user', content: '需要最新资料吗？' }],
+      () => undefined
+    )
+    expect(fetchMock.mock.calls[0][0]).toBe('https://compatible.example.com/v1/responses')
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.tools).toEqual([{ type: 'web_search' }])
+    expect(body).not.toHaveProperty('reasoning')
+    expect(body).not.toHaveProperty('tool_choice')
   })
 
   it('将 Responses API 的失败事件转为异常，以便上层降级普通回答', async () => {
