@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'node:url'
 import { getStore, initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
 import { initSettings } from './services/settings'
@@ -20,8 +21,17 @@ import { refreshAgentExecutionCapabilities } from './services/agent/projectPrefe
 import { cleanupInterruptedDockerResources, startDockerCleanupTimer } from './services/agent/dockerCleanup'
 import { cleanupEmptySessions } from './services/emptySessionCleanup'
 import { initSkillRegistry } from './services/agent/skillManager'
+import { configureTrustedIpcSender } from './ipc/validation'
+import {
+  createSecureWebPreferences,
+  isAllowedExternalUrl,
+  isAllowedRendererNavigation
+} from './windowSecurity'
 
 const isDev = !app.isPackaged
+const rendererEntry = isDev && process.env['ELECTRON_RENDERER_URL']
+  ? process.env['ELECTRON_RENDERER_URL']
+  : pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -37,13 +47,7 @@ function createWindow(): void {
       process.platform === 'win32'
         ? { color: '#0a0e17', symbolColor: '#a7b0c0', height: 32 }
         : undefined,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      // 暂留：后续 coding 能力先完成主进程/utilityProcess 权限边界后再启用 renderer sandbox。
-      sandbox: false
-    }
+    webPreferences: createSecureWebPreferences(join(__dirname, '../preload/index.js'))
   })
 
   // 窗口创建即显示；就绪后置顶聚焦，确保弹到最前
@@ -55,9 +59,8 @@ function createWindow(): void {
 
   win.webContents.setWindowOpenHandler((details) => {
     try {
-      const url = new URL(details.url)
-      if (url.protocol === 'https:') void shell.openExternal(url.toString())
-      else console.warn('[security] blocked external URL protocol:', url.protocol)
+      if (isAllowedExternalUrl(details.url)) void shell.openExternal(details.url)
+      else console.warn('[security] blocked external URL')
     } catch {
       console.warn('[security] blocked malformed external URL')
     }
@@ -65,7 +68,7 @@ function createWindow(): void {
   })
 
   win.webContents.on('will-navigate', (event, navigationUrl) => {
-    if (navigationUrl !== win.webContents.getURL()) event.preventDefault()
+    if (!isAllowedRendererNavigation(win.webContents.getURL(), navigationUrl)) event.preventDefault()
   })
   win.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
@@ -78,7 +81,7 @@ function createWindow(): void {
   })
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void win.loadURL(rendererEntry)
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -138,6 +141,7 @@ app.whenReady().then(async () => {
     console.warn('[session] startup empty-session cleanup failed:', error)
   }
   initModelConfig()
+  configureTrustedIpcSender(rendererEntry)
   registerIpcHandlers()
   createWindow()
 

@@ -40,6 +40,15 @@ export class AuditJournal {
       throw new Error('审计日志写入失败，操作已阻止')
     }
   }
+
+  clear = (): void => {
+    try {
+      fs.rmSync(this.filePath, { force: true })
+      this.events = []
+    } catch {
+      throw new Error('审计记录清理失败')
+    }
+  }
 }
 
 function field(value: unknown): string {

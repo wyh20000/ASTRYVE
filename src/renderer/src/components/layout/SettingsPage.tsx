@@ -10,7 +10,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { AgentSettingsSection } from '../chat/AgentControls'
 
-type Section = 'theme' | 'model' | 'agent' | 'skills'
+type Section = 'theme' | 'model' | 'agent' | 'skills' | 'security'
 
 const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
   deepseek: {
@@ -49,16 +49,45 @@ export default function SettingsPage(): JSX.Element {
           <NavItem active={section === 'model'} icon={<Icon.Brain size={14} />} label="模型设置" onClick={() => setSection('model')} />
           <NavItem active={section === 'agent'} icon={<Icon.Shield size={14} />} label="Agent 设置" onClick={() => setSection('agent')} />
           <NavItem active={section === 'skills'} icon={<Icon.FileDir size={14} />} label="Skills" onClick={() => setSection('skills')} />
+          <NavItem active={section === 'security'} icon={<Icon.Shield size={14} />} label="安全与数据" onClick={() => setSection('security')} />
         </nav>
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[760px] px-6 py-6">
-          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : <SkillsSection />}
+          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'skills' ? <SkillsSection /> : <SecuritySection />}
         </div>
       </div>
     </div>
   )
+}
+
+export function SecuritySection(): JSX.Element {
+  const [message, setMessage] = useState('')
+  const [clearing, setClearing] = useState(false)
+  const clearAudit = async (): Promise<void> => {
+    setClearing(true)
+    setMessage('')
+    const result = await window.agent.settings.clearAudit()
+    setClearing(false)
+    setMessage(result.ok ? '审计记录已清除' : result.error.message)
+  }
+  return <div>
+    <h1 className="selectable text-[18px] font-semibold text-txt-primary">安全与数据</h1>
+    <p className="mt-1 text-[12px] text-txt-muted">管理本机保存的安全记录。</p>
+    <Group title="审计记录">
+      <div className="flex items-center justify-between gap-6">
+        <div>
+          <div className="text-[12px] font-medium text-txt-primary">操作审计</div>
+          <p className="mt-1 max-w-[480px] text-[11px] leading-5 text-txt-muted">仅保存操作类型、结果和脱敏后的目标摘要，用于排查权限与执行问题。</p>
+        </div>
+        <button type="button" className="btn shrink-0 border border-border px-3 py-2 text-[11px] text-txt-secondary hover:bg-bg-active" disabled={clearing} onClick={() => void clearAudit()}>
+          {clearing ? '清除中…' : '清除审计记录'}
+        </button>
+      </div>
+      {message && <p role="status" className="mt-3 text-[11px] text-txt-secondary">{message}</p>}
+    </Group>
+  </div>
 }
 
 export function SkillsSection(): JSX.Element {

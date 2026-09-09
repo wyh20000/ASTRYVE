@@ -3,15 +3,17 @@ import type { IpcMainInvokeEvent } from 'electron'
 import {
   InputValidationError,
   assertTrustedIpcSender,
+  configureTrustedIpcSender,
   validateSendMessageInput,
   validateWorkspaceId,
   validateWorkspaceRelativePath
 } from './validation'
 
-function eventFor(url: string): IpcMainInvokeEvent {
+function eventFor(url: string, mainFrame = true): IpcMainInvokeEvent {
+  const senderFrame = { url }
   return {
-    senderFrame: { url },
-    sender: { getURL: () => url }
+    senderFrame,
+    sender: { getURL: () => url, mainFrame: mainFrame ? senderFrame : { url } }
   } as unknown as IpcMainInvokeEvent
 }
 
@@ -24,12 +26,23 @@ describe('workspace IPC validation', () => {
     expect(() => validateWorkspaceRelativePath('x'.repeat(4097))).toThrow(InputValidationError)
   })
 
-  it('allows the packaged app and local dev server but rejects remote senders', () => {
+  it('allows only the configured renderer main frame', () => {
+    configureTrustedIpcSender('file:///D:/app/index.html')
     expect(() => assertTrustedIpcSender(eventFor('file:///D:/app/index.html'))).not.toThrow()
+    expect(() => assertTrustedIpcSender(eventFor('file:///D:/other/index.html'))).toThrow(InputValidationError)
+    expect(() => assertTrustedIpcSender(eventFor('file:///D:/app/index.html', false))).toThrow(InputValidationError)
+
+    configureTrustedIpcSender('http://127.0.0.1:5173/')
     expect(() => assertTrustedIpcSender(eventFor('http://127.0.0.1:5173/'))).not.toThrow()
+    expect(() => assertTrustedIpcSender(eventFor('http://localhost:5173/'))).toThrow(InputValidationError)
     expect(() => assertTrustedIpcSender(eventFor('https://evil.example/'))).toThrow(
       InputValidationError
     )
+  })
+
+  it('refuses remote or credential-bearing renderer entry configuration', () => {
+    expect(() => configureTrustedIpcSender('https://evil.example/')).toThrow('渲染入口')
+    expect(() => configureTrustedIpcSender('http://user:secret@localhost:5173/')).toThrow('渲染入口')
   })
 
   it('accepts bounded Skill ids and rejects forged selections', () => {

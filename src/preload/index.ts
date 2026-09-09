@@ -131,7 +131,8 @@ const api: AgentApi = {
     getAgentProject: (workspaceId: string) =>
       ipcRenderer.invoke(IPC.settings.getAgentProject, workspaceId),
     setAgentProject: (preferences: AgentProjectPreferences) =>
-      ipcRenderer.invoke(IPC.settings.setAgentProject, preferences)
+      ipcRenderer.invoke(IPC.settings.setAgentProject, preferences),
+    clearAudit: () => ipcRenderer.invoke(IPC.settings.clearAudit)
   },
   window: {
     setTitleBarOverlay: (opts) => ipcRenderer.invoke(IPC.window.setTitleBarOverlay, opts)

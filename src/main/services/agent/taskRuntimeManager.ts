@@ -140,6 +140,11 @@ export function writeAgentAudit(event: import('../../../shared/agent').AuditEven
   auditJournal.write(event)
 }
 
+export function clearAgentAudit(): void {
+  if (!auditJournal) throw new Error('审计日志尚未初始化')
+  auditJournal.clear()
+}
+
 /** Coding tools are opt-in per project. Unavailable Docker preferences keep ordinary chat working. */
 export function shouldUseProjectAgent(sessionId: string): boolean {
   const workspaceId = getSessionWorkspaceId(sessionId)

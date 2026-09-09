@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1/P2 已完成；P3 已完成 M0–M9（Agent 内核、权限审批、审计、本机/Docker 执行、文件/搜索/Git 读取、编辑/diff、安全写回、任务工作区与 Skills），下一步为 M10 Renderer Sandbox
+- **当前阶段**：P1/P2/P3 已完成；P3 M0–M11 已覆盖 Agent 内核、权限审批、审计、本机/Docker 执行、Coding、Skills、Renderer Sandbox 与 Windows 打包
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
 
@@ -23,6 +23,13 @@ npm run build
 # 单元测试（Vitest）
 npm test
 
+# 真实执行后端冒烟测试（需要本机运行环境 / Docker Desktop）
+npm run smoke:local
+npm run smoke:docker
+
+# Windows 安装包
+npm run build:win
+
 # 启动已构建产物
 npm start
 ```
@@ -38,7 +45,7 @@ npm start
 - **设置 → 模型设置**：选择提供方（DeepSeek/Kimi/自定义）、填 Base URL / API Key / 模型名，保存并「测试连接」。
 - 也支持环境变量（无需 UI）：`DEEPSEEK_API_KEY`、`MOONSHOT_API_KEY`、`MODEL_BASE_URL`、`MODEL`、`MODEL_PROVIDER`、`CONTEXT_MESSAGES`。
 - 非敏感配置保存到 `%APPDATA%\ai-agent\ai-agent-config.json`，API Key 使用 Electron `safeStorage` 单独加密；**未配置时自动回退本地演示（Mock）**。
-- **多轮记忆 + 上下文长度**：按会话历史发送最近 N 条消息（默认 20，可在模型设置中调整）。
+- **多轮记忆 + 上下文长度**：每个会话独立保存历史，并按模型上下文预算自动裁剪；不同会话不会互相注入正文。
 - **会话标题自动生成**：首条消息自动给会话命名，侧栏即时更新。
 - **接口信息可看**：主进程控制台打印 `[model] request/response/stream done`（模型 / URL / HTTP 状态 / 耗时），**不含 prompt 与响应内容**。注意：请求是从**主进程**发起的，所以在渲染进程的 DevTools 网络面板里看不到，要看请求请去运行 `npm run dev` 的终端。
 - 侧栏底部冗余的「AI 模型/上下文/项目目录」已移除；**配置的模型名**显示在输入框上方与状态栏。
@@ -58,6 +65,8 @@ npm start
 | [docs/09-Skills规范.md](docs/09-Skills规范.md) | M9 第三方 Skill 格式、来源、安装、触发、权限与审计规范 |
 | [docs/10-DeepSeek-Skills调用适配.md](docs/10-DeepSeek-Skills调用适配.md) | DeepSeek system message、原生工具调用与思考轮次适配 |
 | [docs/verification/M9-页面验证测试单.md](docs/verification/M9-页面验证测试单.md) | M9 可由非开发人员执行的页面与安全验收清单 |
+| [docs/verification/M10-页面验证测试单.md](docs/verification/M10-页面验证测试单.md) | M10 Renderer Sandbox 与整体加固页面验收清单 |
+| [docs/verification/M11-P3最终页面验证测试单.md](docs/verification/M11-P3最终页面验证测试单.md) | M11 / P3 最终端到端验收清单 |
 
 ## P1 已实现（M0–M6）
 
@@ -86,10 +95,26 @@ npm start
 - 🔎 模型可按需列出/搜索/分段读取授权项目文件，并查看受限 Git status、diff、log、show；敏感路径、链接、二进制和生成目录被过滤。
 - 🐳 Docker 断网沙箱、本机执行、结构化文本补丁、逐文件 diff 和经精确审批的宿主安全写回已开放。
 - 🧩 Skills 支持应用私有安装、Codex/Agents 目录只读发现、本机 Skill Pack 导入、GitHub/精选市场安装，以及 `/skill-name` 本轮真实调用；安装内容不会自动执行，也不能扩大工具权限。
+- 🔒 renderer 已启用 Chromium sandbox、context isolation 与严格 CSP；文件、命令、Docker、Git 和密钥能力仅能通过 preload 白名单 IPC 请求主进程。
+- 🧾 “设置 → 安全与数据”可清除本机脱敏审计记录；审计只保存受限元数据和目标哈希。
+
+## 权限与 Docker 要求
+
+- `只读模式`：只允许安全读取；写入、命令和联网请求直接拒绝。
+- `请求批准`：写回、命令和联网等敏感操作逐次显示应用内审批。
+- `帮我批准`：仅对确定性的低风险操作按策略放行，高风险操作仍需批准；不存在“完全访问”。
+- Docker 模式需要 Docker Desktop/Engine、Linux containers 和可用镜像。容器固定断网、非 root、只读根文件系统、移除 capabilities，不挂载 Docker socket，也不会静默降级到本机执行。
+
+## 常见故障排查
+
+- Docker 显示不可用：先确认 Docker Desktop 已启动并处于 Linux containers，再到“设置 → Agent 设置”刷新镜像状态。
+- 镜像缺失：在 Docker 外部明确安装所需镜像；应用不会自动构建项目 Dockerfile。
+- 补丁提示基线变化：文件在任务期间被其他程序修改，重新读取文件并生成新补丁，不要覆盖现有改动。
+- 页面修改后未刷新：确认文件操作已成功完成；右侧文件树会接收工作区变更事件，未保存的编辑标签不会被后台覆盖。
+- MySQL 不可用：应用会回退内存存储，重启后历史不会保留；需要持久化时检查上方数据库配置。
 
 ## 后续阶段
 
-- Renderer sandbox 与全量安全验收 → P3 后续里程碑
-- 浏览器操控 / 集成发布 → P4
+- 浏览器操控、第三方插件运行时与插件市场 → P4
 
 > 新增能力请**先改文档（《01》《02》）再动代码**，严格遵循边界，避免范围蔓延。

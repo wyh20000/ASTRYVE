@@ -432,6 +432,7 @@ export interface AgentApi {
     setAgentProject: (
       preferences: AgentProjectPreferences
     ) => Promise<IpcResult<AgentProjectSettings>>
+    clearAudit: () => Promise<IpcResult<{ cleared: boolean }>>
   }
   window: {
     setTitleBarOverlay: (opts?: { color: string; symbolColor: string }) => Promise<IpcResult<boolean>>

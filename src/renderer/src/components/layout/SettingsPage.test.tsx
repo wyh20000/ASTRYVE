@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SkillMetadata } from '@shared/types'
-import { SkillsSection } from './SettingsPage'
+import { SecuritySection, SkillsSection } from './SettingsPage'
 
 const skillState = vi.hoisted(() => ({
   items: [] as SkillMetadata[], catalog: [], loading: false, mutating: false, error: undefined as string | undefined,
@@ -51,5 +51,14 @@ describe('Skills settings page', () => {
     expect(html).not.toContain('references/checklist.md')
     expect(html).not.toContain('已被高优先级同名项覆盖')
     expect(html).not.toContain('Skill frontmatter 未闭合')
+  })
+})
+
+describe('Security settings page', () => {
+  it('offers a concise user-controlled audit cleanup action', () => {
+    const html = renderToStaticMarkup(<SecuritySection />)
+    expect(html).toContain('安全与数据')
+    expect(html).toContain('清除审计记录')
+    expect(html).not.toContain('agent-audit.json')
   })
 })

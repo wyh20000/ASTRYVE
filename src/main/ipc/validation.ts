@@ -6,6 +6,7 @@ const MAX_CONTENT_CHARS = 100_000
 const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const MAX_ATTACHMENTS_BYTES = 64 * 1024 * 1024
+let trustedRendererUrl: URL | undefined
 
 export class InputValidationError extends Error {}
 
@@ -13,17 +14,36 @@ function invalid(message: string): never {
   throw new InputValidationError(message)
 }
 
-export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
-  const raw = event.senderFrame?.url || event.sender.getURL()
-  try {
-    const url = new URL(raw)
-    const localDev =
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
-    if (url.protocol === 'file:' || localDev) return
-  } catch {
-    // fall through
+export function configureTrustedIpcSender(entryUrl: string): void {
+  const parsed = new URL(entryUrl)
+  const localDev =
+    (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+  if ((parsed.protocol !== 'file:' && !localDev) || parsed.username || parsed.password) {
+    throw new Error('渲染入口不受信任')
   }
+  trustedRendererUrl = parsed
+}
+
+function matchesTrustedRenderer(raw: string): boolean {
+  if (!trustedRendererUrl) return false
+  try {
+    const candidate = new URL(raw)
+    if (trustedRendererUrl.protocol === 'file:') {
+      return candidate.protocol === 'file:' && candidate.pathname === trustedRendererUrl.pathname
+    }
+    return candidate.origin === trustedRendererUrl.origin
+  } catch {
+    return false
+  }
+}
+
+export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    invalid('IPC 调用来源不受信任')
+  }
+  const raw = event.senderFrame?.url || event.sender.getURL()
+  if (matchesTrustedRenderer(raw)) return
   invalid('IPC 调用来源不受信任')
 }
 

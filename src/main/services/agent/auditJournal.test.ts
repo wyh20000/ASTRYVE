@@ -62,4 +62,17 @@ describe('persistent decision audit', () => {
     expect(() => new AuditJournal(file)).toThrow()
     expect(fs.readFileSync(file, 'utf8')).toBe('{partial')
   })
+
+  it('lets the user clear the journal and starts a fresh bounded history', () => {
+    const file = path.join(directory, 'audit.json')
+    const journal = new AuditJournal(file)
+    journal.write({ ...event, target: 'private-target' })
+
+    journal.clear()
+
+    expect(fs.existsSync(file)).toBe(false)
+    journal.write({ ...event, id: 'event-after-clear' })
+    const records = JSON.parse(fs.readFileSync(file, 'utf8')) as AuditEvent[]
+    expect(records.map((entry) => entry.id)).toEqual(['event-after-clear'])
+  })
 })
