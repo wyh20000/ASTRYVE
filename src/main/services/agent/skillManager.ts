@@ -5,6 +5,7 @@ import type { AuditEvent, WorkspaceGrant } from '../../../shared/agent'
 import type { SkillMetadata } from '../../../shared/types'
 import { getDisabledSkillIds } from '../settings'
 import { SkillRegistry, type ResolvedSkills } from './skillRegistry'
+import { listEnabledPluginSkillRoots } from './pluginManager'
 import { getToolRegistry, writeAgentAudit } from './taskRuntimeManager'
 
 let registry: SkillRegistry | undefined
@@ -14,7 +15,8 @@ export function initSkillRegistry(userDataPath: string): void {
   installedRoot = join(userDataPath, 'skills')
   registry = new SkillRegistry(installedRoot, getDisabledSkillIds, {
     codexRoot: join(homedir(), '.codex', 'skills'),
-    agentsRoot: join(homedir(), '.agents', 'skills')
+    agentsRoot: join(homedir(), '.agents', 'skills'),
+    pluginRoots: listEnabledPluginSkillRoots
   })
 }
 

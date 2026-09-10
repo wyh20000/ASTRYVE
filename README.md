@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1/P2/P3 已完成；P3 M0–M11 已覆盖 Agent 内核、权限审批、审计、本机/Docker 执行、Coding、Skills、Renderer Sandbox 与 Windows 打包
+- **当前阶段**：P1/P2/P3 已完成；P4 M12 已完成，M13 插件运行时代码与自动化验证已完成，等待按页面测试单执行人工验收
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
 
@@ -64,6 +64,8 @@ npm start
 | [docs/07-第三阶段计划.md](docs/07-第三阶段计划.md) | P3 Agent 执行内核、Coding、权限、Docker 与 Skills 计划 |
 | [docs/09-Skills规范.md](docs/09-Skills规范.md) | M9 第三方 Skill 格式、来源、安装、触发、权限与审计规范 |
 | [docs/10-DeepSeek-Skills调用适配.md](docs/10-DeepSeek-Skills调用适配.md) | DeepSeek system message、原生工具调用与思考轮次适配 |
+| [docs/08-第四阶段计划.md](docs/08-第四阶段计划.md) | P4 插件运行时、市场与浏览器能力计划 |
+| [docs/verification/M13-插件运行时页面验证测试单.md](docs/verification/M13-插件运行时页面验证测试单.md) | M13 本地插件运行时人工验收清单 |
 | [docs/verification/M9-页面验证测试单.md](docs/verification/M9-页面验证测试单.md) | M9 可由非开发人员执行的页面与安全验收清单 |
 | [docs/verification/M10-页面验证测试单.md](docs/verification/M10-页面验证测试单.md) | M10 Renderer Sandbox 与整体加固页面验收清单 |
 | [docs/verification/M11-P3最终页面验证测试单.md](docs/verification/M11-P3最终页面验证测试单.md) | M11 / P3 最终端到端验收清单 |
@@ -104,6 +106,15 @@ npm start
 - `请求批准`：写回、命令和联网等敏感操作逐次显示应用内审批。
 - `帮我批准`：仅对确定性的低风险操作按策略放行，高风险操作仍需批准；不存在“完全访问”。
 - Docker 模式需要 Docker Desktop/Engine、Linux containers 和可用镜像。容器固定断网、非 root、只读根文件系统、移除 capabilities，不挂载 Docker socket，也不会静默降级到本机执行。
+
+## 本地插件运行时（M13）
+
+- 在“设置 → 插件”中导入本地文件夹或 ZIP；系统先在临时区检查路径、链接、大小和清单，再原子安装。
+- 工具型插件需要在 `plugin.json` 的 `tools` 中声明 `name`、`description`、相对 `entry`、`operation` 和封闭的 `parameters`。插件权限必须覆盖其操作，例如读取文件需要 `workspace.read`。
+- 对话中输入 `@` 可用键盘选择插件；不显式选择时，模型可从新任务捕获的已启用插件中自主选择。插件变化不会改变正在运行的任务。
+- 插件代码只在独立 Electron Utility Process 中运行，仍要经过现有 Tool Registry、项目权限和审批。Worker 有握手、心跳、超时、取消及 200KB 消息限制。
+- 连续三次启动或执行失败会自动隔离；可在插件列表查看原因并点击“恢复”。恢复只允许后续新任务重试，不会重放旧调用。
+- 当前支持 DeepSeek、Kimi 和自定义 OpenAI 兼容端点的结构化工具调用链。插件市场、外部账号连接、原生 OpenAI Responses、Gemini 与 Chrome 浏览器能力属于后续里程碑。
 
 ## 常见故障排查
 

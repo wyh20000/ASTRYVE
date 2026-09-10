@@ -21,7 +21,9 @@ import { refreshAgentExecutionCapabilities } from './services/agent/projectPrefe
 import { cleanupInterruptedDockerResources, startDockerCleanupTimer } from './services/agent/dockerCleanup'
 import { cleanupEmptySessions } from './services/emptySessionCleanup'
 import { initSkillRegistry } from './services/agent/skillManager'
+import { initPluginRegistry } from './services/agent/pluginManager'
 import { configureTrustedIpcSender } from './ipc/validation'
+import { initBrowserService, shutdownBrowser } from './services/browser/browserManager'
 import {
   createSecureWebPreferences,
   isAllowedExternalUrl,
@@ -123,7 +125,9 @@ app.whenReady().then(async () => {
   void dockerPreflight
   startDockerCleanupTimer()
   initWorkspaceService()
+  initBrowserService(app.getPath('userData'))
   initTaskRuntime()
+  initPluginRegistry(app.getPath('userData'))
   initSkillRegistry(app.getPath('userData'))
   try {
     const recovery = await initTaskPersistence(app.getPath('userData'))
@@ -163,6 +167,7 @@ app.on('before-quit', (event) => {
   shutdownStarted = true
   cancelAllGenerations()
   cancelAllAgentTasks('app_quit')
+  shutdownBrowser()
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<void>((resolve) => {
     timeoutHandle = setTimeout(resolve, 2_000)

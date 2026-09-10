@@ -40,6 +40,8 @@ interface RuntimeTask {
   workspace: WorkspaceGrant
   ownerWebContentsId: number
   controller: AbortController
+  registry: ToolRegistry
+  dispose?: () => void | Promise<void>
   taskTimeoutMs: number
   toolTimeoutMs: number
   dockerImageId?: string
@@ -66,6 +68,10 @@ export interface CreateTaskInput {
   dockerImageId?: string
   taskTimeoutMs?: number
   toolTimeoutMs?: number
+  toolDefinitions?: readonly import('../../../shared/agent').ToolDefinition<any, any>[]
+  pluginIds?: string[]
+  pluginVersions?: Record<string, string | undefined>
+  dispose?: () => void | Promise<void>
 }
 
 export interface TaskRuntimeOptions {
@@ -164,6 +170,8 @@ export class TaskRuntime {
       permissionMode: input.permissionMode,
       environment: input.environment,
       dockerImageId: input.dockerImageId,
+      pluginIds: input.pluginIds,
+      pluginVersions: input.pluginVersions,
       now: this.now()
     })
     const task: RuntimeTask = {
@@ -171,6 +179,8 @@ export class TaskRuntime {
       workspace: { ...input.workspace },
       ownerWebContentsId: input.ownerWebContentsId,
       controller: new AbortController(),
+      registry: this.registry.createScope(input.toolDefinitions),
+      dispose: input.dispose,
       taskTimeoutMs,
       toolTimeoutMs,
       dockerImageId: input.dockerImageId,
@@ -245,7 +255,7 @@ export class TaskRuntime {
     }
 
     try {
-      this.registry.validate(invocation)
+      task.registry.validate(invocation)
     } catch (error) {
       return this.rejectToolCall(task, error)
     }
@@ -340,6 +350,10 @@ export class TaskRuntime {
     return this.requireTask(taskId).controller.signal
   }
 
+  listNativeFunctionTools(taskId: string, allowedNames?: ReadonlySet<string>) {
+    return this.requireTask(taskId).registry.listNativeFunctionTools(allowedNames)
+  }
+
   getTaskIdForSession(sessionId: string): string | undefined {
     return this.sessionTasks.get(sessionId)
   }
@@ -400,7 +414,7 @@ export class TaskRuntime {
 
     let timeout: TimerHandle | undefined
     try {
-      const execution = this.registry
+      const execution = task.registry
         .execute(invocation, {
           taskId: invocation.taskId,
           callId: invocation.callId,
@@ -455,6 +469,7 @@ export class TaskRuntime {
     if (task.output.timer) clearTimeout(task.output.timer)
     task.output.timer = undefined
     task.controller.abort(reason)
+    void Promise.resolve(task.dispose?.()).catch(() => undefined)
     this.removeTask(task)
     this.resolveQueuedCalls(task, cancelledResult())
   }
@@ -540,7 +555,8 @@ export class TaskRuntime {
       !isPermissionMode(input.permissionMode) ||
       !isExecutionEnvironment(input.environment) ||
       (input.dockerImageId !== undefined && !/^sha256:[a-f0-9]{64}$/i.test(input.dockerImageId)) ||
-      (input.environment !== 'docker' && input.dockerImageId !== undefined)
+      (input.environment !== 'docker' && input.dockerImageId !== undefined) ||
+      (input.pluginIds !== undefined && (!Array.isArray(input.pluginIds) || input.pluginIds.some((id) => typeof id !== 'string')))
     ) {
       throw new TaskRuntimeError('INVALID_TASK_INPUT', 'Task context is invalid')
     }

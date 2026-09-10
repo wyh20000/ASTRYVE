@@ -15,6 +15,7 @@ import { getTheme } from './theme/theme'
 import { useWorkspaceStore } from './stores/workspaceStore'
 import WorkspacePanel from './components/layout/WorkspacePanel'
 import ApprovalDialog from './components/chat/ApprovalDialog'
+import { usePluginStore } from './stores/pluginStore'
 
 function AppShell(): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
@@ -57,6 +58,16 @@ function AppShell(): JSX.Element {
   useEffect(() => window.agent.onApprovalResolved((request) => {
     clearApprovalRequest(request.sessionId, request.id)
   }), [clearApprovalRequest])
+
+  useEffect(() => window.agent.onPluginsChanged(() => {
+    void usePluginStore.getState().load()
+    if (Object.values(useChatStore.getState().sending).some(Boolean)) {
+      void messageApi.open({
+        key: 'plugins-changed-active-task', type: 'warning', duration: 5,
+        content: '插件已变化；当前任务继续使用原快照，下次发送时自动加载新工具。'
+      })
+    }
+  }), [messageApi])
 
   useEffect(() => {
     const unsub = window.agent.onMessageNotice((notice) => {

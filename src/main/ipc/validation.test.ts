@@ -50,4 +50,12 @@ describe('workspace IPC validation', () => {
     expect(validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'review', skillIds: [id, id] }).skillIds).toEqual([id])
     expect(() => validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'review', skillIds: ['../skill'] })).toThrow(InputValidationError)
   })
+
+  it('accepts bounded plugin ids, deduplicates them and rejects forged selections', () => {
+    const sessionId = crypto.randomUUID()
+    expect(validateSendMessageInput({ sessionId, content: 'inspect', pluginIds: ['acme.browser', 'acme.browser'] }).pluginIds)
+      .toEqual(['acme.browser'])
+    expect(() => validateSendMessageInput({ sessionId, content: 'inspect', pluginIds: ['../plugin'] }))
+      .toThrow(InputValidationError)
+  })
 })

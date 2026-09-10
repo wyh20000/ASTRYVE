@@ -82,6 +82,10 @@ export function ApprovalDialogView({ request, onClear }: {
           className="rounded-lg border border-border-strong px-3 py-2 text-[11px] text-txt-primary hover:bg-bg-active disabled:opacity-50">
           {submitting === 'task-prefix' ? '批准中…' : '本任务允许相同命令'}
         </button>}
+        {request.scopeOptions.includes('site') && <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('site')}
+          className="rounded-lg border border-border bg-bg-raised px-3 py-2 text-[12px] text-txt-secondary hover:bg-bg-active hover:text-txt-primary">
+          {submitting === 'site' ? '保存中…' : '始终允许读取此网站'}
+        </button>}
         <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('once')}
           className="rounded-lg bg-accent px-3.5 py-2 text-[11px] font-medium text-white hover:bg-accent/85 disabled:opacity-50">
           {submitting === 'once' ? '批准中…' : '仅批准本次'}

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
-import type { AgentProjectPreferences, PersistedTheme, DbConfig } from '@shared/types'
+import type { AgentProjectPreferences, PersistedTheme, DbConfig, BrowserPreferences } from '@shared/types'
 import {
   EXECUTION_ENVIRONMENTS,
   PERMISSION_MODES,
@@ -14,6 +14,8 @@ interface SettingsFile {
   workspaces?: WorkspaceGrant[]
   agentProjects?: Record<string, AgentProjectPreferences>
   disabledSkills?: string[]
+  disabledPlugins?: string[]
+  browser?: BrowserPreferences
 }
 
 const DEFAULTS: { theme: PersistedTheme; db: DbConfig } = {
@@ -27,12 +29,16 @@ let data: {
   workspaces: WorkspaceGrant[]
   agentProjects: Record<string, AgentProjectPreferences>
   disabledSkills: string[]
+  disabledPlugins: string[]
+  browser: BrowserPreferences
 } = {
   theme: { ...DEFAULTS.theme, overrides: { ...DEFAULTS.theme.overrides } },
   db: { ...DEFAULTS.db },
   workspaces: [],
   agentProjects: {},
-  disabledSkills: []
+  disabledSkills: [],
+  disabledPlugins: [],
+  browser: { allowAllSites: false, allowedOrigins: [], blockedOrigins: [] }
 }
 
 function file(): string {
@@ -61,6 +67,12 @@ export function initSettings(): void {
           typeof id === 'string' && /^[a-z]+:[a-f0-9]{12}:[a-z0-9_-]{1,64}$/.test(id)
         ).slice(0, 500)
       }
+      if (Array.isArray(raw.disabledPlugins)) {
+        data.disabledPlugins = raw.disabledPlugins.filter((id): id is string =>
+          typeof id === 'string' && /^[a-z0-9][a-z0-9._-]{1,63}$/.test(id)
+        ).slice(0, 500)
+      }
+      if (raw.browser) data.browser = sanitizeBrowserPreferences(raw.browser)
     }
   } catch (e) {
     console.warn('[settings] load failed:', e)
@@ -145,6 +157,40 @@ export function setSkillEnabled(id: string, enabled: boolean): void {
   if (enabled) disabled.delete(id); else disabled.add(id)
   data.disabledSkills = [...disabled].slice(0, 500)
   try { persist(true) } catch (error) { data.disabledSkills = previous; throw error }
+}
+
+export function getDisabledPluginIds(): Set<string> {
+  return new Set(data.disabledPlugins)
+}
+
+export function setPluginEnabled(id: string, enabled: boolean): void {
+  if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(id)) throw new Error('插件标识无效')
+  const previous = data.disabledPlugins
+  const disabled = new Set(previous)
+  if (enabled) disabled.delete(id); else disabled.add(id)
+  data.disabledPlugins = [...disabled].slice(0, 500)
+  try { persist(true) } catch (error) { data.disabledPlugins = previous; throw error }
+}
+
+export function getBrowserPreferences(): BrowserPreferences { return { ...data.browser, allowedOrigins: [...data.browser.allowedOrigins], blockedOrigins: [...data.browser.blockedOrigins] } }
+export function setBrowserPreferences(value: BrowserPreferences): BrowserPreferences {
+  const previous = data.browser
+  data.browser = sanitizeBrowserPreferences(value)
+  try { persist(true) } catch (error) { data.browser = previous; throw error }
+  return getBrowserPreferences()
+}
+
+function sanitizeBrowserPreferences(value: BrowserPreferences): BrowserPreferences {
+  const origins = (items: unknown): string[] => {
+    if (!Array.isArray(items)) return []
+    return [...new Set(items.slice(0, 500).map((item) => {
+      if (typeof item !== 'string') throw new Error('网站地址无效')
+      const url = new URL(item)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('网站地址无效')
+      return url.origin.toLowerCase()
+    }))]
+  }
+  return { allowAllSites: value?.allowAllSites === true, allowedOrigins: origins(value?.allowedOrigins), blockedOrigins: origins(value?.blockedOrigins) }
 }
 
 function isAgentProjectPreferences(value: unknown): value is AgentProjectPreferences {

@@ -75,4 +75,12 @@ describe('classifyOperation', () => {
       classifyOperation('fs.apply-host', { paths: ['a.ts'], patchHash: 'no' }, workspace)
     ).toThrowError(OperationClassificationError)
   })
+
+  it('derives browser actions from the trusted tool name instead of model arguments', () => {
+    expect(classifyOperation('browser.interact', {
+      url: 'https://example.com/checkout', action: 'harmless-read', tabId: 'tab-1'
+    }, workspace, 'browser.click')).toMatchObject({
+      type: 'browser', action: 'click', origin: 'https://example.com', write: true
+    })
+  })
 })

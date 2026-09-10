@@ -35,6 +35,8 @@ export const OPERATION_KINDS = [
   'process.start',
   'process.stop',
   'network.enable',
+  'browser.read',
+  'browser.interact',
   'git.read',
   'git.write'
 ] as const
@@ -42,7 +44,7 @@ export type OperationKind = (typeof OPERATION_KINDS)[number]
 
 export type PolicyOutcome = 'allow' | 'ask' | 'deny'
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical'
-export type ApprovalScope = 'once' | 'task-prefix'
+export type ApprovalScope = 'once' | 'task-prefix' | 'site'
 
 export interface WorkspaceGrant {
   id: string
@@ -242,6 +244,14 @@ export type NormalizedOperationTarget =
       patchHash: string
       outsideWorkspace: boolean
     }
+  | {
+      type: 'browser'
+      action: string
+      origin: string
+      tabId?: string
+      write: boolean
+      sensitive: boolean
+    }
 
 export interface PolicyDecision {
   outcome: PolicyOutcome
@@ -411,6 +421,9 @@ export interface TaskSnapshot {
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
   dockerImageId?: string
+  /** Frozen plugin set captured when the task was created. */
+  pluginIds?: string[]
+  pluginVersions?: Record<string, string | undefined>
   status: TaskStatus
   sequence: number
   createdAt: number

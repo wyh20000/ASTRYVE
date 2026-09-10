@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { moveSlashSelection } from './ChatInput'
+import { moveSlashSelection, removePluginMention, selectedPluginMentions } from './ChatInput'
 import { directoriesToRefresh } from '../layout/workspaceRefresh'
 
 describe('Skill shortcut keyboard navigation', () => {
@@ -8,6 +8,15 @@ describe('Skill shortcut keyboard navigation', () => {
     expect(moveSlashSelection(2, 3, 1)).toBe(0)
     expect(moveSlashSelection(0, 3, -1)).toBe(2)
     expect(moveSlashSelection(0, 0, 1)).toBe(0)
+  })
+})
+
+describe('plugin mention controls', () => {
+  const plugins = [{ id: 'acme.browser' }, { id: 'other.tool' }]
+
+  it('finds exact selected mentions and removes only the requested token', () => {
+    expect(selectedPluginMentions('请用 @acme.browser 检查 @example', plugins)).toEqual([{ id: 'acme.browser' }])
+    expect(removePluginMention('请用 @acme.browser 检查 @example', 'acme.browser')).toBe('请用 检查 @example')
   })
 })
 

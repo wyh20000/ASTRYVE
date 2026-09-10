@@ -29,6 +29,14 @@ export class ToolRegistry {
   ) => Promise<boolean>) {}
   private readonly tools = new Map<string, ToolDefinition<unknown, unknown>>()
 
+  /** Creates an immutable-per-task registry while preserving the same authorization boundary. */
+  createScope(additional: readonly ToolDefinition<any, any>[] = []): ToolRegistry {
+    const scope = new ToolRegistry(this.authorize)
+    for (const definition of this.tools.values()) scope.register(definition)
+    for (const definition of additional) scope.register(definition)
+    return scope
+  }
+
   register<TArgs, TResult>(definition: ToolDefinition<TArgs, TResult>): void {
     if (
       !isToolName(definition.name) ||

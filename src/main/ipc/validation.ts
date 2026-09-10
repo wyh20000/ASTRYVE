@@ -112,13 +112,21 @@ export function validateSendMessageInput(value: unknown): SendMessageInput {
       input.skillIds.some((id) => typeof id !== 'string' || !/^[a-z]+:[a-f0-9]{12}:[a-z0-9_-]{2,64}$/.test(id)))) {
     invalid('Skill 选择无效')
   }
+  if (input.pluginIds != null && (!Array.isArray(input.pluginIds) || input.pluginIds.length > 8 ||
+      input.pluginIds.some((id) => typeof id !== 'string' || !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(id)))) {
+    invalid('插件选择无效')
+  }
   if (input.attachments != null && !Array.isArray(input.attachments)) invalid('附件列表无效')
   const attachments = (input.attachments ?? []).map(validateAttachment)
   if (attachments.length > MAX_ATTACHMENTS) invalid(`一次最多发送 ${MAX_ATTACHMENTS} 个附件`)
   const total = attachments.reduce((sum, attachment) => sum + dataUrlBytes(attachment.dataRef), 0)
   if (total > MAX_ATTACHMENTS_BYTES) invalid('附件总大小不能超过 64MB')
   if (!input.content.trim() && attachments.length === 0) invalid('消息不能为空')
-  return { ...input, content: input.content, attachments, skillIds: input.skillIds ? [...new Set(input.skillIds)] : undefined }
+  return {
+    ...input, content: input.content, attachments,
+    skillIds: input.skillIds ? [...new Set(input.skillIds)] : undefined,
+    pluginIds: input.pluginIds ? [...new Set(input.pluginIds)] : undefined
+  }
 }
 
 function validateModelPreset(value: unknown): ModelPreset {

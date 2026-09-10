@@ -18,6 +18,7 @@ import type {
   WorkspaceSearchMatch,
   WorkspaceSummary
 } from './agent'
+import type { BrowserStatus, BrowserTab } from './browser'
 
 export interface AgentProjectPreferences {
   workspaceId: string
@@ -98,6 +99,7 @@ export type MessageBlock =
   | { kind: 'code'; language: string; code: string; filename?: string }
   | { kind: 'sources'; sources: SourceCitation[] }
   | { kind: 'skills'; skills: Array<{ name: string; displayName: string; source: SkillSource; version?: string }>; trigger?: string }
+  | { kind: 'plugins'; plugins: Array<{ id: string; version?: string }>; model: string }
   | PatchDiffBlock
   | CommandOutputBlock
   | TaskReportBlock
@@ -212,11 +214,13 @@ export interface SendMessageInput {
   /** @deprecated 联网能力现由应用按模型接口自动启用；仅为旧客户端兼容保留。 */
   search?: boolean
   skillIds?: string[]
+  pluginIds?: string[]
 }
 
 export interface UserInputOption {
   label: string
   description?: string
+  recommended?: boolean
 }
 
 export interface UserInputQuestion {
@@ -259,7 +263,7 @@ export interface ApprovalUiResponse {
   scope?: ApprovalScope
 }
 
-export type SkillSource = 'builtin' | 'installed' | 'codex' | 'agents' | 'project'
+export type SkillSource = 'builtin' | 'installed' | 'codex' | 'agents' | 'plugin' | 'project'
 
 export type SkillInstallKind = 'builtin' | 'github' | 'local' | 'external'
 
@@ -282,6 +286,7 @@ export interface SkillMetadata {
   installUrl?: string
   version?: string
   license?: string
+  pluginId?: string
   updateAvailable?: boolean
   errors: string[]
   shadowedBy?: string
@@ -303,6 +308,86 @@ export interface SkillCatalogItem {
 }
 export interface SkillInstallInput { url: string; workspaceId?: string }
 export interface SkillUninstallInput { id: string; workspaceId?: string }
+
+export type PluginPermission =
+  | 'workspace.read'
+  | 'workspace.write'
+  | 'network'
+  | 'process'
+  | 'browser.read'
+  | 'browser.interact'
+
+export type PluginComponent = 'skills' | 'hooks' | 'mcp' | 'tools'
+export type PluginStatus = 'ready' | 'invalid' | 'quarantined'
+
+export interface PluginMetadata {
+  id: string
+  name: string
+  version?: string
+  description: string
+  author?: string
+  source: 'installed'
+  sourceFormat: 'native' | 'codex'
+  enabled: boolean
+  status: PluginStatus
+  permissions: PluginPermission[]
+  capabilities: string[]
+  components: PluginComponent[]
+  errors: string[]
+}
+
+export interface PluginToggleInput { id: string; enabled: boolean }
+export interface PluginRecoverInput { id: string }
+export type PluginImportKind = 'directory' | 'zip'
+export interface PluginImportInput { kind: PluginImportKind }
+
+export type PluginMarketSourceKind = 'official' | 'community' | 'github'
+export interface PluginMarketSource {
+  id: string
+  name: string
+  kind: PluginMarketSourceKind
+  url: string
+  enabled: boolean
+  verified: boolean
+  lastSyncAt?: number
+  error?: string
+  signingKeyId?: string
+  signingPublicKey?: string
+}
+export interface PluginMarketEntry {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  sourceId: string
+  sourceName: string
+  sourceKind: PluginMarketSourceKind
+  verified: boolean
+  packageUrl: string
+  sha256: string
+  signature?: string
+  signingKeyId?: string
+  signingPublicKey?: string
+  permissions: PluginPermission[]
+  categories: string[]
+  changelog?: string
+  minAppVersion?: string
+  platforms: string[]
+  architectures: string[]
+}
+export interface PluginMarketplaceSnapshot {
+  sources: PluginMarketSource[]
+  entries: PluginMarketEntry[]
+}
+export interface PluginMarketSourceInput { name: string; url: string; signingKeyId?: string; signingPublicKey?: string }
+export interface PluginMarketSourceIdInput { id: string }
+export interface PluginMarketSourceToggleInput { id: string; enabled: boolean }
+export interface PluginMarketInstallInput { sourceId: string; id: string; version: string }
+export interface PluginUninstallInput { id: string }
+export interface PluginBackup { pluginId: string; version: string; createdAt: number }
+export interface PluginRollbackInput { id: string; version: string }
+export interface BrowserPreferences { allowAllSites: boolean; allowedOrigins: string[]; blockedOrigins: string[] }
 
 /** 模型提供方（DeepSeek / Kimi / 自定义 OpenAI 兼容） */
 export type ModelProvider = 'deepseek' | 'kimi' | 'custom'
@@ -417,6 +502,7 @@ export interface AgentApi {
   onApprovalResolved: (cb: (request: Pick<ApprovalUiRequest, 'id' | 'sessionId'>) => void) => () => void
   onTerminalOutput: (cb: (output: TerminalOutput) => void) => () => void
   onWorkspaceFilesChanged: (cb: (change: WorkspaceFilesChanged) => void) => () => void
+  onPluginsChanged: (cb: () => void) => () => void
   skills: {
     list: (input: SkillListInput) => Promise<IpcResult<SkillMetadata[]>>
     catalog: (input?: SkillCatalogInput) => Promise<IpcResult<SkillCatalogItem[]>>
@@ -424,6 +510,29 @@ export interface AgentApi {
     importLocal: (input: SkillListInput) => Promise<IpcResult<SkillMetadata[]>>
     uninstall: (input: SkillUninstallInput) => Promise<IpcResult<SkillMetadata[]>>
     setEnabled: (input: SkillToggleInput) => Promise<IpcResult<SkillMetadata[]>>
+  }
+  plugins: {
+    list: () => Promise<IpcResult<PluginMetadata[]>>
+    importLocal: (input: PluginImportInput) => Promise<IpcResult<PluginMetadata[]>>
+    setEnabled: (input: PluginToggleInput) => Promise<IpcResult<PluginMetadata[]>>
+    recover: (input: PluginRecoverInput) => Promise<IpcResult<PluginMetadata[]>>
+    marketplace: () => Promise<IpcResult<PluginMarketplaceSnapshot>>
+    addSource: (input: PluginMarketSourceInput) => Promise<IpcResult<PluginMarketplaceSnapshot>>
+    setSourceEnabled: (input: PluginMarketSourceToggleInput) => Promise<IpcResult<PluginMarketplaceSnapshot>>
+    removeSource: (input: PluginMarketSourceIdInput) => Promise<IpcResult<PluginMarketplaceSnapshot>>
+    syncSource: (input: PluginMarketSourceIdInput) => Promise<IpcResult<PluginMarketplaceSnapshot>>
+    installMarket: (input: PluginMarketInstallInput) => Promise<IpcResult<PluginMetadata[]>>
+    uninstall: (input: PluginUninstallInput) => Promise<IpcResult<PluginMetadata[]>>
+    backups: (input: PluginUninstallInput) => Promise<IpcResult<PluginBackup[]>>
+    rollback: (input: PluginRollbackInput) => Promise<IpcResult<PluginMetadata[]>>
+  }
+  browser: {
+    status: () => Promise<IpcResult<BrowserStatus>>
+    start: () => Promise<IpcResult<BrowserStatus>>
+    stop: () => Promise<IpcResult<BrowserStatus>>
+    restart: () => Promise<IpcResult<BrowserStatus>>
+    clearProfile: () => Promise<IpcResult<BrowserStatus>>
+    listTabs: () => Promise<IpcResult<BrowserTab[]>>
   }
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>
@@ -433,6 +542,8 @@ export interface AgentApi {
       preferences: AgentProjectPreferences
     ) => Promise<IpcResult<AgentProjectSettings>>
     clearAudit: () => Promise<IpcResult<{ cleared: boolean }>>
+    getBrowserPreferences: () => Promise<IpcResult<BrowserPreferences>>
+    setBrowserPreferences: (value: BrowserPreferences) => Promise<IpcResult<BrowserPreferences>>
   }
   window: {
     setTitleBarOverlay: (opts?: { color: string; symbolColor: string }) => Promise<IpcResult<boolean>>

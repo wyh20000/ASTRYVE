@@ -9,20 +9,26 @@ import type {
 } from '../../../shared/agent'
 import { serializeOperationTarget } from './operationClassifier'
 import { sanitizeAuditEvent } from './audit'
+import type { BrowserPreferences } from '../../../shared/types'
 
 export type AuditWriter = (event: AuditEvent) => void
 
 export class DenyFirstPolicyEngine implements PolicyEngine {
   constructor(
     private readonly writeAudit: AuditWriter = () => undefined,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly browserPreferences: () => BrowserPreferences = () => ({ allowAllSites: false, allowedOrigins: [], blockedOrigins: [] })
   ) {}
 
   evaluate(context: PolicyContext): PolicyDecision {
     const hardDenial = context.operation === 'network.enable' && context.invocation.environment !== 'docker'
       ? decision('deny', 'high', 'NETWORK_SCOPE_REQUIRES_DOCKER', '联网授权只适用于 Docker 沙箱', context.target)
       : evaluateHardDenial(context.target)
-    const result = hardDenial ?? evaluateMode(context)
+    const browser = context.target.type === 'browser' ? this.browserPreferences() : undefined
+    const browserDenied = context.target.type === 'browser' && browser?.blockedOrigins.includes(context.target.origin)
+      ? decision('deny', 'high', 'BROWSER_SITE_BLOCKED', '该网站已在阻止列表中', context.target)
+      : undefined
+    const result = hardDenial ?? browserDenied ?? evaluateMode(context, browser)
     this.writeAudit(sanitizeAuditEvent({
       id: randomUUID(),
       timestamp: this.now(),
@@ -71,12 +77,19 @@ function evaluateHardDenial(target: NormalizedOperationTarget): PolicyDecision |
   return undefined
 }
 
-function evaluateMode(context: PolicyContext): PolicyDecision {
+function evaluateMode(context: PolicyContext, browser?: BrowserPreferences): PolicyDecision {
   const target = context.target
   const readOperation =
     context.operation === 'fs.read' ||
     context.operation === 'fs.search' ||
     context.operation === 'git.read'
+
+  if (context.operation === 'browser.read' && target.type === 'browser') {
+    if (target.origin === 'browser://local' || browser?.allowAllSites || browser?.allowedOrigins.includes(target.origin)) {
+      return decision('allow', 'low', 'AUTHORIZED_BROWSER_READ', '允许读取已授权网页', target)
+    }
+    return decision('ask', 'low', 'NEW_BROWSER_SITE', '允许读取这个网站的页面内容', target)
+  }
 
   if (context.operation === 'process.stop' && target.type === 'service-stop') {
     return decision('allow', 'low', 'TASK_SERVICE_STOP', '允许停止当前任务启动的服务', target)
@@ -119,6 +132,7 @@ function riskFor(target: NormalizedOperationTarget): RiskLevel {
   if (target.type === 'service-stop') return 'low'
   if (target.type === 'host-patch') return 'high'
   if (target.type === 'network') return 'high'
+  if (target.type === 'browser') return target.sensitive ? 'high' : target.write ? 'medium' : 'low'
   if (target.type === 'git' && target.write) return 'high'
   if (target.type === 'file' && (target.destructive || target.binary)) return 'high'
   if (target.type === 'command') {
@@ -132,6 +146,7 @@ function riskFor(target: NormalizedOperationTarget): RiskLevel {
 function reasonForApproval(target: NormalizedOperationTarget): string {
   if (target.type === 'host-patch') return 'HOST_WRITEBACK_REQUIRES_APPROVAL'
   if (target.type === 'network') return 'NETWORK_REQUIRES_APPROVAL'
+  if (target.type === 'browser') return target.sensitive ? 'SENSITIVE_BROWSER_ACTION_REQUIRES_APPROVAL' : 'BROWSER_ACTION_REQUIRES_APPROVAL'
   if (target.type === 'git' && target.write) return 'GIT_WRITE_REQUIRES_APPROVAL'
   if (target.type === 'command') {
     if (target.signals.shellSyntax) return 'SHELL_SYNTAX_REQUIRES_APPROVAL'

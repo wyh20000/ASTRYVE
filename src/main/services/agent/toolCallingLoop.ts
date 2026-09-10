@@ -75,7 +75,7 @@ export async function runToolCallingLoop(
 
   const messages = [...input.messages]
   const tools = [
-    ...input.registry.listNativeFunctionTools(input.allowedToolNames),
+    ...input.taskRuntime.listNativeFunctionTools(input.taskId, input.allowedToolNames),
     ...(input.requestUserInput ? [REQUEST_USER_INPUT_TOOL] : [])
   ]
   const exposedToolNames = new Set(tools.map((tool) => tool.function.name))
@@ -96,12 +96,13 @@ export async function runToolCallingLoop(
   try {
     for (let round = 1; round <= maxRounds; round += 1) {
       const requireTool = input.requireInitialTool !== false && tools.length > 0 && !hasUsedTool
+      const bufferForUserInput = Boolean(input.requestUserInput)
       const bufferedEvents: StreamEvent[] = []
       const turn = await runRound(
         { ...input.model, signal },
         messages,
         async (event) => {
-          if (requireTool) bufferedEvents.push(event)
+          if (requireTool || bufferForUserInput) bufferedEvents.push(event)
           else await forwardEvent(event)
         },
         {
@@ -113,6 +114,9 @@ export async function runToolCallingLoop(
       )
       messages.push(turn.message)
       const calls = turn.message.tool_calls ?? []
+      const asksForUserInput = calls.some((call) =>
+        call.type === 'function' && call.function.name === REQUEST_USER_INPUT_TOOL_NAME
+      )
       if (requireTool && calls.length === 0) {
         requiredToolMisses += 1
         if (requiredToolMisses < 2) {
@@ -130,6 +134,8 @@ export async function runToolCallingLoop(
       }
       if (requireTool) {
         hasUsedTool = true
+      }
+      if (!asksForUserInput) {
         for (const event of bufferedEvents) await forwardEvent(event)
       }
       if (calls.length === 0) {
@@ -227,12 +233,21 @@ export async function runInteractiveChatLoop(input: RunInteractiveChatLoopInput)
   const runRound = input.runRound ?? streamChatTurn
   const maxRounds = Math.max(1, Math.min(input.maxRounds ?? 16, 32))
   for (let round = 0; round < maxRounds; round += 1) {
-    const turn = await runRound(input.model, messages, input.onEvent, {
+    const bufferedEvents: StreamEvent[] = []
+    const turn = await runRound(input.model, messages, (event) => {
+      bufferedEvents.push(event)
+    }, {
       tools: [REQUEST_USER_INPUT_TOOL],
       toolChoice: 'auto'
     })
     messages.push(turn.message)
     const calls = turn.message.tool_calls ?? []
+    const asksForUserInput = calls.some((call) =>
+      call.type === 'function' && call.function.name === REQUEST_USER_INPUT_TOOL_NAME
+    )
+    if (!asksForUserInput) {
+      for (const event of bufferedEvents) await input.onEvent(event)
+    }
     if (!calls.length) {
       await input.onEvent({ done: true })
       return

@@ -23,12 +23,17 @@ import { createWorkspacePatchTool } from './workspacePatchTool'
 import { createHostPatchTool } from './hostPatchTool'
 import { createScriptDiscoveryTool } from './scriptDiscoveryTool'
 import { refreshAgentExecutionCapabilities } from './projectPreferences'
+import { capturePluginTaskTools } from './pluginManager'
+import { createBrowserTools } from '../browser/browserTools'
+import { getBrowserGatewayIfReady } from '../browser/browserManager'
+import { getBrowserPreferences } from '../settings'
 
-export async function createProjectTask(sessionId: string, ownerWebContentsId: number) {
+export async function createProjectTask(sessionId: string, ownerWebContentsId: number, pluginIds?: readonly string[]) {
   const [{ BrowserWindow }, { getStore }, settings, workspaces] = await Promise.all([
     import('electron'), import('../../db'), import('../settings'), import('./workspaceManager')
   ])
   const capabilities = await refreshAgentExecutionCapabilities()
+  const pluginSnapshot = await capturePluginTaskTools(pluginIds)
   return launchProjectTask(sessionId, ownerWebContentsId, {
     sessionExists: async (id) => Boolean(await getStore().getSession(id)),
     activeWorkspace: workspaces.getSessionWorkspaceId,
@@ -37,7 +42,13 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
     getPreferences: settings.getAgentProjectPreferences,
     getCapabilities: () => capabilities,
     ownerAlive: (id) => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents.id === id),
-    createTask: (input) => getTaskRuntime().createTask(input)
+    createTask: (input) => getTaskRuntime().createTask({
+      ...input,
+      toolDefinitions: pluginSnapshot.tools,
+      pluginIds: pluginSnapshot.pluginIds,
+      pluginVersions: pluginSnapshot.pluginVersions,
+      dispose: pluginSnapshot.dispose
+    })
   })
 }
 
@@ -61,7 +72,7 @@ export function initTaskRuntime(): TaskRuntime {
     createApprovalDialog((id) => runtime?.getTaskSnapshot(id)),
     (id, waiting) => runtime?.setWaitingApproval(id, waiting),
     new BoundApprovalService(writeAudit),
-    new DenyFirstPolicyEngine(writeAudit)
+    new DenyFirstPolicyEngine(writeAudit, Date.now, getBrowserPreferences)
   )
   registry = new ToolRegistry((invocation, context, definition) => authorization.authorize(invocation, context, definition))
   runtime = new TaskRuntime(registry)
@@ -85,6 +96,8 @@ export function initTaskRuntime(): TaskRuntime {
   registry.register(createWorkspacePatchTool(patchWorkspace))
   registry.register(createHostPatchTool(patchWorkspace))
   for (const tool of createGitReadTools(localBackend)) registry.register(tool)
+  const browserGateway = getBrowserGatewayIfReady()
+  if (browserGateway) for (const tool of createBrowserTools(browserGateway)) registry.register(tool)
   runtime.subscribe((event) => {
     const status = runtime?.getTaskSnapshot(event.taskId)?.status
     if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) {

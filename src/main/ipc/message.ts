@@ -47,6 +47,9 @@ import {
   getToolRegistry,
   shouldUseProjectAgent
 } from '../services/agent/taskRuntimeManager'
+import { listPlugins } from '../services/agent/pluginManager'
+import { resolvePluginSelection } from '../services/agent/pluginConversation'
+import { writeAgentAudit } from '../services/agent/taskRuntimeManager'
 import { runInteractiveChatLoop, runToolCallingLoop } from '../services/agent/toolCallingLoop'
 import { requestUserInput, submitUserInput } from '../services/agent/userInput'
 import { getWorkspaceService, restoreSessionWorkspace } from '../services/agent/workspaceManager'
@@ -103,7 +106,7 @@ export function registerMessageIpc(): void {
       await autoTitle(input.sessionId, input.content)
       await getStore().touchSession(input.sessionId)
       // 触发回复（配置了模型则调用真实流式，否则回退 Mock）
-      void runReply(event.sender, input.sessionId, input.content, input.skillIds ?? [], stored, docTexts)
+      void runReply(event.sender, input.sessionId, input.content, input.skillIds ?? [], input.pluginIds ?? [], stored, docTexts)
       return ok(user)
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
@@ -177,6 +180,7 @@ async function runReply(
   sessionId: string,
   userRequest: string,
   explicitSkillIds: string[],
+  explicitPluginIds: string[],
   attachments: Attachment[],
   docTexts: string[]
 ): Promise<void> {
@@ -199,33 +203,56 @@ async function runReply(
   let allowedToolNames: Set<string> | undefined
   let activeSkills: SkillMetadata[] = []
   let skillTrigger: string | undefined
+  let selectedPluginIds: string[] = []
+  let selectedPluginVersions: Record<string, string | undefined> = {}
   try {
     const session = await getStore().getSession(sessionId)
+    const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
+    selectedPluginIds = pluginSelection.pluginIds
+    if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
     if (projectEligible) {
       await restoreSessionWorkspace(sessionId, session?.projectPath)
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
+      const explicitPlugin = selectedPluginIds.length > 0
       useProjectAgent = shouldUseProjectAgent(sessionId) &&
-        (explicitSkill || !prefersBuiltInSearch(userRequest))
+        (explicitSkill || explicitPlugin || !prefersBuiltInSearch(userRequest))
     }
     // 普通问答自动开放模型厂商的联网工具；项目编码任务优先保留本地工具链。
     const useSearch = !vision && !useProjectAgent && supportsBuiltInSearch(preset.provider)
     if (useProjectAgent) {
       cancelTasksForSession(sessionId, 'replaced')
       try {
-        const agentTask = await createProjectTask(sessionId, wc.id)
+        const agentTask = await createProjectTask(sessionId, wc.id, selectedPluginIds.length ? selectedPluginIds : undefined)
+        selectedPluginIds = agentTask.pluginIds ?? []
+        selectedPluginVersions = agentTask.pluginVersions ?? {}
         agentTaskId = agentTask.id
         agentWorkspaceId = agentTask.workspaceId
         const grant = getWorkspaceService().getGrant(agentTask.workspaceId)
         agentWorkspaceRoot = grant?.rootPath
         agentExecutionEnvironment = agentTask.environment
         if (grant) {
-          const resolved = await resolveSkills(userRequest, explicitSkillIds, grant)
+          const resolved = await resolveSkills(modelUserRequest, explicitSkillIds, grant)
           skillPrompt = resolved.prompt
           modelUserRequest = resolved.cleanedRequest
           allowedToolNames = resolved.allowedToolNames
+          if (allowedToolNames) {
+            for (const tool of getTaskRuntime().listNativeFunctionTools(agentTask.id)) {
+              if (tool.function.name.startsWith('plugin.')) allowedToolNames.add(tool.function.name)
+            }
+          }
           activeSkills = resolved.skills
           skillTrigger = resolved.trigger
           auditSkillUse(agentTask.id, agentTask.workspaceId, resolved.skills)
+          for (const pluginId of agentTask.pluginIds ?? []) {
+            writeAgentAudit({
+              id: randomUUID(), timestamp: Date.now(), taskId: agentTask.id,
+              workspaceId: agentTask.workspaceId, actor: 'system', action: 'plugin.snapshot', outcome: 'success',
+              metadata: {
+                pluginId, version: agentTask.pluginVersions?.[pluginId], source: 'installed',
+                model: preset.model
+              }
+            })
+          }
         }
       } catch (error) {
         if (agentTaskId) cancelTasksForSession(sessionId, 'skill_setup_failed')
@@ -268,7 +295,9 @@ async function runReply(
       allowedToolNames,
       modelUserRequest,
       activeSkills,
-      skillTrigger
+      skillTrigger,
+      selectedPluginIds,
+      selectedPluginVersions
     )
   } finally {
     finishGeneration(sessionId, task)
@@ -331,7 +360,9 @@ async function runModelReply(
   allowedToolNames?: ReadonlySet<string>,
   activeRequest?: string,
   activeSkills: SkillMetadata[] = [],
-  skillTrigger?: string
+  skillTrigger?: string,
+  activePluginIds: string[] = [],
+  activePluginVersions: Record<string, string | undefined> = {}
 ): Promise<void> {
   const id = randomUUID()
   const timestamp = Date.now()
@@ -339,6 +370,12 @@ async function runModelReply(
   let content = ''
   let sources: SourceCitation[] = []
   const timeline = createToolTimeline()
+  if (activePluginIds.length) {
+    timeline.blocks.push({
+      kind: 'plugins', model: preset.model,
+      plugins: activePluginIds.map((id) => ({ id, version: activePluginVersions[id] }))
+    })
+  }
   let activity = ''
   let pendingPersist: Message | null = null
   let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -474,6 +511,22 @@ async function runModelReply(
           ),
           onToolActivity: async (tool) => {
             activeTool = tool.status === 'requested' ? { toolName: tool.toolName, args: tool.args } : undefined
+            if (tool.toolName.startsWith('plugin.')) {
+              const pluginId = activePluginIds.find((id: string) => tool.toolName.startsWith(`plugin.${id}.`)) ?? 'unknown'
+              const toolName = pluginId === 'unknown' ? tool.toolName.slice('plugin.'.length) : tool.toolName.slice(`plugin.${pluginId}.`.length)
+              const pluginErrorCode = tool.result && typeof tool.result === 'object' && !Array.isArray(tool.result)
+                ? (tool.result as { error?: { code?: unknown } }).error?.code : undefined
+              writeAgentAudit({
+                id: randomUUID(), timestamp: Date.now(), taskId: agentTaskId,
+                workspaceId: agentWorkspaceId ?? 'unknown', actor: 'model', action: 'plugin.tool',
+                outcome: tool.status === 'requested' ? 'ask' : tool.ok ? 'success' : 'failure',
+                metadata: {
+                  pluginId, version: activePluginVersions[pluginId], source: 'installed', toolName,
+                  callId: tool.callId, model: preset.model,
+                  errorCode: typeof pluginErrorCode === 'string' ? pluginErrorCode : undefined
+                }
+              })
+            }
             const baseTitle = describeToolActivity(tool.toolName, tool.args, tool.result)
             const failure = tool.status === 'completed' && tool.ok === false
               ? toolFailureDescription(tool.result)

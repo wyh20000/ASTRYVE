@@ -10,7 +10,7 @@ export const REQUEST_USER_INPUT_TOOL: NativeFunctionToolDefinition = {
   type: 'function',
   function: {
     name: REQUEST_USER_INPUT_TOOL_NAME,
-    description: 'Ask the user one to four focused questions and wait for their answers. Use this instead of ending a response with unanswered questions.',
+    description: 'Ask the user one to four focused questions and wait for their answers. Put choices only in options, not in the question text. Do not add A/B/C prefixes to labels. Mark the preferred choice with recommended: true. Use this instead of ending a response with unanswered questions.',
     parameters: {
       type: 'object',
       properties: {
@@ -23,16 +23,17 @@ export const REQUEST_USER_INPUT_TOOL: NativeFunctionToolDefinition = {
             properties: {
               id: { type: 'string', description: 'Stable short identifier, for example q1 or runtime.' },
               header: { type: 'string', description: 'Optional short label.' },
-              question: { type: 'string' },
+              question: { type: 'string', description: 'The question only. Do not repeat or enumerate the choices here.' },
               options: {
                 type: 'array',
                 minItems: 2,
-                maxItems: 4,
+                maxItems: 7,
                 items: {
                   type: 'object',
                   properties: {
-                    label: { type: 'string' },
-                    description: { type: 'string' }
+                    label: { type: 'string', description: 'Choice text without an A/B/C prefix or recommendation marker.' },
+                    description: { type: 'string' },
+                    recommended: { type: 'boolean', description: 'True only for the choice recommended by the active Skill.' }
                   },
                   required: ['label'],
                   additionalProperties: false
@@ -104,21 +105,49 @@ function validateQuestions(args: unknown): UserInputQuestion[] {
     if (!entry || typeof entry !== 'object') throw new Error(`第 ${index + 1} 个交互问题无效`)
     const value = entry as Record<string, unknown>
     const id = typeof value.id === 'string' ? value.id.trim().slice(0, 64) : ''
-    const question = typeof value.question === 'string' ? value.question.trim().slice(0, 1_000) : ''
-    if (!id || !question || seen.has(id)) throw new Error(`第 ${index + 1} 个交互问题缺少唯一 id 或正文`)
+    const rawQuestion = typeof value.question === 'string' ? value.question.trim().slice(0, 1_000) : ''
+    if (!id || !rawQuestion || seen.has(id)) throw new Error(`第 ${index + 1} 个交互问题缺少唯一 id 或正文`)
     seen.add(id)
-    const options = Array.isArray(value.options) ? value.options.slice(0, 4).map((option) => {
+    const normalizedOptions = Array.isArray(value.options) ? value.options.slice(0, 7).map((option, optionIndex) => {
       const item = option as Record<string, unknown>
+      const rawLabel = typeof item?.label === 'string' ? item.label.trim().slice(0, 160) : ''
+      const letter = /^([A-G])(?:[.)、:：]|\s)+/i.exec(rawLabel)
+      const withoutLetter = rawLabel.replace(/^[A-G](?:[.)、:：]|\s)+\s*/i, '')
+      const recommended = item?.recommended === true || RECOMMENDATION_MARKER.test(withoutLetter)
       return {
-        label: typeof item?.label === 'string' ? item.label.trim().slice(0, 160) : '',
-        description: typeof item?.description === 'string' ? item.description.trim().slice(0, 400) : undefined
+        option: {
+          label: withoutLetter.replace(RECOMMENDATION_MARKERS, ' ').replace(/\s{2,}/g, ' ').trim(),
+          description: typeof item?.description === 'string' ? item.description.trim().slice(0, 400) : undefined,
+          recommended
+        },
+        order: letter ? letter[1].toUpperCase().charCodeAt(0) - 65 : undefined,
+        optionIndex
       }
-    }).filter((option) => option.label) : undefined
+    }).filter((entry) => entry.option.label) : undefined
+    normalizedOptions?.sort((left, right) => {
+      if (left.order !== undefined && right.order !== undefined) return left.order - right.order || left.optionIndex - right.optionIndex
+      if (left.order !== undefined) return -1
+      if (right.order !== undefined) return 1
+      return left.optionIndex - right.optionIndex
+    })
+    const options = normalizedOptions?.map((entry) => entry.option)
     return {
       id,
-      question,
+      question: removeRepeatedOptions(rawQuestion, options),
       header: typeof value.header === 'string' ? value.header.trim().slice(0, 80) : undefined,
       options: options && options.length >= 2 ? options : undefined
     }
   })
+}
+
+const RECOMMENDATION_MARKER = /(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）|\[(?:recommended|推荐)\]|【(?:recommended|推荐)】)/i
+const RECOMMENDATION_MARKERS = /(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）|\[(?:recommended|推荐)\]|【(?:recommended|推荐)】)/gi
+
+function removeRepeatedOptions(question: string, options: UserInputQuestion['options']): string {
+  const questionMark = Math.max(question.indexOf('？'), question.indexOf('?'))
+  if (questionMark < 0 || !options?.length) return question
+  const suffix = question.slice(questionMark + 1)
+  const enumerated = suffix.match(/(?:^|[\s；;。])(?:[A-G])(?:[.)、:：]|\s)+/gi)?.length ?? 0
+  const repeatedLabels = options.filter((option) => option.label.length > 1 && suffix.includes(option.label)).length
+  return enumerated >= 2 || repeatedLabels >= 2 ? question.slice(0, questionMark + 1).trim() : question
 }

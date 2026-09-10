@@ -30,8 +30,12 @@ interface SkillDocument {
   resourceContents: Array<{ name: string; content: string }>
 }
 
-interface SkillOrigin { repository?: string; installUrl?: string; version?: string; license?: string; installKind?: SkillInstallKind }
-export interface ExternalSkillRoots { codexRoot?: string; agentsRoot?: string }
+interface SkillOrigin { repository?: string; installUrl?: string; version?: string; license?: string; installKind?: SkillInstallKind; pluginId?: string }
+export interface ExternalSkillRoots {
+  codexRoot?: string
+  agentsRoot?: string
+  pluginRoots?: () => Promise<Array<{ root: string; boundaryRoot: string; pluginId: string; version?: string }>>
+}
 export interface ResolvedSkills {
   skills: SkillMetadata[]
   prompt: string
@@ -84,11 +88,18 @@ export class SkillRegistry {
     candidates.push(...await readSource('installed', this.installedRoot, availableTools, this.disabledIds()))
     if (this.externalRoots.codexRoot) candidates.push(...await readSource('codex', this.externalRoots.codexRoot, availableTools, this.disabledIds()))
     if (this.externalRoots.agentsRoot) candidates.push(...await readSource('agents', this.externalRoots.agentsRoot, availableTools, this.disabledIds()))
+    if (this.externalRoots.pluginRoots) {
+      for (const plugin of await this.externalRoots.pluginRoots()) {
+        candidates.push(...await readSource('plugin', plugin.root, availableTools, this.disabledIds(), plugin.boundaryRoot, {
+          repository: `plugin:${plugin.pluginId}`, version: plugin.version, installKind: 'external', pluginId: plugin.pluginId
+        }))
+      }
+    }
     if (workspace) {
       candidates.push(...await readSource('project', join(workspace.realRootPath, '.agents', 'skills'), availableTools, this.disabledIds(), workspace.realRootPath))
       candidates.push(...await readSource('project', join(workspace.realRootPath, '.aiagent', 'skills'), availableTools, this.disabledIds(), workspace.realRootPath))
     }
-    const priority: Record<SkillSource, number> = { builtin: 1, agents: 2, codex: 3, installed: 4, project: 5 }
+    const priority: Record<SkillSource, number> = { builtin: 1, agents: 2, codex: 3, installed: 4, plugin: 5, project: 6 }
     const grouped = new Map<string, SkillDocument[]>()
     for (const candidate of candidates) grouped.set(candidate.metadata.name, [...(grouped.get(candidate.metadata.name) ?? []), candidate])
     for (const group of grouped.values()) {
@@ -104,7 +115,7 @@ export class SkillRegistry {
 }
 
 async function readSource(source: Exclude<SkillSource, 'builtin'>, root: string, availableTools: ReadonlySet<string>,
-  disabled: ReadonlySet<string>, boundaryRoot?: string): Promise<SkillDocument[]> {
+  disabled: ReadonlySet<string>, boundaryRoot?: string, originOverride: SkillOrigin = {}): Promise<SkillDocument[]> {
   if (boundaryRoot) {
     try { await assertNoLinkedComponents(boundaryRoot, root) } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
@@ -125,7 +136,7 @@ async function readSource(source: Exclude<SkillSource, 'builtin'>, root: string,
       const parsed = parseFrontmatter(raw)
       const resources = await readResources(directory, [...parsed.resources, ...linkedResources(parsed.body)])
       results.push(parseCandidate(source, directory.split(/[\\/]/).at(-1) ?? parsed.name, directory, raw, resources,
-        await readOrigin(directory), availableTools, disabled, await readOpenAiMetadata(directory)))
+        { ...await readOrigin(directory), ...originOverride }, availableTools, disabled, await readOpenAiMetadata(directory)))
     } catch (error) {
       results.push(errorCandidate(source, directory, error instanceof Error ? error.message : 'Skill 解析失败', disabled))
     }
@@ -166,7 +177,7 @@ function parseCandidate(source: SkillSource, fallbackName: string, identity: str
       allowedTools: parsed.tools?.filter((tool) => availableTools.has(tool)) ?? [], resources: resources.map((resource) => resource.name),
       installKind: origin.installKind ?? sourceInstallKind(source), repository: origin.repository, installUrl: origin.installUrl,
       version: origin.version,
-      license: origin.license, errors
+      license: origin.license, pluginId: origin.pluginId, errors
     }, body: parsed.body, resourceContents: resources
   }
 }

@@ -13,7 +13,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          localExecutionWorker: resolve('src/main/services/agent/localExecutionWorker.ts')
+          localExecutionWorker: resolve('src/main/services/agent/localExecutionWorker.ts'),
+          pluginWorkerProcess: resolve('src/main/services/agent/pluginWorkerProcess.ts')
         }
       }
     },

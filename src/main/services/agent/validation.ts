@@ -9,7 +9,7 @@ import {
 } from '../../../shared/agent'
 
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/
-const TOOL_NAME_PATTERN = /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z][a-zA-Z0-9]*)+$/
+const TOOL_NAME_PATTERN = /^[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z][a-zA-Z0-9_-]*)+$/
 
 export const MAX_TOOL_ARGUMENT_DEPTH = 12
 export const MAX_TOOL_ARGUMENT_NODES = 10_000

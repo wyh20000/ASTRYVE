@@ -2,6 +2,7 @@ import type { ApprovalRequest, ApprovalScope, ToolInvocation, ToolExecutionConte
 import { BoundApprovalService, createApprovalRequest } from './approvalService'
 import { classifyOperation } from './operationClassifier'
 import { DenyFirstPolicyEngine } from './policyEngine'
+import { getBrowserPreferences, setBrowserPreferences } from '../settings'
 
 export type ApprovalPrompt = (request: ApprovalRequest, signal: AbortSignal) => Promise<ApprovalScope | undefined>
 
@@ -35,11 +36,12 @@ export class ToolAuthorization {
     const trustedSummary = definition.approvalSummary
       ? await definition.approvalSummary(invocation.args, context)
       : decision.summary
+    const websiteApproval = target.type === 'browser' && target.origin !== 'browser://local'
     const request = createApprovalRequest(binding, {
       ...decision, summary: `${trustedSummary}（${decision.reasonCode}）`
     }, {
       scopeOptions: reusableCommand && binding.commandPrefix
-        ? ['once', 'task-prefix'] : ['once']
+        ? ['once', 'task-prefix'] : websiteApproval ? ['once', 'site'] : ['once']
     })
     this.approvals.create(request)
     const controller = new AbortController()
@@ -59,6 +61,14 @@ export class ToolAuthorization {
         outcome: scope ? 'approved' : 'denied', scope, decidedAt: Date.now() })
       if (!grant) return false
       this.approvals.consume(grant.token, binding)
+      if (scope === 'site' && target.type === 'browser') {
+        const preferences = getBrowserPreferences()
+        setBrowserPreferences({
+          ...preferences,
+          allowedOrigins: [...new Set([...preferences.allowedOrigins, target.origin])],
+          blockedOrigins: preferences.blockedOrigins.filter((origin) => origin !== target.origin)
+        })
+      }
       return true
     } catch {
       this.approvals.revokeTask(context.taskId)

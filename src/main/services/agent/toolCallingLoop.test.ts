@@ -66,6 +66,39 @@ function finalTurn(): ChatCompletionTurn {
 }
 
 describe('runToolCallingLoop', () => {
+  it('does not display model text from a round that opens the user-input dialog', async () => {
+    const { registry, runtime, task } = setup()
+    const displayed: string[] = []
+    let round = 0
+
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      messages: [{ role: 'user', content: 'ask me' }],
+      onEvent: (event) => { if (event.content) displayed.push(event.content) },
+      allowedToolNames: new Set(), requireInitialTool: false,
+      requestUserInput: async () => ({ ok: true, value: { answers: [{ id: 'q1', answer: 'A' }] } }),
+      runRound: async (_model, _messages, onEvent) => {
+        round += 1
+        if (round === 1) {
+          await onEvent({ content: 'Q1: please choose A or B' })
+          return {
+            message: { role: 'assistant', content: 'Q1: please choose A or B', tool_calls: [{
+              id: 'question-1', type: 'function', function: {
+                name: 'request_user_input', arguments: '{"questions":[{"id":"q1","question":"Choose"}]}'
+              }
+            }] }, finishReason: 'tool_calls'
+          }
+        }
+        await onEvent({ content: 'final answer' })
+        return finalTurn()
+      }
+    })
+
+    expect(result.status).toBe('completed')
+    expect(displayed).toEqual(['final answer'])
+  })
+
   it('pauses for user input and continues the same project tool loop with the answer', async () => {
     const { registry, runtime, task } = setup()
     const seenMessages: ChatMessage[][] = []
@@ -350,6 +383,35 @@ describe('runToolCallingLoop', () => {
 })
 
 describe('runInteractiveChatLoop', () => {
+  it('does not display model text from a round that opens the user-input dialog', async () => {
+    const displayed: string[] = []
+    let round = 0
+
+    await runInteractiveChatLoop({
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' },
+      messages: [{ role: 'user', content: 'grill this plan' }],
+      onEvent: (event) => { if (event.content) displayed.push(event.content) },
+      requestUserInput: async () => ({ ok: true, value: { answers: [{ id: 'q1', answer: 'A' }] } }),
+      runRound: async (_model, _messages, onEvent) => {
+        round += 1
+        if (round === 1) {
+          await onEvent({ content: 'Q1: please choose A or B' })
+          return {
+            message: { role: 'assistant', content: 'Q1: please choose A or B', tool_calls: [{
+              id: 'question-1', type: 'function', function: {
+                name: 'request_user_input', arguments: '{"questions":[{"id":"q1","question":"Choose"}]}'
+              }
+            }] }, finishReason: 'tool_calls'
+          }
+        }
+        await onEvent({ content: 'final answer' })
+        return finalTurn()
+      }
+    })
+
+    expect(displayed).toEqual(['final answer'])
+  })
+
   it('supports the same question/answer continuation without a project workspace', async () => {
     const messagesByRound: ChatMessage[][] = []
     let round = 0

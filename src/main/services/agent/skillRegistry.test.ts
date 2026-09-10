@@ -134,4 +134,23 @@ describe('SkillRegistry', () => {
     await expect(new SkillRegistry(user, () => new Set()).resolve('/missing do it', [], undefined, tools))
       .rejects.toThrow('快捷指令 /missing 不存在')
   })
+
+  it('loads enabled plugin Skills through the same slash-command boundary', async () => {
+    const { root, user } = await fixture()
+    const pluginRoot = join(root, 'plugins', 'review-pack')
+    const skillsRoot = join(pluginRoot, 'skills')
+    await writeSkill(skillsRoot, 'review', 'name: plugin-review\ndescription: Review through a plugin.\ndisable-model-invocation: true')
+    const registry = new SkillRegistry(user, () => new Set(), {
+      pluginRoots: async () => [{ root: skillsRoot, boundaryRoot: pluginRoot, pluginId: 'review-pack', version: '1.2.3' }]
+    })
+
+    const resolved = await registry.resolve('/plugin-review inspect this', [], undefined, tools)
+
+    expect(resolved.cleanedRequest).toBe('inspect this')
+    expect(resolved.skills).toHaveLength(1)
+    expect(resolved.skills[0]).toMatchObject({
+      source: 'plugin', pluginId: 'review-pack', repository: 'plugin:review-pack', version: '1.2.3'
+    })
+    expect(resolved.prompt).toContain('source="plugin"')
+  })
 })

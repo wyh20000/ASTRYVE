@@ -65,4 +65,21 @@ describe('provider tool bridge', () => {
     expect(new Set(names).size).toBe(2)
     expect(names.every((name) => name.length <= 64)).toBe(true)
   })
+
+  it('round-trips long plugin names and provider call ids', () => {
+    const canonical = 'plugin.acme.browser-tools.inspect_dom'
+    const bridge = createProviderToolBridge([tool(canonical)], false)
+    const call = bridge.toCanonicalToolCall({
+      id: 'deepseek-call-42', type: 'function',
+      function: { name: bridge.tools[0].function.name, arguments: '{"path":"index.html"}' }
+    })
+    expect(call.id).toBe('deepseek-call-42')
+    expect(call.function.name).toBe(canonical)
+    const replay = bridge.toProviderMessages([
+      { role: 'assistant', content: null, tool_calls: [call] },
+      { role: 'tool', content: '{}', tool_call_id: call.id, name: canonical }
+    ])
+    expect(replay[0].tool_calls?.[0].id).toBe('deepseek-call-42')
+    expect(replay[1].tool_call_id).toBe('deepseek-call-42')
+  })
 })

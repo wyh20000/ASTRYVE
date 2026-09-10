@@ -55,6 +55,24 @@ export function classifyOperation(
         })()
       }
     }
+    case 'browser.read':
+    case 'browser.interact': {
+      const rawUrl = typeof args.url === 'string' ? args.url : 'https://browser.local/'
+      let origin = 'browser://local'
+      try {
+        const url = new URL(rawUrl)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error()
+        origin = url.origin.toLowerCase()
+      } catch {
+        if (rawUrl !== 'https://browser.local/') throw new OperationClassificationError('Browser target URL is invalid')
+      }
+      return {
+        type: 'browser', action: resolveBrowserAction(toolName, operation), origin,
+        tabId: typeof args.tabId === 'string' ? args.tabId.slice(0, 200) : undefined,
+        write: operation === 'browser.interact',
+        sensitive: Boolean(args.sensitive)
+      }
+    }
     case 'git.read':
     case 'git.write':
       return {
@@ -89,6 +107,13 @@ export function classifyOperation(
       }
     }
   }
+}
+
+function resolveBrowserAction(toolName: string | undefined, operation: 'browser.read' | 'browser.interact'): string {
+  if (toolName?.startsWith('browser.') && toolName.length > 'browser.'.length) {
+    return toolName.slice('browser.'.length).toLowerCase()
+  }
+  return operation === 'browser.read' ? 'read' : 'interact'
 }
 
 function resolveGitAction(value: unknown, toolName?: string): string {

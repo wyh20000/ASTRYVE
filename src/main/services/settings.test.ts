@@ -49,4 +49,28 @@ describe('project settings persistence', () => {
     reloaded.initSettings()
     expect(reloaded.getDisabledSkillIds()).toEqual(new Set([id]))
   })
+
+  it('persists disabled plugins independently from Skills', async () => {
+    state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-plugin-settings-test-'))
+    vi.resetModules()
+    const settings = await import('./settings')
+    settings.setPluginEnabled('acme.browser', false)
+    expect(settings.getDisabledPluginIds()).toEqual(new Set(['acme.browser']))
+    expect(settings.getDisabledSkillIds()).toEqual(new Set())
+    vi.resetModules()
+    const reloaded = await import('./settings')
+    reloaded.initSettings()
+    expect(reloaded.getDisabledPluginIds()).toEqual(new Set(['acme.browser']))
+  })
+
+  it('normalizes and persists browser site policies', async () => {
+    state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-browser-settings-test-'))
+    vi.resetModules()
+    const settings = await import('./settings')
+    settings.setBrowserPreferences({ allowAllSites: false, allowedOrigins: ['https://Example.com/path'], blockedOrigins: ['https://blocked.test/a'] })
+    expect(settings.getBrowserPreferences()).toEqual({ allowAllSites: false, allowedOrigins: ['https://example.com'], blockedOrigins: ['https://blocked.test'] })
+    vi.resetModules()
+    const reloaded = await import('./settings'); reloaded.initSettings()
+    expect(reloaded.getBrowserPreferences().blockedOrigins).toEqual(['https://blocked.test'])
+  })
 })

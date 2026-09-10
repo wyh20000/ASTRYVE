@@ -27,6 +27,8 @@ export interface CreateTaskStateInput {
   permissionMode: PermissionMode
   environment: ExecutionEnvironment
   dockerImageId?: string
+  pluginIds?: string[]
+  pluginVersions?: Record<string, string | undefined>
   now?: number
 }
 
@@ -58,6 +60,8 @@ export class TaskStateMachine {
       permissionMode: input.permissionMode,
       environment: input.environment,
       dockerImageId: input.dockerImageId,
+      pluginIds: input.pluginIds ? [...input.pluginIds] : undefined,
+      pluginVersions: input.pluginVersions ? { ...input.pluginVersions } : undefined,
       status: 'queued',
       sequence: 0,
       createdAt: now,

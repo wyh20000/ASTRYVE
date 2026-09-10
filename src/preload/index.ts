@@ -19,10 +19,20 @@ import type {
   SkillCatalogInput,
   SkillInstallInput,
   SkillUninstallInput,
+  PluginToggleInput,
+  PluginImportInput,
+  PluginRecoverInput,
+  PluginMarketSourceInput,
+  PluginMarketSourceIdInput,
+  PluginMarketSourceToggleInput,
+  PluginMarketInstallInput,
+  PluginUninstallInput,
+  PluginRollbackInput,
   UserInputRequest,
   UserInputResponse,
   ApprovalUiRequest,
-  ApprovalUiResponse
+  ApprovalUiResponse,
+  BrowserPreferences
 } from '@shared/types'
 import type {
   ActivateWorkspaceInput,
@@ -72,6 +82,29 @@ const api: AgentApi = {
     importLocal: (input: SkillListInput) => ipcRenderer.invoke(IPC.skills.importLocal, input),
     uninstall: (input: SkillUninstallInput) => ipcRenderer.invoke(IPC.skills.uninstall, input),
     setEnabled: (input: SkillToggleInput) => ipcRenderer.invoke(IPC.skills.setEnabled, input)
+  },
+  plugins: {
+    list: () => ipcRenderer.invoke(IPC.plugins.list),
+    importLocal: (input: PluginImportInput) => ipcRenderer.invoke(IPC.plugins.importLocal, input),
+    setEnabled: (input: PluginToggleInput) => ipcRenderer.invoke(IPC.plugins.setEnabled, input),
+    recover: (input: PluginRecoverInput) => ipcRenderer.invoke(IPC.plugins.recover, input),
+    marketplace: () => ipcRenderer.invoke(IPC.plugins.marketplace),
+    addSource: (input: PluginMarketSourceInput) => ipcRenderer.invoke(IPC.plugins.addSource, input),
+    setSourceEnabled: (input: PluginMarketSourceToggleInput) => ipcRenderer.invoke(IPC.plugins.setSourceEnabled, input),
+    removeSource: (input: PluginMarketSourceIdInput) => ipcRenderer.invoke(IPC.plugins.removeSource, input),
+    syncSource: (input: PluginMarketSourceIdInput) => ipcRenderer.invoke(IPC.plugins.syncSource, input),
+    installMarket: (input: PluginMarketInstallInput) => ipcRenderer.invoke(IPC.plugins.installMarket, input),
+    uninstall: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.uninstall, input),
+    backups: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.backups, input),
+    rollback: (input: PluginRollbackInput) => ipcRenderer.invoke(IPC.plugins.rollback, input)
+  },
+  browser: {
+    status: () => ipcRenderer.invoke(IPC.browser.status),
+    start: () => ipcRenderer.invoke(IPC.browser.start),
+    stop: () => ipcRenderer.invoke(IPC.browser.stop),
+    restart: () => ipcRenderer.invoke(IPC.browser.restart),
+    clearProfile: () => ipcRenderer.invoke(IPC.browser.clearProfile),
+    listTabs: () => ipcRenderer.invoke(IPC.browser.listTabs)
   },
   terminal: {
     open: (sessionId: string) => ipcRenderer.invoke(IPC.terminal.open, sessionId),
@@ -125,6 +158,11 @@ const api: AgentApi = {
     ipcRenderer.on(EVENTS.workspaceFilesChanged, listener)
     return () => ipcRenderer.removeListener(EVENTS.workspaceFilesChanged, listener)
   },
+  onPluginsChanged: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on(EVENTS.pluginsChanged, listener)
+    return () => ipcRenderer.removeListener(EVENTS.pluginsChanged, listener)
+  },
   settings: {
     getTheme: () => ipcRenderer.invoke(IPC.settings.getTheme),
     setTheme: (t: PersistedTheme) => ipcRenderer.invoke(IPC.settings.setTheme, t),
@@ -132,7 +170,9 @@ const api: AgentApi = {
       ipcRenderer.invoke(IPC.settings.getAgentProject, workspaceId),
     setAgentProject: (preferences: AgentProjectPreferences) =>
       ipcRenderer.invoke(IPC.settings.setAgentProject, preferences),
-    clearAudit: () => ipcRenderer.invoke(IPC.settings.clearAudit)
+    clearAudit: () => ipcRenderer.invoke(IPC.settings.clearAudit),
+    getBrowserPreferences: () => ipcRenderer.invoke(IPC.settings.getBrowserPreferences),
+    setBrowserPreferences: (value: BrowserPreferences) => ipcRenderer.invoke(IPC.settings.setBrowserPreferences, value)
   },
   window: {
     setTitleBarOverlay: (opts) => ipcRenderer.invoke(IPC.window.setTitleBarOverlay, opts)

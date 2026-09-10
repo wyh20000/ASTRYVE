@@ -86,6 +86,21 @@ afterEach(() => {
 })
 
 describe('TaskRuntime', () => {
+  it('freezes additional tools and plugin metadata per task', () => {
+    const { runtime } = createRuntime()
+    const pluginTool = { ...tool(vi.fn(async () => ({ ok: true, value: 'plugin' }))), name: 'plugin.acme.echo' }
+    const task = runtime.createTask({
+      sessionId: 'session-plugin', workspace, ownerWebContentsId: 101,
+      permissionMode: 'ask-every-time', environment: 'docker',
+      toolDefinitions: [pluginTool], pluginIds: ['acme'], pluginVersions: { acme: '1.0.0' }
+    })
+    expect(runtime.listNativeFunctionTools(task.id).map((entry) => entry.function.name)).toEqual([
+      'test.echo', 'plugin.acme.echo'
+    ])
+    expect(task.pluginIds).toEqual(['acme'])
+    expect(task.pluginVersions).toEqual({ acme: '1.0.0' })
+  })
+
   it('creates ordered runtime-owned events and cleans all active mappings on completion', () => {
     const { runtime } = createRuntime()
     const events: Array<{ type: string; sequence: number }> = []

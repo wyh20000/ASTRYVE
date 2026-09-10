@@ -42,6 +42,22 @@ export const IPC = {
     uninstall: 'skills:uninstall',
     setEnabled: 'skills:set-enabled'
   },
+  plugins: {
+    list: 'plugins:list',
+    importLocal: 'plugins:import-local',
+    setEnabled: 'plugins:set-enabled',
+    recover: 'plugins:recover',
+    marketplace: 'plugins:marketplace',
+    addSource: 'plugins:add-source',
+    setSourceEnabled: 'plugins:set-source-enabled',
+    removeSource: 'plugins:remove-source',
+    syncSource: 'plugins:sync-source', installMarket: 'plugins:install-market', uninstall: 'plugins:uninstall',
+    backups: 'plugins:backups', rollback: 'plugins:rollback'
+  },
+  browser: {
+    status: 'browser:status', start: 'browser:start', stop: 'browser:stop', restart: 'browser:restart',
+    clearProfile: 'browser:clear-profile', listTabs: 'browser:list-tabs'
+  },
   terminal: {
     open: 'terminal:open',
     write: 'terminal:write',
@@ -59,7 +75,9 @@ export const IPC = {
     setTheme: 'settings:set-theme',
     getAgentProject: 'settings:get-agent-project',
     setAgentProject: 'settings:set-agent-project',
-    clearAudit: 'settings:clear-audit'
+    clearAudit: 'settings:clear-audit',
+    getBrowserPreferences: 'settings:get-browser-preferences',
+    setBrowserPreferences: 'settings:set-browser-preferences'
   },
   window: {
     setTitleBarOverlay: 'window:set-title-bar-overlay'
@@ -75,5 +93,6 @@ export const EVENTS = {
   approvalRequested: 'approval:requested',
   approvalResolved: 'approval:resolved',
   terminalOutput: 'terminal:output',
-  workspaceFilesChanged: 'workspace:files-changed'
+  workspaceFilesChanged: 'workspace:files-changed',
+  pluginsChanged: 'plugins:changed'
 } as const

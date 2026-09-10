@@ -62,6 +62,8 @@ function Block({ block, status }: { block: MessageBlock; status: MessageStatus }
       return <SourcesBlock sources={block.sources} />
     case 'skills':
       return <SkillBlock block={block} />
+    case 'plugins':
+      return <PluginBlock block={block} />
     case 'diff':
       return <DiffBlock block={block} status={status} />
     case 'command':
@@ -71,6 +73,17 @@ function Block({ block, status }: { block: MessageBlock; status: MessageStatus }
     default:
       return null
   }
+}
+
+function PluginBlock({ block }: { block: Extract<MessageBlock, { kind: 'plugins' }> }): JSX.Element {
+  return <div className="flex max-w-[720px] flex-wrap items-center gap-2 rounded-md border border-accent/30 bg-accent-dim/10 px-3 py-2 text-[11px]">
+    <Icon.Brain size={13} className="text-accent" />
+    <span className="text-txt-secondary">正在使用插件</span>
+    {block.plugins.map((plugin) => <span key={plugin.id} className="rounded bg-bg-raised px-2 py-0.5 text-txt-primary">
+      {plugin.id}{plugin.version ? ` · ${plugin.version}` : ''}
+    </span>)}
+    <span className="ml-auto max-w-[180px] truncate text-txt-muted" title={block.model}>{block.model}</span>
+  </div>
 }
 
 function SkillBlock({ block }: { block: Extract<MessageBlock, { kind: 'skills' }> }): JSX.Element {

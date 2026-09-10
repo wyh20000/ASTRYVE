@@ -17,7 +17,8 @@ interface ChatState {
     content: string,
     attachments?: Attachment[],
     search?: boolean,
-    skillIds?: string[]
+    skillIds?: string[],
+    pluginIds?: string[]
   ) => Promise<IpcResult<Message>>
   stop: (sessionId: string) => Promise<void>
   /** 从主进程流式事件合并一条消息 */
@@ -59,8 +60,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  send: async (sessionId, content, attachments, search, skillIds) => {
-    const res = await window.agent.message.send({ sessionId, content, attachments, search, skillIds })
+  send: async (sessionId, content, attachments, search, skillIds, pluginIds) => {
+    const res = await window.agent.message.send({ sessionId, content, attachments, search, skillIds, pluginIds })
     if (!res.ok) return res
     set((s) => ({
       messages: append(s.messages, sessionId, res.data),

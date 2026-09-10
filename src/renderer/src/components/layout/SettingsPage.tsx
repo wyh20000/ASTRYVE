@@ -3,14 +3,16 @@ import { useUiStore } from '../../stores/uiStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { useModelStore } from '../../stores/modelStore'
 import { THEMES, getTheme, normalizeHex, type ThemePreset } from '../../theme/theme'
-import type { ModelProvider, ModelConfig, ModelPreset, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
+import type { ModelProvider, ModelConfig, ModelPreset, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
 import { Icon } from '../ui/icons'
 import { useSkillStore } from '../../stores/skillStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { AgentSettingsSection } from '../chat/AgentControls'
+import { usePluginStore } from '../../stores/pluginStore'
 
-type Section = 'theme' | 'model' | 'agent' | 'skills' | 'security'
+type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'browser' | 'security'
+type ExtensionTab = 'plugins' | 'skills'
 
 const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
   deepseek: {
@@ -31,7 +33,7 @@ export default function SettingsPage(): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 bg-bg-app text-txt-primary">
-      <div className="flex w-[200px] shrink-0 flex-col border-r border-border bg-bg-panel">
+      <div className="flex w-[164px] shrink-0 flex-col border-r border-border bg-bg-panel sm:w-[200px]">
         <div className="flex h-12 items-center gap-2 px-3">
           <button className="btn-icon" title="返回" onClick={closeSettings}>
             <Icon.X size={15} />
@@ -48,18 +50,298 @@ export default function SettingsPage(): JSX.Element {
           <NavItem active={section === 'theme'} icon={<Icon.Settings size={14} />} label="主题设置" onClick={() => setSection('theme')} />
           <NavItem active={section === 'model'} icon={<Icon.Brain size={14} />} label="模型设置" onClick={() => setSection('model')} />
           <NavItem active={section === 'agent'} icon={<Icon.Shield size={14} />} label="Agent 设置" onClick={() => setSection('agent')} />
-          <NavItem active={section === 'skills'} icon={<Icon.FileDir size={14} />} label="Skills" onClick={() => setSection('skills')} />
+          <NavItem active={section === 'extensions'} icon={<Icon.FileDir size={14} />} label="插件" onClick={() => setSection('extensions')} />
+          <NavItem active={section === 'browser'} icon={<Icon.Link size={14} />} label="浏览器" onClick={() => setSection('browser')} />
           <NavItem active={section === 'security'} icon={<Icon.Shield size={14} />} label="安全与数据" onClick={() => setSection('security')} />
         </nav>
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[760px] px-6 py-6">
-          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'skills' ? <SkillsSection /> : <SecuritySection />}
+        <div className="mx-auto max-w-[820px] px-4 py-5 sm:px-6 sm:py-6">
+          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'extensions' ? <ExtensionsSection /> : section === 'browser' ? <BrowserSection /> : <SecuritySection />}
         </div>
       </div>
     </div>
   )
+}
+
+function BrowserSection(): JSX.Element {
+  const [status, setStatus] = useState<import('@shared/browser').BrowserStatus>()
+  const [tabs, setTabs] = useState<import('@shared/browser').BrowserTab[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [preferences, setPreferences] = useState<import('@shared/types').BrowserPreferences>({ allowAllSites: false, allowedOrigins: [], blockedOrigins: [] })
+  const [site, setSite] = useState('')
+  const refresh = async (): Promise<void> => {
+    const result = await window.agent.browser.status()
+    if (result.ok) {
+      setStatus(result.data)
+      if (result.data.running) {
+        const list = await window.agent.browser.listTabs()
+        if (list.ok) setTabs(list.data)
+      } else setTabs([])
+    } else setError(result.error.message)
+  }
+  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void window.agent.settings.getBrowserPreferences().then((result) => { if (result.ok) setPreferences(result.data) }) }, [])
+  const savePreferences = async (next: import('@shared/types').BrowserPreferences): Promise<void> => {
+    const result = await window.agent.settings.setBrowserPreferences(next)
+    if (result.ok) setPreferences(result.data); else setError(result.error.message)
+  }
+  const action = async (run: () => Promise<import('@shared/types').IpcResult<import('@shared/browser').BrowserStatus>>): Promise<void> => {
+    setBusy(true); setError('')
+    const result = await run()
+    setBusy(false)
+    if (result.ok) { setStatus(result.data); setConfirmClear(false); await refresh() } else setError(result.error.message)
+  }
+  return <div>
+    <h1 className="selectable text-[22px] font-semibold tracking-tight">浏览器</h1>
+    <p className="mt-1 text-[12px] text-txt-muted">使用独立资料目录的 Google Chrome，不读取日常浏览器资料</p>
+    <Group title="独立 Chrome">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`h-2.5 w-2.5 rounded-full ${status?.running ? 'bg-green-400' : 'bg-txt-muted'}`} />
+        <div className="min-w-[200px] flex-1"><div className="text-[12px] text-txt-primary">{status?.running ? '正在运行' : status?.available ? '已安装，尚未启动' : '未检测到 Chrome'}</div><div className="truncate text-[10px] text-txt-muted">{status?.reason ?? status?.executable}</div></div>
+        {!status?.running ? <button className="btn bg-bg-raised px-3 text-[11px]" disabled={busy || !status?.available} onClick={() => void action(window.agent.browser.start)}>启动</button>
+          : <><button className="btn bg-bg-raised px-3 text-[11px]" disabled={busy} onClick={() => void action(window.agent.browser.restart)}>重启</button><button className="btn bg-bg-raised px-3 text-[11px]" disabled={busy} onClick={() => void action(window.agent.browser.stop)}>关闭</button></>}
+      </div>
+      <div className="mt-4 border-t border-border pt-4"><div className="text-[11px] text-txt-secondary">专用资料目录</div><div className="mt-1 break-all font-mono text-[9px] text-txt-muted">{status?.profilePath}</div>
+        {!confirmClear ? <button className="mt-3 text-[10px] text-red-300" disabled={status?.running} onClick={() => setConfirmClear(true)}>清除专用浏览数据</button>
+          : <div className="mt-3 flex items-center gap-3 text-[10px]"><span className="text-red-300">这会删除独立 Chrome 的登录和站点数据</span><button className="rounded bg-red-500/15 px-2 py-1 text-red-300" onClick={() => void action(window.agent.browser.clearProfile)}>确认清除</button><button className="text-txt-muted" onClick={() => setConfirmClear(false)}>取消</button></div>}
+      </div>
+      {error && <p role="alert" className="mt-3 text-[11px] text-red-300">{error}</p>}
+    </Group>
+    <Group title={`标签页 ${tabs.length}`}>
+      {tabs.map((tab) => <div key={tab.id} className="flex items-center gap-3 border-b border-border py-2.5 last:border-0"><Icon.Link size={14} className="text-txt-muted" /><div className="min-w-0 flex-1"><div className="truncate text-[11px]">{tab.title || '未命名页面'}</div><div className="truncate text-[9px] text-txt-muted">{tab.url}</div></div>{tab.active && <span className="text-[9px] text-accent">当前</span>}</div>)}
+      {!tabs.length && <p className="py-8 text-center text-[11px] text-txt-muted">启动独立 Chrome 后，标签页会显示在这里</p>}
+    </Group>
+    <Group title="网站权限">
+      <label className="flex items-start gap-2 text-[11px] text-txt-secondary"><input type="checkbox" checked={preferences.allowAllSites} onChange={(event) => void savePreferences({ ...preferences, allowAllSites: event.target.checked })} /><span><strong className="block font-medium text-txt-primary">允许所有网站</strong><span className="text-txt-muted">高风险选项，默认关闭；敏感动作仍需审批。</span></span></label>
+      <div className="mt-4 flex gap-2"><input className="input h-8 min-w-0 flex-1" value={site} onChange={(event) => setSite(event.target.value)} placeholder="https://example.com" /><button className="btn bg-bg-raised px-3 text-[10px]" onClick={() => { void savePreferences({ ...preferences, allowedOrigins: [...preferences.allowedOrigins, site] }); setSite('') }}>允许</button><button className="btn bg-bg-raised px-3 text-[10px] text-red-300" onClick={() => { void savePreferences({ ...preferences, blockedOrigins: [...preferences.blockedOrigins, site] }); setSite('') }}>阻止</button></div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2"><SiteList title="允许列表" values={preferences.allowedOrigins} onRemove={(value) => void savePreferences({ ...preferences, allowedOrigins: preferences.allowedOrigins.filter((item) => item !== value) })} /><SiteList title="阻止列表" values={preferences.blockedOrigins} onRemove={(value) => void savePreferences({ ...preferences, blockedOrigins: preferences.blockedOrigins.filter((item) => item !== value) })} /></div>
+    </Group>
+    <p className="mt-5 text-[10px] leading-5 text-txt-muted">网页内容始终视为不可信。发送、发布、删除、上传、下载、购买和支付等高风险动作必须再次审批。</p>
+  </div>
+}
+
+function SiteList({ title, values, onRemove }: { title: string; values: string[]; onRemove: (value: string) => void }): JSX.Element {
+  return <div><div className="mb-2 text-[10px] text-txt-muted">{title}</div><div className="rounded-lg border border-border">{values.map((value) => <div key={value} className="flex items-center gap-2 border-b border-border px-2 py-1.5 last:border-0"><span className="min-w-0 flex-1 truncate text-[9px]">{value}</span><button className="text-txt-muted hover:text-red-300" onClick={() => onRemove(value)}><Icon.X size={11} /></button></div>)}{!values.length && <div className="px-2 py-3 text-center text-[9px] text-txt-muted">暂无</div>}</div></div>
+}
+
+export function ExtensionsSection({ initialTab = 'plugins' }: { initialTab?: ExtensionTab }): JSX.Element {
+  const [tab, setTab] = useState<ExtensionTab>(initialTab)
+  return <div className="pb-12">
+    <div role="tablist" aria-label="插件与技能" className="mb-7 flex items-center gap-1">
+      <ExtensionTabButton active={tab === 'plugins'} controls="extensions-plugin-panel" onClick={() => setTab('plugins')}>
+        插件
+      </ExtensionTabButton>
+      <ExtensionTabButton active={tab === 'skills'} controls="extensions-skill-panel" onClick={() => setTab('skills')}>
+        技能
+      </ExtensionTabButton>
+    </div>
+    {tab === 'plugins'
+      ? <div id="extensions-plugin-panel" role="tabpanel"><PluginSection /></div>
+      : <div id="extensions-skill-panel" role="tabpanel"><SkillsSection /></div>}
+  </div>
+}
+
+function ExtensionTabButton({ active, controls, onClick, children }: {
+  active: boolean
+  controls: string
+  onClick: () => void
+  children: ReactNode
+}): JSX.Element {
+  return <button
+    type="button"
+    role="tab"
+    aria-selected={active}
+    aria-controls={controls}
+    tabIndex={active ? 0 : -1}
+    className={`rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${active ? 'bg-bg-active text-txt-primary' : 'text-txt-muted hover:bg-bg-raised hover:text-txt-secondary'}`}
+    onClick={onClick}
+  >{children}</button>
+}
+
+export function PluginSection(): JSX.Element {
+  const [query, setQuery] = useState('')
+  const [view, setView] = useState<'installed' | 'market' | 'sources' | 'developer'>('installed')
+  const items = usePluginStore((state) => state.items)
+  const marketEntries = usePluginStore((state) => state.marketEntries ?? [])
+  const loading = usePluginStore((state) => state.loading)
+  const mutating = usePluginStore((state) => state.mutating)
+  const error = usePluginStore((state) => state.error)
+  const load = usePluginStore((state) => state.load)
+  const loadMarketplace = usePluginStore((state) => state.loadMarketplace)
+  const importLocal = usePluginStore((state) => state.importLocal)
+  const setEnabled = usePluginStore((state) => state.setEnabled)
+  const recover = usePluginStore((state) => state.recover)
+  useEffect(() => { void load(); if (loadMarketplace) void loadMarketplace() }, [load, loadMarketplace])
+  const filtered = filterPlugins(items, query)
+  const market = marketEntries.filter((entry) => !query.trim() ||
+    `${entry.name} ${entry.description} ${entry.author} ${entry.sourceName} ${entry.categories.join(' ')}`.toLowerCase().includes(query.toLowerCase()))
+  return <div>
+    <div className="flex flex-wrap items-start gap-3">
+      <div className="min-w-[220px] flex-1">
+        <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">插件</h1>
+        <p className="mt-1 text-[12px] text-txt-muted">在你常用的工具中与 AI Agent 协作</p>
+      </div>
+      <details className="group relative shrink-0">
+        <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[12px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
+          {mutating ? '处理中…' : '添加'} <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="absolute right-0 top-full z-20 mt-1.5 w-[min(240px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
+          <button type="button" disabled={mutating} onClick={() => void importLocal('directory')}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
+            <Icon.Folder size={14} className="text-txt-muted" /> 导入文件夹
+          </button>
+          <button type="button" disabled={mutating} onClick={() => void importLocal('zip')}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
+            <Icon.File size={14} className="text-txt-muted" /> 导入 ZIP
+          </button>
+        </div>
+      </details>
+    </div>
+    <div role="tablist" aria-label="插件页面" className="mt-6 flex gap-6 border-b border-border">
+      {([['installed', '已安装'], ['market', '插件市场'], ['sources', '市场源'], ['developer', '开发者']] as const).map(([id, label]) =>
+        <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}
+          className={`-mb-px border-b-2 pb-2.5 text-[12px] ${view === id ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`}>{label}</button>)}
+    </div>
+    <div className="relative mt-6">
+      <Icon.Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
+      <input aria-label="搜索插件" className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[12px]"
+        value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索插件" />
+    </div>
+    {view === 'installed' && <section className="mt-7">
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <h2 className="text-[13px] font-semibold text-txt-primary">已安装</h2>
+        <span className="text-[10px] tabular-nums text-txt-muted">{items.length}</span>
+      </div>
+      {error && <p role="alert" className="border-b border-border py-3 text-[11px] text-red-300">{error}</p>}
+      {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin}
+        onToggle={() => void setEnabled(plugin.id, !plugin.enabled)}
+        onRecover={() => void recover(plugin.id)} />)}
+      {!loading && !filtered.length && <div className="flex min-h-[220px] flex-col items-center justify-center px-4 text-center">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-raised text-txt-muted">
+          <Icon.FileDir size={18} />
+        </span>
+        <h3 className="mt-4 text-[13px] font-medium text-txt-primary">{items.length ? '没有找到匹配的插件' : '尚未安装插件'}</h3>
+        <p className="mt-1 max-w-[360px] text-[11px] leading-5 text-txt-muted">
+          {items.length ? '请尝试其他关键词。' : '点击“添加”可安全导入文件夹或 ZIP；导入后默认禁用。'}
+        </p>
+      </div>}
+    </section>}
+    {view === 'market' && <PluginMarketView entries={market} installed={items} />}
+    {view === 'sources' && <PluginSourcesView />}
+    {view === 'developer' && <section className="mt-7 rounded-xl border border-border bg-bg-panel p-5">
+      <h2 className="text-[13px] font-semibold">开发者</h2>
+      <p className="mt-2 text-[11px] leading-5 text-txt-muted">使用 plugin.json 声明工具、权限和入口。开发包仍需经过相同的路径、大小、schema 与权限校验；本地导入不会自动启用。</p>
+    </section>}
+  </div>
+}
+
+function PluginMarketView({ entries, installed }: { entries: import('@shared/types').PluginMarketEntry[]; installed: PluginMetadata[] }): JSX.Element {
+  const install = usePluginStore((state) => state.installMarket)
+  const mutating = usePluginStore((state) => state.mutating)
+  const [pending, setPending] = useState<import('@shared/types').PluginMarketEntry>()
+  return <section className="mt-7">
+    <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">{entries.map((entry) => <article key={`${entry.sourceId}:${entry.id}:${entry.version}`} className="border-b border-border py-4">
+      <div className="flex items-start gap-3"><SkillGlyph /><div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5"><strong className="text-[12px]">{entry.name}</strong><span className="text-[9px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[9px] text-accent">已验证</span>}</div>
+        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-txt-muted">{entry.description}</p>
+        <p className="mt-1 text-[9px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p>
+      </div><button disabled={installed.some((item) => item.id === entry.id && item.version === entry.version) || mutating} onClick={() => setPending(entry)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[10px] text-txt-secondary disabled:text-txt-muted">{installed.some((item) => item.id === entry.id && item.version === entry.version) ? '已安装' : installed.some((item) => item.id === entry.id) ? '更新' : '安装'}</button></div>
+    </article>)}</div>
+    {!entries.length && <EmptySkills label="添加并同步市场源后，插件会显示在这里" />}
+    {pending && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={() => setPending(undefined)}><div role="dialog" aria-modal="true" className="max-h-[min(560px,calc(100vh-2rem))] w-full max-w-[480px] overflow-y-auto rounded-2xl border border-border bg-bg-panel p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+      <h2 className="text-[15px] font-semibold">安装 {pending.name}？</h2><p className="mt-2 text-[11px] leading-5 text-txt-muted">{pending.author} · {pending.sourceName} · {pending.version}</p>
+      <div className="mt-4 rounded-xl bg-bg-raised p-3 text-[11px]"><div>来源：{pending.sourceKind}{pending.verified ? '（已验证）' : '（未验证）'}</div><div className="mt-2">权限：{pending.permissions.map(pluginPermissionLabel).join('、') || '无额外权限'}</div><div className="mt-2 break-all font-mono text-[9px] text-txt-muted">SHA-256 {pending.sha256}</div></div>
+      <p className="mt-3 text-[10px] text-txt-muted">安装会校验摘要，完成后默认禁用；你检查权限后再手动启用。</p>
+      <div className="mt-5 flex justify-end gap-2"><button className="btn px-3 text-[11px]" onClick={() => setPending(undefined)}>取消</button><button className="btn bg-accent px-3 text-[11px] text-white" onClick={() => void install(pending.sourceId, pending.id, pending.version).then((ok) => { if (ok) setPending(undefined) })}>校验并安装</button></div>
+    </div></div>}
+  </section>
+}
+
+function PluginSourcesView(): JSX.Element {
+  const sources = usePluginStore((state) => state.marketSources)
+  const addSource = usePluginStore((state) => state.addSource)
+  const syncSource = usePluginStore((state) => state.syncSource)
+  const setSourceEnabled = usePluginStore((state) => state.setSourceEnabled)
+  const removeSource = usePluginStore((state) => state.removeSource)
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [keyId, setKeyId] = useState('')
+  const [publicKey, setPublicKey] = useState('')
+  return <section className="mt-7">
+    <div className="rounded-xl border border-border bg-bg-panel p-4">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input aria-label="市场源名称" className="input h-9 sm:w-40" value={name} onChange={(event) => setName(event.target.value)} placeholder="市场源名称" />
+        <input aria-label="市场源地址" className="input h-9 min-w-0 flex-1" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…/index.json" />
+        <button className="btn bg-bg-raised px-3 text-[11px]" disabled={!name.trim() || !url.trim() || Boolean(keyId.trim()) !== Boolean(publicKey.trim())} onClick={() => void addSource(name, url, keyId.trim() || undefined, publicKey.trim() || undefined).then((ok) => { if (ok) { setName(''); setUrl(''); setKeyId(''); setPublicKey('') } })}>添加</button>
+      </div>
+      <details className="mt-3 text-[10px] text-txt-muted"><summary className="cursor-pointer">可选：固定发布者签名公钥</summary>
+        <div className="mt-2 grid gap-2"><input aria-label="签名密钥标识" className="input h-8" value={keyId} onChange={(event) => setKeyId(event.target.value)} placeholder="密钥标识（与公钥同时填写）" />
+          <textarea aria-label="Ed25519 签名公钥" className="input min-h-24 resize-y font-mono text-[9px]" value={publicKey} onChange={(event) => setPublicKey(event.target.value)} placeholder="-----BEGIN PUBLIC KEY-----" /></div>
+      </details>
+    </div>
+    <div className="mt-4 border-t border-border">{sources.map((source) => <article key={source.id} className="flex flex-wrap items-center gap-3 border-b border-border py-3">
+      <div className="min-w-[180px] flex-1"><div className="text-[12px] text-txt-primary">{source.name} <span className="text-[9px] text-txt-muted">{source.kind}</span>{source.signingKeyId && <span className="ml-1 text-[9px] text-accent">签名已固定</span>}</div><div className="truncate text-[9px] text-txt-muted">{source.url}</div>{source.error && <div className="text-[10px] text-red-300">{source.error}</div>}</div>
+      <button className="text-[10px] text-txt-secondary" onClick={() => void syncSource(source.id)}>同步</button>
+      <button className="text-[10px] text-txt-secondary" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</button>
+      {source.kind !== 'official' && <button className="text-[10px] text-red-300" onClick={() => void removeSource(source.id)}>删除</button>}
+    </article>)}</div>
+    {!sources.length && <EmptySkills label="还没有市场源；添加 HTTPS 索引地址后可手动同步" />}
+  </section>
+}
+
+export function filterPlugins(items: PluginMetadata[], query: string): PluginMetadata[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  return items.filter((plugin) => !normalizedQuery ||
+    `${plugin.name} ${plugin.description} ${plugin.author ?? ''}`.toLocaleLowerCase().includes(normalizedQuery))
+}
+
+function PluginRow({ plugin, onToggle, onRecover }: {
+  plugin: PluginMetadata; onToggle: () => void; onRecover: () => void
+}): JSX.Element {
+  const badges = plugin.permissions.slice(0, 2).map(pluginPermissionLabel)
+  const uninstall = usePluginStore((state) => state.uninstall)
+  const reload = usePluginStore((state) => state.load)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
+  const showBackups = async (): Promise<void> => { const result = await window.agent.plugins.backups({ id: plugin.id }); if (result.ok) setBackups(result.data) }
+  return <article className="border-b border-border py-3"><div className="flex min-h-[52px] items-center gap-3">
+    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${plugin.status === 'ready' ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-red-300'}`}>
+      <Icon.FileDir size={16} />
+    </span>
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <strong className="truncate text-[12px] font-medium text-txt-primary">{plugin.name}</strong>
+        {plugin.version && <span className="text-[9px] text-txt-muted">{plugin.version}</span>}
+        {plugin.status === 'invalid' && <span className="text-[9px] text-red-300">清单无效</span>}
+        {plugin.status === 'quarantined' && <span className="text-[9px] text-amber-300">已隔离</span>}<span className="text-[9px] text-txt-muted">本地</span>
+      </div>
+      <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-txt-muted">{plugin.errors[0] ?? plugin.description}</p>
+      {!!badges.length && <div className="mt-1 flex flex-wrap gap-1.5">{badges.map((badge) =>
+        <span key={badge} className="rounded bg-bg-raised px-1.5 py-0.5 text-[9px] text-txt-muted">{badge}</span>)}</div>}
+    </div>
+    {plugin.status === 'quarantined' ? <button type="button" onClick={onRecover}
+      className="shrink-0 rounded-md border border-border px-2 py-1 text-[10px] text-txt-secondary hover:bg-bg-active">
+      恢复
+    </button> : <button type="button" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
+      disabled={plugin.status !== 'ready'} onClick={onToggle}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${plugin.enabled ? 'text-txt-secondary' : 'text-txt-muted'} disabled:opacity-40`}>
+      {plugin.enabled ? <Icon.Check size={14} /> : <span className="h-3 w-3 rounded-full border border-border-strong" />}
+    </button>}
+    {!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
+      : <span className="flex shrink-0 items-center gap-1 text-[10px]"><button className="text-red-300" onClick={() => void uninstall(plugin.id)}>确认</button><button className="text-txt-muted" onClick={() => setConfirmRemove(false)}>取消</button></span>}
+    <button type="button" title="历史版本" className="btn-icon shrink-0 text-txt-muted" onClick={() => void showBackups()}><Icon.ChevronDown size={12} /></button>
+  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void window.agent.plugins.rollback({ id: plugin.id, version: backup.version }).then((result) => { if (result.ok) { setBackups(undefined); void reload() } })}>回滚</button></div>) : '没有可回滚版本'}</div>}</article>
+}
+
+function pluginPermissionLabel(permission: PluginPermission): string {
+  return ({
+    'workspace.read': '项目读取', 'workspace.write': '项目写入', network: '联网', process: '运行命令',
+    'browser.read': '浏览器读取', 'browser.interact': '浏览器交互'
+  } as Record<PluginPermission, string>)[permission]
 }
 
 export function SecuritySection(): JSX.Element {
@@ -118,7 +400,7 @@ export function SkillsSection(): JSX.Element {
   }, [tab, query, loadCatalog])
   const visibleItems = items.filter((skill) => (source === 'all' || skill.source === source) &&
     (!query || `${skill.name} ${skill.displayName} ${skill.description}`.toLowerCase().includes(query.toLowerCase())))
-  return <div className="pb-12">
+  return <div>
     <div className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
         <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">技能</h1>
@@ -128,7 +410,7 @@ export function SkillsSection(): JSX.Element {
         <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[12px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
           添加 <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
         </summary>
-        <div className="absolute right-0 top-full mt-1.5 w-[360px] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
+        <div className="absolute right-0 top-full mt-1.5 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
           <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active"
             disabled={mutating} onClick={() => void importLocal()}>
             <Icon.Folder size={14} className="text-txt-muted" />
@@ -151,19 +433,20 @@ export function SkillsSection(): JSX.Element {
       <button className={`-mb-px border-b-2 pb-2.5 text-[12px] font-medium ${tab === 'installed' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('installed')}>已安装</button>
       <button className={`-mb-px border-b-2 pb-2.5 text-[12px] font-medium ${tab === 'market' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('market')}>技能市场</button>
     </div>
-    <div className="mt-5 flex gap-2">
+    <div className="mt-5 flex flex-col gap-2 sm:flex-row">
       <div className="relative min-w-0 flex-1">
         <Icon.Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
         <input className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[12px]" value={query}
           onChange={(event) => setQuery(event.target.value)} placeholder="搜索技能" />
       </div>
-      {tab === 'installed' && <select aria-label="筛选 Skill 来源" className="input h-9 w-[124px] rounded-full bg-bg-raised px-3 text-[11px]"
+      {tab === 'installed' && <select aria-label="筛选 Skill 来源" className="input h-9 w-full rounded-full bg-bg-raised px-3 text-[11px] sm:w-[124px]"
         value={source} onChange={(event) => setSource(event.target.value as 'all' | SkillSource)}>
         <option value="all">全部来源</option>
         <option value="project">项目</option>
         <option value="installed">应用安装</option>
         <option value="codex">Codex</option>
         <option value="agents">Agents</option>
+        <option value="plugin">插件</option>
         <option value="builtin">内置</option>
       </select>}
     </div>
@@ -271,6 +554,7 @@ function skillSourceLabel(source: import('@shared/types').SkillSource): string {
   if (source === 'installed') return '已安装'
   if (source === 'codex') return 'Codex'
   if (source === 'agents') return 'Agents'
+  if (source === 'plugin') return '插件'
   return '内置'
 }
 

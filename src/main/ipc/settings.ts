@@ -1,12 +1,14 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { AgentProjectPreferences, AgentProjectSettings, PersistedTheme } from '@shared/types'
+import type { AgentProjectPreferences, AgentProjectSettings, BrowserPreferences, PersistedTheme } from '@shared/types'
 import {
   getAgentProjectPreferences,
   getThemeSettings,
   getWorkspaceGrants,
+  getBrowserPreferences,
   setAgentProjectPreferences,
-  setThemeSettings
+  setThemeSettings,
+  setBrowserPreferences
 } from '../services/settings'
 import { ok, err } from './result'
 import { assertTrustedIpcSender } from './validation'
@@ -95,6 +97,17 @@ export function registerSettingsIpc(): void {
     } catch (e) {
       return err('SET_ERR', e instanceof Error ? e.message : String(e))
     }
+  })
+  ipcMain.handle(IPC.settings.getBrowserPreferences, (event) => {
+    try { assertTrustedIpcSender(event); return ok(getBrowserPreferences()) }
+    catch (e) { return err('SET_ERR', e instanceof Error ? e.message : String(e)) }
+  })
+  ipcMain.handle(IPC.settings.setBrowserPreferences, (event, value?: BrowserPreferences) => {
+    try {
+      assertTrustedIpcSender(event)
+      if (!value || typeof value !== 'object') return err('INVALID_INPUT', '浏览器设置无效')
+      return ok(setBrowserPreferences(value))
+    } catch (e) { return err('SET_ERR', e instanceof Error ? e.message : String(e)) }
   })
 }
 

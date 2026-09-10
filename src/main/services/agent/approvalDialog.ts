@@ -75,6 +75,7 @@ function operationTitle(operation: ApprovalRequest['operation']): string {
   if (operation === 'fs.apply-host' || operation === 'fs.patch') return '确认修改项目文件'
   if (operation === 'process.run' || operation === 'process.start') return '确认运行命令'
   if (operation === 'network.enable') return '确认开放网络访问'
+  if (operation === 'browser.interact') return '确认操作网页'
   if (operation === 'git.write') return '确认执行 Git 写操作'
   return '确认执行操作'
 }
@@ -83,7 +84,8 @@ function operationLabel(operation: ApprovalRequest['operation']): string {
   const labels: Partial<Record<ApprovalRequest['operation'], string>> = {
     'fs.patch': '修改文件', 'fs.apply-host': '写入项目', 'process.run': '运行命令',
     'process.start': '启动服务', 'process.stop': '停止服务', 'network.enable': '访问网络',
-    'git.write': 'Git 写操作', 'git.read': 'Git 读取', 'fs.read': '读取文件', 'fs.search': '搜索文件'
+    'git.write': 'Git 写操作', 'git.read': 'Git 读取', 'fs.read': '读取文件', 'fs.search': '搜索文件',
+    'browser.read': '读取网页', 'browser.interact': '操作网页'
   }
   return labels[operation] ?? operation
 }
@@ -104,6 +106,7 @@ function targetPreview(target: string): string {
       const paths = value.paths.filter((item): item is string => typeof item === 'string')
       return cleanText(paths.slice(0, 3).join('、') + (paths.length > 3 ? ` 等 ${paths.length} 个文件` : ''), 320)
     }
+    if (value.type === 'browser' && typeof value.origin === 'string') return cleanText(`${value.action ?? ''} · ${value.origin}`, 320)
     if (typeof value.path === 'string') return cleanText(value.path, 320)
     if (typeof value.host === 'string') return cleanText(value.host, 320)
     if (typeof value.action === 'string') return cleanText(value.action, 320)

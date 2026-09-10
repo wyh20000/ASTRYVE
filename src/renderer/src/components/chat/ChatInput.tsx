@@ -19,6 +19,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { stepInputHistory, type InputHistoryState } from './inputHistory'
 import { useSkillStore } from '../../stores/skillStore'
+import { usePluginStore } from '../../stores/pluginStore'
 
 const MAX_H = 200
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
@@ -43,6 +44,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([])
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
+  const [pluginDismissed, setPluginDismissed] = useState(false)
+  const [pluginIndex, setPluginIndex] = useState(0)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
@@ -56,6 +59,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
+  const pluginMenuRef = useRef<HTMLDivElement>(null)
 
   const config = useModelStore((s) => s.config)
   const activePreset = config?.presets.find((p) => p.id === config.activePresetId)
@@ -67,16 +71,21 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   )
   const skills = useSkillStore((state) => state.items)
   const loadSkills = useSkillStore((state) => state.load)
+  const plugins = usePluginStore((state) => state.items)
+  const loadPlugins = usePluginStore((state) => state.load)
 
   useEffect(() => {
     void loadSkills(workspaceId)
-  }, [workspaceId, loadSkills])
+    void loadPlugins()
+  }, [workspaceId, loadSkills, loadPlugins])
 
   useEffect(() => {
     historyState.current = { index: null, draft: '' }
     setValue('')
     setSlashDismissed(false)
     setSlashIndex(0)
+    setPluginDismissed(false)
+    setPluginIndex(0)
   }, [sessionId])
 
   const images = attachments.filter((a) => a.kind === 'image')
@@ -93,10 +102,22 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     .filter((skill) => skill.active && skill.enabled && !skill.errors.length && skill.name.includes(slashQuery))
     .slice(0, 8)
   const slashMenuOpen = slashQuery !== undefined && slashSkills.length > 0 && !slashDismissed
+  const pluginMatch = /(?:^|\s)@([a-z0-9._-]*)$/i.exec(value)
+  const pluginQuery = pluginMatch?.[1]?.toLowerCase()
+  const mentionPlugins = pluginQuery === undefined ? [] : plugins
+    .filter((plugin) => plugin.enabled && plugin.status === 'ready' && plugin.components.includes('tools') &&
+      (plugin.id.includes(pluginQuery) || plugin.name.toLowerCase().includes(pluginQuery)))
+    .slice(0, 8)
+  const pluginMenuOpen = !slashMenuOpen && pluginQuery !== undefined && mentionPlugins.length > 0 && !pluginDismissed
+  const selectedPlugins = selectedPluginMentions(value, plugins)
 
   useEffect(() => {
     setSlashIndex((current) => Math.min(current, Math.max(0, slashSkills.length - 1)))
   }, [slashQuery, slashSkills.length])
+
+  useEffect(() => {
+    setPluginIndex((current) => Math.min(current, Math.max(0, mentionPlugins.length - 1)))
+  }, [pluginQuery, mentionPlugins.length])
 
   useEffect(() => {
     if (!slashMenuOpen) return
@@ -107,6 +128,16 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     document.addEventListener('pointerdown', dismissOutside)
     return () => document.removeEventListener('pointerdown', dismissOutside)
   }, [slashMenuOpen])
+
+  useEffect(() => {
+    if (!pluginMenuOpen) return
+    const dismissOutside = (event: PointerEvent): void => {
+      const target = event.target as Node | null
+      if (target && target !== taRef.current && !pluginMenuRef.current?.contains(target)) setPluginDismissed(true)
+    }
+    document.addEventListener('pointerdown', dismissOutside)
+    return () => document.removeEventListener('pointerdown', dismissOutside)
+  }, [pluginMenuOpen])
 
   const showNotice = (content: string, level: 'warning' | 'error' = 'warning'): void => {
     if (!content) return
@@ -174,6 +205,24 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     })
   }
 
+  const choosePlugin = (index: number): void => {
+    const plugin = mentionPlugins[index]
+    if (!plugin || !pluginMatch) return
+    const start = pluginMatch.index + pluginMatch[0].lastIndexOf('@')
+    const next = `${value.slice(0, start)}@${plugin.id} `
+    setValue(next)
+    setPluginDismissed(true)
+    historyState.current = { index: null, draft: next }
+    requestAnimationFrame(() => { autosize(); taRef.current?.focus() })
+  }
+
+  const removePlugin = (id: string): void => {
+    const next = removePluginMention(value, id)
+    setValue(next)
+    setPluginDismissed(true)
+    historyState.current = { index: null, draft: next }
+  }
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (slashMenuOpen) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -191,6 +240,17 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
         setSlashDismissed(true)
         return
       }
+    }
+    if (pluginMenuOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setPluginIndex((current) => moveSlashSelection(current, mentionPlugins.length, e.key === 'ArrowDown' ? 1 : -1))
+        return
+      }
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+        e.preventDefault(); choosePlugin(pluginIndex); return
+      }
+      if (e.key === 'Escape') { e.preventDefault(); setPluginDismissed(true); return }
     }
     const atFirstLine = e.currentTarget.selectionStart <= value.indexOf('\n') || !value.includes('\n')
     const lastBreak = value.lastIndexOf('\n')
@@ -251,6 +311,15 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
           clearInputRequest(sessionId, inputRequest.id)
         }} />}
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
+          {selectedPlugins.length > 0 && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+            {selectedPlugins.map((plugin) => <span key={plugin.id}
+              className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-accent/30 bg-accent-dim/15 px-2 py-1 text-[10px] text-txt-secondary">
+              <Icon.Brain size={11} className="shrink-0 text-accent" />
+              <span className="truncate">{plugin.name}</span>
+              <button type="button" aria-label={`移除插件 ${plugin.name}`} onClick={() => removePlugin(plugin.id)}
+                className="ml-0.5 text-txt-muted hover:text-txt-primary"><Icon.X size={10} /></button>
+            </span>)}
+          </div>}
           {(images.length > 0 || files.length > 0 || processingFiles.length > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-2.5">
               {processingFiles.map((file) => (
@@ -312,6 +381,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
               setValue(e.target.value)
               setSlashDismissed(false)
               setSlashIndex(0)
+              setPluginDismissed(false)
+              setPluginIndex(0)
               historyState.current = { index: null, draft: e.target.value }
               autosize()
             }}
@@ -335,6 +406,24 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[12px] font-medium text-txt-primary">/{skill.name}</span>
                     <span className="block truncate text-[10px] text-txt-muted">{skill.displayName} · {skill.description}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {pluginMenuOpen && (
+            <div ref={pluginMenuRef} role="listbox" aria-label="插件快捷选择"
+              className="absolute bottom-[48px] left-2 right-2 z-40 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
+              <div className="border-b border-border px-3 py-2 text-[11px] text-txt-muted">@ 插件 · 仅本次任务使用</div>
+              {mentionPlugins.map((plugin, index) => (
+                <button key={plugin.id} type="button" role="option" aria-selected={index === pluginIndex}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === pluginIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
+                  onMouseEnter={() => setPluginIndex(index)} onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choosePlugin(index)}>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium text-txt-primary">@{plugin.id}</span>
+                    <span className="block truncate text-[10px] text-txt-muted">{plugin.name}{plugin.version ? ` · ${plugin.version}` : ''} · {plugin.description}</span>
                   </span>
                 </button>
               ))}
@@ -387,7 +476,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   )
 }
 
-function UserInputCard({ request, onResolved }: { request: UserInputRequest; onResolved: () => void }): JSX.Element {
+export function UserInputCard({ request, onResolved }: { request: UserInputRequest; onResolved: () => void }): JSX.Element {
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -424,10 +513,13 @@ function UserInputCard({ request, onResolved }: { request: UserInputRequest; onR
     <div className="px-3 py-2.5">
       <p className="mb-2 text-[12px] leading-5 text-txt-primary">{question.question}</p>
       {question.options?.length ? <div className="mb-2 grid gap-1.5 sm:grid-cols-2">
-        {question.options.map((option) => <button key={option.label} type="button" onClick={() => setAnswer(option.label)}
+        {question.options.map((option, optionIndex) => <button key={option.label} type="button" onClick={() => setAnswer(option.label)}
           className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${answer === option.label
             ? 'border-accent bg-accent-dim/20 text-txt-primary' : 'border-border bg-bg-panel text-txt-secondary hover:border-border-strong'}`}>
-          <span className="block text-[11px] font-medium">{option.label}</span>
+          <span className="flex items-center gap-1.5 text-[11px] font-medium">
+            <span>{String.fromCharCode(65 + optionIndex)}. {option.label}</span>
+            {option.recommended && <span className="rounded bg-accent-dim/30 px-1.5 py-0.5 text-[9px] font-medium text-accent">推荐</span>}
+          </span>
           {option.description && <span className="mt-0.5 block text-[10px] leading-4 text-txt-muted">{option.description}</span>}
         </button>)}
       </div> : null}
@@ -451,6 +543,22 @@ function UserInputCard({ request, onResolved }: { request: UserInputRequest; onR
 export function moveSlashSelection(current: number, count: number, delta: -1 | 1): number {
   if (count <= 0) return 0
   return (current + delta + count) % count
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function selectedPluginMentions<T extends { id: string }>(value: string, plugins: T[]): T[] {
+  return plugins.filter((plugin) =>
+    new RegExp(`(^|\\s)@${escapeRegExp(plugin.id)}(?=\\s|$)`, 'i').test(value))
+}
+
+export function removePluginMention(value: string, id: string): string {
+  return value
+    .replace(new RegExp(`(^|\\s)@${escapeRegExp(id)}(?=\\s|$)`, 'i'), '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trimStart()
 }
 
 function ModelSelector(): JSX.Element {
