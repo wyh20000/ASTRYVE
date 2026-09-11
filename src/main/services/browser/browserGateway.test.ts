@@ -9,6 +9,7 @@ function adapter(): BrowserAdapter {
     navigate: vi.fn(async () => undefined),
     inspect: vi.fn(async () => ({
       title: 'Example', url: 'https://example.com', text: 'password=secret token abc',
+      readyState: 'complete',
       meta: { description: 'safe summary', authorization: 'Bearer secret' },
       outline: [{ role: 'heading', name: 'Account', tag: 'h1', disabled: false }, { role: 'textbox', name: 'API token secret', tag: 'input', disabled: false }]
     })),
@@ -52,7 +53,7 @@ describe('BrowserGateway', () => {
       max = Math.max(max, active)
       await gate
       active -= 1
-      return { title: 'Example', url: 'https://example.com', text: '', meta: {}, outline: [] }
+      return { title: 'Example', url: 'https://example.com', text: '', readyState: 'complete', meta: {}, outline: [] }
     }
     const gateway = new BrowserGateway(fake, { maxConcurrentReads: 2 })
 
@@ -70,6 +71,7 @@ describe('BrowserGateway', () => {
     const result = await gateway.inspect('tab-1')
     expect(result.text).not.toContain('secret')
     expect(result.text.length).toBeLessThanOrEqual(20)
+    expect(result.textTruncated).toBe(true)
   })
 
   it('returns bounded redacted page metadata instead of dropping it', async () => {
@@ -132,6 +134,44 @@ describe('BrowserGateway', () => {
       callId: 'missing-risk', source: 'agent', deadline: Date.now() + 1000
     } as never)).rejects.toThrow('上下文无效')
   })
+
+  it('blocks typing into DOM-classified sensitive controls', async () => {
+    const fake = adapter()
+    fake.find = vi.fn(async () => [{
+      backendNodeId: 7, role: 'textbox', name: 'Password', tag: 'input', visible: true, disabled: false, sensitive: true
+    }])
+    const gateway = new BrowserGateway(fake)
+    const [field] = await gateway.find('tab-1', { css: '#password' })
+
+    await expect(gateway.interact(field, { type: 'type', text: 'ordinary-looking-value' }, context('sensitive')))
+      .rejects.toThrow('敏感字段')
+    expect(fake.interact).not.toHaveBeenCalled()
+  })
+
+  it('requires a high-risk context for DOM-classified consequential clicks', async () => {
+    const fake = adapter()
+    fake.find = vi.fn(async () => [{
+      backendNodeId: 8, role: 'button', name: 'Delete account', tag: 'button', visible: true, disabled: false, highRisk: true
+    }])
+    const gateway = new BrowserGateway(fake)
+    const [button] = await gateway.find('tab-1', { css: '#delete' })
+
+    await expect(gateway.interact(button, { type: 'click' }, context('ordinary-click'))).rejects.toThrow('高风险')
+    await expect(gateway.interact(button, { type: 'click' }, context('confirmed-click', 'high'))).resolves.toEqual({ ok: true })
+  })
+
+  it('waits until the page reports a complete ready state', async () => {
+    const fake = adapter()
+    fake.inspect = vi.fn()
+      .mockResolvedValueOnce({ title: '', url: 'https://example.com', text: '', meta: {}, outline: [], readyState: 'loading' })
+      .mockResolvedValueOnce({ title: 'Ready', url: 'https://example.com', text: 'done', meta: {}, outline: [], readyState: 'complete' })
+    const gateway = new BrowserGateway(fake)
+
+    await expect(gateway.waitForPage('tab-1', 'https://example.com/page', 1_000, context('wait'))).resolves.toMatchObject({
+      title: 'Ready', text: 'done'
+    })
+    expect(fake.inspect).toHaveBeenCalledTimes(2)
+  })
 })
 
-function context(callId: string) { return { callId, source: 'agent', risk: 'medium' as const, deadline: Date.now() + 1000 } }
+function context(callId: string, risk: 'low' | 'medium' | 'high' = 'medium') { return { callId, source: 'agent', risk, deadline: Date.now() + 1000 } }

@@ -59,13 +59,13 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   const tools: ParsedPluginTool[] = []
   if (typeof value.skills === 'string') components.push('skills')
   if (isRecord(value.hooks) && Object.keys(value.hooks).length) components.push('hooks')
-  if (value.mcp !== undefined) components.push('mcp')
+  if (value.mcp !== undefined || value.mcpServers !== undefined) components.push('mcp')
   if (Array.isArray(value.tools) && value.tools.length) components.push('tools')
   if (!components.length) throw new Error('插件未声明任何可用组件')
   if (sourceFormat === 'native' && EXECUTABLE_ALIASES.some((key) => value[key] !== undefined)) {
     throw new Error('插件包含不受支持的可执行入口')
   }
-  for (const field of ['skills', 'mcp'] as const) {
+  for (const field of ['skills', 'mcp', 'mcpServers'] as const) {
     if (typeof value[field] === 'string') assertRelativePluginPath(value[field])
   }
   if (Array.isArray(value.tools)) {

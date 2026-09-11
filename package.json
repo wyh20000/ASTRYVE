@@ -10,6 +10,8 @@
     "build:native": "node scripts/build-native.cjs",
     "smoke:local": "node scripts/smoke-local-execution.cjs",
     "smoke:docker": "node scripts/smoke-docker-execution.cjs",
+    "smoke:browser": "node scripts/smoke-managed-browser.cjs",
+    "smoke:plugin": "node scripts/smoke-plugin-runtime.cjs",
     "prebuild": "npm run build:native",
     "predev": "npm run build:native",
     "prebuild:win": "npm run build:native",

@@ -61,3 +61,56 @@ describe('Chrome locator query', () => {
     expect(failure?.message).toContain('连接超时')
   })
 })
+
+describe('Chrome tab foregrounding', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('activates and brings a newly created tab to the front', async () => {
+    const calls: Array<{ method: string; url: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ method: init?.method ?? 'GET', url })
+      if (url.includes('/json/new')) {
+        return new Response(JSON.stringify({
+          id: 'tab-9', title: '', url: '', type: 'page',
+          webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/9'
+        }), { status: 200 })
+      }
+      if (url.includes('/json/activate/')) return new Response('{}', { status: 200 })
+      if (url.includes('/json/list')) {
+        return new Response(JSON.stringify([{
+          id: 'tab-9', title: 'Example', url: 'https://example.com', type: 'page',
+          webSocketDebuggerUrl: 'ws://127.0.0.1/devtools/page/9'
+        }]), { status: 200 })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }))
+
+    const sent: string[] = []
+    class EchoSocket extends EventTarget {
+      send = (data: string): void => {
+        sent.push(data)
+        const parsed = JSON.parse(data) as { id: number }
+        queueMicrotask(() => this.dispatchEvent(
+          Object.assign(new Event('message'), { data: JSON.stringify({ id: parsed.id, result: {} }) })
+        ))
+      }
+      close = vi.fn()
+      constructor() {
+        super()
+        queueMicrotask(() => this.dispatchEvent(new Event('open')))
+      }
+    }
+    vi.stubGlobal('WebSocket', EchoSocket)
+
+    const adapter = new ChromeCdpAdapter(() => 'http://127.0.0.1:9222')
+    await expect(adapter.createTab('https://example.com')).resolves.toBe('tab-9')
+
+    expect(calls.some((call) => call.method === 'PUT' && call.url.includes('/json/new'))).toBe(true)
+    expect(calls.some((call) => call.url.includes('/json/activate/tab-9'))).toBe(true)
+    expect(sent.some((message) => message.includes('Page.bringToFront'))).toBe(true)
+  })
+})

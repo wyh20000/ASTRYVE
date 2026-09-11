@@ -70,7 +70,7 @@ export function classifyOperation(
         type: 'browser', action: resolveBrowserAction(toolName, operation), origin,
         tabId: typeof args.tabId === 'string' ? args.tabId.slice(0, 200) : undefined,
         write: operation === 'browser.interact',
-        sensitive: Boolean(args.sensitive)
+        sensitive: Boolean(args.sensitive) || toolName === 'browser.confirmClick'
       }
     }
     case 'git.read':

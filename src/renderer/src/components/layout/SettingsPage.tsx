@@ -178,7 +178,7 @@ export function PluginSection(): JSX.Element {
   useEffect(() => { void load(); if (loadMarketplace) void loadMarketplace() }, [load, loadMarketplace])
   const filtered = filterPlugins(items, query)
   const market = marketEntries.filter((entry) => !query.trim() ||
-    `${entry.name} ${entry.description} ${entry.author} ${entry.sourceName} ${entry.categories.join(' ')}`.toLowerCase().includes(query.toLowerCase()))
+    `${entry.name} ${entry.description} ${entry.author} ${entry.sourceName} ${entry.categories.join(' ')} ${(entry.capabilities ?? []).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
   return <div>
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
@@ -249,12 +249,13 @@ function PluginMarketView({ entries, installed }: { entries: import('@shared/typ
         <div className="flex flex-wrap items-center gap-1.5"><strong className="text-[12px]">{entry.name}</strong><span className="text-[9px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[9px] text-accent">已验证</span>}</div>
         <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-txt-muted">{entry.description}</p>
         <p className="mt-1 text-[9px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p>
-      </div><button disabled={installed.some((item) => item.id === entry.id && item.version === entry.version) || mutating} onClick={() => setPending(entry)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[10px] text-txt-secondary disabled:text-txt-muted">{installed.some((item) => item.id === entry.id && item.version === entry.version) ? '已安装' : installed.some((item) => item.id === entry.id) ? '更新' : '安装'}</button></div>
+        {entry.installable === false && <p className="mt-1 text-[9px] text-amber-300">{entry.unavailableReason}</p>}
+      </div><button title={entry.unavailableReason} disabled={entry.installable === false || installed.some((item) => item.id === entry.id && item.version === entry.version) || mutating} onClick={() => setPending(entry)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[10px] text-txt-secondary disabled:text-txt-muted">{entry.installable === false ? '待支持' : installed.some((item) => item.id === entry.id && item.version === entry.version) ? '已安装' : installed.some((item) => item.id === entry.id) ? '更新' : '安装'}</button></div>
     </article>)}</div>
-    {!entries.length && <EmptySkills label="添加并同步市场源后，插件会显示在这里" />}
+    {!entries.length && <EmptySkills label="正在同步 Codex 官方市场；也可以在“市场源”添加其他来源" />}
     {pending && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={() => setPending(undefined)}><div role="dialog" aria-modal="true" className="max-h-[min(560px,calc(100vh-2rem))] w-full max-w-[480px] overflow-y-auto rounded-2xl border border-border bg-bg-panel p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
       <h2 className="text-[15px] font-semibold">安装 {pending.name}？</h2><p className="mt-2 text-[11px] leading-5 text-txt-muted">{pending.author} · {pending.sourceName} · {pending.version}</p>
-      <div className="mt-4 rounded-xl bg-bg-raised p-3 text-[11px]"><div>来源：{pending.sourceKind}{pending.verified ? '（已验证）' : '（未验证）'}</div><div className="mt-2">权限：{pending.permissions.map(pluginPermissionLabel).join('、') || '无额外权限'}</div><div className="mt-2 break-all font-mono text-[9px] text-txt-muted">SHA-256 {pending.sha256}</div></div>
+      <div className="mt-4 rounded-xl bg-bg-raised p-3 text-[11px]"><div>来源：{pending.sourceKind}{pending.verified ? '（已验证）' : '（未验证）'}</div><div className="mt-2">权限：{pending.permissions.map(pluginPermissionLabel).join('、') || '无额外权限'}</div>{pending.sha256 && <div className="mt-2 break-all font-mono text-[9px] text-txt-muted">SHA-256 {pending.sha256}</div>}{pending.repository && <div className="mt-2 break-all font-mono text-[9px] text-txt-muted">固定版本 {pending.repository.ref.slice(0, 12)}</div>}</div>
       <p className="mt-3 text-[10px] text-txt-muted">安装会校验摘要，完成后默认禁用；你检查权限后再手动启用。</p>
       <div className="mt-5 flex justify-end gap-2"><button className="btn px-3 text-[11px]" onClick={() => setPending(undefined)}>取消</button><button className="btn bg-accent px-3 text-[11px] text-white" onClick={() => void install(pending.sourceId, pending.id, pending.version).then((ok) => { if (ok) setPending(undefined) })}>校验并安装</button></div>
     </div></div>}
@@ -284,9 +285,9 @@ function PluginSourcesView(): JSX.Element {
       </details>
     </div>
     <div className="mt-4 border-t border-border">{sources.map((source) => <article key={source.id} className="flex flex-wrap items-center gap-3 border-b border-border py-3">
-      <div className="min-w-[180px] flex-1"><div className="text-[12px] text-txt-primary">{source.name} <span className="text-[9px] text-txt-muted">{source.kind}</span>{source.signingKeyId && <span className="ml-1 text-[9px] text-accent">签名已固定</span>}</div><div className="truncate text-[9px] text-txt-muted">{source.url}</div>{source.error && <div className="text-[10px] text-red-300">{source.error}</div>}</div>
+      <div className="min-w-[180px] flex-1"><div className="text-[12px] text-txt-primary">{source.name} <span className="text-[9px] text-txt-muted">{source.kind}</span>{source.verified && <span className="ml-1 text-[9px] text-accent">已验证</span>}{source.signingKeyId && <span className="ml-1 text-[9px] text-accent">签名已固定</span>}</div><div className="truncate text-[9px] text-txt-muted">{source.url}</div>{source.error && <div className="text-[10px] text-red-300">{source.error}</div>}</div>
       <button className="text-[10px] text-txt-secondary" onClick={() => void syncSource(source.id)}>同步</button>
-      <button className="text-[10px] text-txt-secondary" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</button>
+      {source.kind !== 'official' && <button className="text-[10px] text-txt-secondary" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</button>}
       {source.kind !== 'official' && <button className="text-[10px] text-red-300" onClick={() => void removeSource(source.id)}>删除</button>}
     </article>)}</div>
     {!sources.length && <EmptySkills label="还没有市场源；添加 HTTPS 索引地址后可手动同步" />}

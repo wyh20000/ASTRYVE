@@ -23,12 +23,21 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     if (!response.ok) throw new Error('无法新建 Chrome 标签页')
     const target = await response.json() as DevToolsTarget
     this.activeTabId = target.id
+    // /json/new 建立的是后台标签页：立即激活并前置，用户才能看到窗口弹出并打开目标页面。
+    // 前置失败不影响标签页创建结果。
+    await this.activateTab(target.id).catch(() => undefined)
     return target.id
   }
   async activateTab(tabId: string): Promise<void> {
     const response = await fetch(`${this.requireEndpoint()}/json/activate/${encodeURIComponent(tabId)}`, { redirect: 'error' })
     if (!response.ok) throw new Error('无法切换 Chrome 标签页')
     this.activeTabId = tabId
+    // /json/activate 只切换标签页，不保证浏览器窗口置顶；补一次 CDP bringToFront 让窗口真正前置。
+    await this.bringToFront(tabId).catch(() => undefined)
+  }
+  /** 让标签页所属的浏览器窗口前置（尽力而为，失败不抛出）。 */
+  async bringToFront(tabId: string): Promise<void> {
+    await this.withClient(tabId, async (client) => { await client.send('Page.bringToFront') })
   }
   async closeTab(tabId: string): Promise<void> {
     const response = await fetch(`${this.requireEndpoint()}/json/close/${encodeURIComponent(tabId)}`, { redirect: 'error' })
@@ -54,6 +63,8 @@ export class ChromeCdpAdapter implements BrowserAdapter {
       await loaded.catch(() => undefined)
     })
     this.activeTabId = tabId
+    // 模型驱动浏览时把该标签页及其窗口前置，用户能直接看到页面。
+    await this.activateTab(tabId).catch(() => undefined)
   }
 
   async inspect(tabId: string) {
@@ -62,6 +73,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
         title: document.title,
         url: location.href,
         text: document.body?.innerText || '',
+        readyState: document.readyState,
         meta: Object.fromEntries([...document.querySelectorAll('meta[name]')].slice(0,50).map(x => [x.getAttribute('name'), x.getAttribute('content') || ''])),
         outline: [...document.querySelectorAll('h1,h2,h3,h4,h5,h6,a,button,input,select,textarea,[role]')].slice(0,200).map(x => {
           const tag = x.tagName.toLowerCase();
@@ -71,7 +83,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
           return { role, name, tag, disabled: Boolean(x.disabled || x.getAttribute('aria-disabled') === 'true') };
         })
       }))()`)
-      return value as { title: string; url: string; text: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }
+      return value as { title: string; url: string; text: string; readyState: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }
     })
   }
 
@@ -79,6 +91,10 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     const query = buildLocatorQuery(locator)
     return this.withClient(tabId, async (client) => {
       await client.send('DOM.enable')
+      // Materialize the document in this CDP session before using search result
+      // nodeIds. Without this, Chrome may return ids that describeNode cannot
+      // resolve in a newly opened session.
+      await client.send('DOM.getDocument', { depth: 0, pierce: true })
       const search = await client.send('DOM.performSearch', { query, includeUserAgentShadowDOM: true }) as { searchId: string; resultCount: number }
       const count = Math.min(search.resultCount, 100)
       if (!count) { await client.send('DOM.discardSearchResults', { searchId: search.searchId }); return [] }
@@ -86,11 +102,29 @@ export class ChromeCdpAdapter implements BrowserAdapter {
       const rows = await Promise.all(result.nodeIds.map(async (nodeId) => {
         const described = await client.send('DOM.describeNode', { nodeId, depth: 0 }) as { node: { backendNodeId: number; nodeName: string; attributes?: string[] } }
         const attrs = attributes(described.node.attributes ?? [])
+        const resolved = await client.send('DOM.resolveNode', { nodeId }) as { object?: { objectId?: string } }
+        const semantic = resolved.object?.objectId
+          ? await client.send('Runtime.callFunctionOn', {
+              objectId: resolved.object.objectId,
+              functionDeclaration: `function(){
+                const tag=(this.tagName||'').toLowerCase();
+                const type=(this.getAttribute('type')||'').toLowerCase();
+                const label=(this.getAttribute('aria-label')||this.getAttribute('title')||this.getAttribute('placeholder')||this.getAttribute('name')||this.id||this.innerText||'').trim().slice(0,300);
+                const autocomplete=(this.getAttribute('autocomplete')||'').toLowerCase();
+                const sensitive=type==='password'||/(?:current-password|new-password|one-time-code|cc-)/.test(autocomplete)||/(?:password|passwd|passcode|otp|验证码|信用卡|card.?number|cvv|cvc|api.?key|token|secret)/i.test(label);
+                const highRisk=type==='submit'||/(?:send|publish|delete|remove|purchase|buy|pay|checkout|submit|confirm order|发送|发布|删除|购买|支付|提交|下单)/i.test(label);
+                return {label,sensitive,highRisk,role:this.getAttribute('role')||undefined};
+              }`,
+              returnByValue: true
+            }) as { result?: { value?: { label?: string; sensitive?: boolean; highRisk?: boolean; role?: string } } }
+          : undefined
+        const semantics = semantic?.result?.value
         const box = await client.send('DOM.getBoxModel', { nodeId }).catch(() => undefined) as { model?: { border?: number[] } } | undefined
         const bounds = quadBounds(box?.model?.border)
-        return { backendNodeId: described.node.backendNodeId, role: attrs.role, name: attrs['aria-label'] || attrs.name || attrs.title,
+        return { backendNodeId: described.node.backendNodeId, role: semantics?.role || attrs.role, name: semantics?.label || attrs['aria-label'] || attrs.name || attrs.title,
           tag: described.node.nodeName.toLowerCase(), visible: Boolean(bounds && bounds.width > 0 && bounds.height > 0),
-          disabled: 'disabled' in attrs || attrs['aria-disabled'] === 'true', bounds }
+          disabled: 'disabled' in attrs || attrs['aria-disabled'] === 'true', sensitive: Boolean(semantics?.sensitive),
+          highRisk: Boolean(semantics?.highRisk), bounds }
       }))
       await client.send('DOM.discardSearchResults', { searchId: search.searchId })
       return rows

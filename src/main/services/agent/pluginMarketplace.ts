@@ -2,7 +2,7 @@ import { createPublicKey, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
-  PluginMarketEntry, PluginMarketplaceSnapshot, PluginMarketSource, PluginMarketSourceInput, PluginPermission
+  PluginComponent, PluginMarketEntry, PluginMarketplaceSnapshot, PluginMarketSource, PluginMarketSourceInput, PluginPermission
 } from '../../../shared/types'
 
 const MAX_INDEX_BYTES = 1024 * 1024
@@ -10,6 +10,9 @@ const MAX_ENTRIES = 2_000
 const MAX_INDEX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_INDEX_FUTURE_SKEW_MS = 5 * 60 * 1000
 const MARKET_FILE = 'plugin-market.json'
+export const CODEX_OFFICIAL_SOURCE_ID = 'source-00000000-0000-4000-8000-000000000001'
+export const CODEX_OFFICIAL_INDEX_URL = 'https://raw.githubusercontent.com/openai/plugins/main/.agents/plugins/marketplace.json'
+const CODEX_REPOSITORY = { owner: 'openai', repo: 'plugins' } as const
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
@@ -19,10 +22,19 @@ const PERMISSIONS = new Set<PluginPermission>([
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
+interface MarketplaceOptions { includeOfficial?: boolean }
+
 export class PluginMarketplace {
-  constructor(private readonly dataRoot: string, private readonly fetcher: Fetcher = fetch) {}
+  private initialization?: Promise<void>
+
+  constructor(
+    private readonly dataRoot: string,
+    private readonly fetcher: Fetcher = fetch,
+    private readonly options: MarketplaceOptions = {}
+  ) {}
 
   async snapshot(): Promise<PluginMarketplaceSnapshot> {
+    await this.initializeOfficialSource()
     return clone(await this.load())
   }
 
@@ -44,6 +56,7 @@ export class PluginMarketplace {
     const state = await this.load()
     const source = state.sources.find((item) => item.id === id)
     if (!source) throw new Error('市场源不存在')
+    if (source.kind === 'official') throw new Error('官方市场源由应用管理，不能禁用')
     source.enabled = enabled
     if (!enabled) state.entries = state.entries.filter((entry) => entry.sourceId !== id)
     await this.save(state)
@@ -78,7 +91,9 @@ export class PluginMarketplace {
       const body = await response.text()
       if (Buffer.byteLength(body, 'utf8') > MAX_INDEX_BYTES) throw new Error('市场索引超过大小限制')
       const parsed = JSON.parse(body) as unknown
-      const entries = parseMarketplaceIndex(parsed, source)
+      const entries = source.id === CODEX_OFFICIAL_SOURCE_ID
+        ? await parseCodexMarketplaceIndex(parsed, source, this.fetcher)
+        : parseMarketplaceIndex(parsed, source)
       state.entries = [...state.entries.filter((entry) => entry.sourceId !== id), ...entries]
       source.lastSyncAt = Date.now()
       delete source.error
@@ -90,11 +105,30 @@ export class PluginMarketplace {
   }
 
   private async load(): Promise<PluginMarketplaceSnapshot> {
+    let state: PluginMarketplaceSnapshot
     try {
       const parsed = JSON.parse(await readFile(join(this.dataRoot, MARKET_FILE), 'utf8')) as PluginMarketplaceSnapshot
       if (!Array.isArray(parsed.sources) || !Array.isArray(parsed.entries)) throw new Error('invalid cache')
-      return parsed
-    } catch { return { sources: [], entries: [] } }
+      state = parsed
+    } catch { state = { sources: [], entries: [] } }
+    if (this.options.includeOfficial !== false) {
+      const previous = state.sources.find((source) => source.id === CODEX_OFFICIAL_SOURCE_ID)
+      const official = officialSource(previous)
+      state.sources = [official, ...state.sources.filter((source) => source.id !== CODEX_OFFICIAL_SOURCE_ID)]
+    }
+    return state
+  }
+
+  private async initializeOfficialSource(): Promise<void> {
+    if (this.options.includeOfficial === false) return
+    if (!this.initialization) {
+      this.initialization = (async () => {
+        const state = await this.load()
+        const official = state.sources.find((source) => source.id === CODEX_OFFICIAL_SOURCE_ID)
+        if (official && !official.lastSyncAt) await this.syncSource(CODEX_OFFICIAL_SOURCE_ID)
+      })()
+    }
+    await this.initialization
   }
 
   private async save(state: PluginMarketplaceSnapshot): Promise<void> {
@@ -108,6 +142,19 @@ export class PluginMarketplace {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
+  }
+}
+
+function officialSource(previous?: PluginMarketSource): PluginMarketSource {
+  return {
+    id: CODEX_OFFICIAL_SOURCE_ID,
+    name: 'Codex official',
+    kind: 'official',
+    url: CODEX_OFFICIAL_INDEX_URL,
+    enabled: true,
+    verified: true,
+    lastSyncAt: previous?.lastSyncAt,
+    error: previous?.error
   }
 }
 
@@ -155,6 +202,82 @@ export function parseMarketplaceIndex(value: unknown, source: PluginMarketSource
   }).sort((a, b) => a.name.localeCompare(b.name) || compareVersions(b.version, a.version))
 }
 
+/** Convert the public Codex repository marketplace into the application's normalized catalog. */
+export async function parseCodexMarketplaceIndex(
+  value: unknown,
+  source: PluginMarketSource,
+  fetcher: Fetcher = fetch
+): Promise<PluginMarketEntry[]> {
+  if (!record(value) || !Array.isArray(value.plugins) || value.plugins.length > MAX_ENTRIES) {
+    throw new Error('Codex 官方市场索引格式无效')
+  }
+  const commitResponse = await fetcher(
+    `https://api.github.com/repos/${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}/commits/main`,
+    { headers: { Accept: 'application/vnd.github+json' }, redirect: 'error' }
+  )
+  if (!commitResponse.ok) throw new Error(`读取 Codex 官方版本失败（HTTP ${commitResponse.status}）`)
+  const commitBody = await readResponseText(commitResponse, 256 * 1024, 'Codex 官方版本')
+  const commit = JSON.parse(commitBody) as unknown
+  const ref = record(commit) && typeof commit.sha === 'string' && /^[a-f0-9]{40}$/.test(commit.sha) ? commit.sha : undefined
+  if (!ref) throw new Error('Codex 官方版本标识无效')
+
+  const seen = new Set<string>()
+  const rawEntries = value.plugins.map((item) => {
+    if (!record(item)) throw new Error('Codex 官方插件条目无效')
+    const id = text(item.name, '插件标识', 64).toLowerCase()
+    if (!ID_PATTERN.test(id) || seen.has(id)) throw new Error('Codex 官方插件标识重复或无效')
+    seen.add(id)
+    const category = optionalText(item.category, 80)
+    const distribution = record(item.source) ? item.source : undefined
+    const path = distribution?.source === 'local' && typeof distribution.path === 'string'
+      ? normalizeCodexPluginPath(distribution.path, id)
+      : undefined
+    return { id, category, path }
+  })
+
+  const entries = await mapLimited(rawEntries, 8, async ({ id, category, path }): Promise<PluginMarketEntry> => {
+    const base: PluginMarketEntry = {
+      id, name: id, version: '0.0.0', description: 'Codex 官方插件', author: 'OpenAI',
+      sourceId: source.id, sourceName: source.name, sourceKind: 'official', verified: true,
+      permissions: [], categories: category ? [category] : [], platforms: [], architectures: [],
+      installable: false, unavailableReason: '当前来源类型暂不支持直接安装'
+    }
+    if (!path) return base
+    try {
+      const manifestUrl = `https://raw.githubusercontent.com/${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}/${ref}/${path}/.codex-plugin/plugin.json`
+      const response = await fetcher(manifestUrl, { redirect: 'error' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const manifest = JSON.parse(await readResponseText(response, 256 * 1024, '插件清单')) as unknown
+      if (!record(manifest) || String(manifest.name).toLowerCase() !== id) throw new Error('插件清单身份不一致')
+      const interfaceValue = record(manifest.interface) ? manifest.interface : undefined
+      const components: PluginComponent[] = []
+      if (typeof manifest.skills === 'string') components.push('skills')
+      if (record(manifest.hooks) && Object.keys(manifest.hooks).length) components.push('hooks')
+      if (manifest.mcp !== undefined || manifest.mcpServers !== undefined || manifest.apps !== undefined) components.push('mcp')
+      if (Array.isArray(manifest.tools) && manifest.tools.length) components.push('tools')
+      const installable = components.includes('skills') || components.includes('tools')
+      const author = typeof manifest.author === 'string'
+        ? manifest.author
+        : record(manifest.author) && typeof manifest.author.name === 'string' ? manifest.author.name : 'OpenAI'
+      return {
+        ...base,
+        name: typeof interfaceValue?.displayName === 'string' ? interfaceValue.displayName.slice(0, 100) : id,
+        version: typeof manifest.version === 'string' && VERSION_PATTERN.test(manifest.version) ? manifest.version : '0.0.0',
+        description: typeof manifest.description === 'string' ? manifest.description.slice(0, 1000) : base.description,
+        author: author.slice(0, 100),
+        capabilities: strings(interfaceValue?.capabilities, '插件能力', 32, 64),
+        components,
+        installable,
+        unavailableReason: installable ? undefined : '此插件需要尚未接入的 MCP 或应用连接',
+        repository: { ...CODEX_REPOSITORY, ref, path }
+      }
+    } catch (error) {
+      return { ...base, unavailableReason: `暂时无法读取插件清单：${safeError(error)}` }
+    }
+  })
+  return entries.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 export function compareVersions(left: string, right: string): number {
   const a = left.split(/[.-]/).slice(0, 3).map(Number)
   const b = right.split(/[.-]/).slice(0, 3).map(Number)
@@ -187,6 +310,28 @@ function text(value: unknown, label: string, max: number): string {
 function optionalText(value: unknown, max: number): string | undefined {
   if (value === undefined) return undefined
   return text(value, '字段', max)
+}
+function normalizeCodexPluginPath(value: string, id: string): string | undefined {
+  const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')
+  return normalized === `plugins/${id}` ? normalized : undefined
+}
+async function readResponseText(response: Response, maxBytes: number, label: string): Promise<string> {
+  const length = Number(response.headers.get('content-length') ?? 0)
+  if (length > maxBytes) throw new Error(`${label}超过大小限制`)
+  const body = await response.text()
+  if (Buffer.byteLength(body, 'utf8') > maxBytes) throw new Error(`${label}超过大小限制`)
+  return body
+}
+async function mapLimited<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await worker(items[index])
+    }
+  }))
+  return results
 }
 function validateSigningKey(keyId: unknown, publicKey: unknown): Pick<PluginMarketSource, 'signingKeyId' | 'signingPublicKey'> {
   if (keyId === undefined && publicKey === undefined) return {}

@@ -9,7 +9,7 @@ export interface BrowserAdapter {
   history(tabId: string, direction: 'back' | 'forward'): Promise<void>
   reload(tabId: string): Promise<void>
   navigate(tabId: string, url: string): Promise<void>
-  inspect(tabId: string): Promise<{ title: string; url: string; text: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }>
+  inspect(tabId: string): Promise<{ title: string; url: string; text: string; readyState: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }>
   find(tabId: string, locator: BrowserLocator): Promise<Array<Omit<BrowserElementResult, 'id' | 'tabId' | 'pageVersion'> & { backendNodeId: number }>>
   interact(tabId: string, backendNodeId: number, action: BrowserInteraction): Promise<unknown>
   drag(tabId: string, sourceBackendNodeId: number, targetBackendNodeId: number): Promise<unknown>
@@ -43,13 +43,13 @@ export class BrowserGateway {
     this.canNavigate = options.canNavigate
   }
 
-  async listTabs(): Promise<BrowserTab[]> {
-    return (await this.withReadPermit(() => this.adapter.listTabs())).map((tab) => ({ ...tab, pageVersion: this.version(tab.id) }))
+  async listTabs(context?: BrowserCallContext): Promise<BrowserTab[]> {
+    return (await this.withReadPermit(() => this.adapter.listTabs(), context)).map((tab) => ({ ...tab, pageVersion: this.version(tab.id) }))
   }
 
-  async assertTabOrigin(tabId: string, rawUrl: string): Promise<void> {
+  async assertTabOrigin(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
     const expected = new URL(safeWebUrl(rawUrl)).origin.toLowerCase()
-    const actual = (await this.withReadPermit(() => this.adapter.listTabs())).find((tab) => tab.id === tabId)
+    const actual = (await this.withReadPermit(() => this.adapter.listTabs(), context)).find((tab) => tab.id === tabId)
     if (!actual) throw new Error('浏览器标签页不存在')
     let actualOrigin: string
     try { actualOrigin = new URL(actual.url).origin.toLowerCase() } catch { throw new Error('标签页地址不可审核') }
@@ -57,46 +57,64 @@ export class BrowserGateway {
     if (this.canNavigate && !this.canNavigate(new URL(actual.url))) throw new Error('该网站已被浏览器设置阻止')
   }
 
-  async navigate(tabId: string, rawUrl: string): Promise<void> {
+  async navigate(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
     const url = safeWebUrl(rawUrl)
     if (this.canNavigate && !this.canNavigate(new URL(url))) throw new Error('该网站已被浏览器设置阻止')
-    await this.adapter.navigate(tabId, url)
+    await this.withOptionalDeadline(context, () => this.adapter.navigate(tabId, url))
     this.versions.set(tabId, this.version(tabId) + 1)
     for (const [id, record] of this.elements) if (record.ref.tabId === tabId) this.elements.delete(id)
   }
 
-  async createTab(rawUrl = 'about:blank'): Promise<string> {
+  async createTab(rawUrl = 'about:blank', context?: BrowserCallContext): Promise<string> {
     const url = rawUrl === 'about:blank' ? rawUrl : safeWebUrl(rawUrl)
     if (url !== 'about:blank' && this.canNavigate && !this.canNavigate(new URL(url))) throw new Error('该网站已被浏览器设置阻止')
-    const id = await this.adapter.createTab(url)
+    const id = await this.withOptionalDeadline(context, () => this.adapter.createTab(url))
     this.versions.set(id, 1)
     return id
   }
-  async selectTab(tabId: string): Promise<void> { await this.adapter.activateTab(tabId) }
-  async closeTab(tabId: string): Promise<void> { await this.adapter.closeTab(tabId); this.versions.delete(tabId) }
-  async history(tabId: string, direction: 'back' | 'forward'): Promise<void> { await this.adapter.history(tabId, direction); this.bump(tabId) }
-  async reload(tabId: string): Promise<void> { await this.adapter.reload(tabId); this.bump(tabId) }
+  async selectTab(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.activateTab(tabId)) }
+  async closeTab(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.closeTab(tabId)); this.versions.delete(tabId) }
+  async history(tabId: string, direction: 'back' | 'forward', context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.history(tabId, direction)); this.bump(tabId) }
+  async reload(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.reload(tabId)); this.bump(tabId) }
 
-  async inspect(tabId: string): Promise<BrowserInspectResult> {
-    const result = await this.withReadPermit(() => this.adapter.inspect(tabId))
+  async inspect(tabId: string, context?: BrowserCallContext): Promise<BrowserInspectResult> {
+    const result = await this.withReadPermit(() => this.adapter.inspect(tabId), context)
     return {
       title: clean(result.title, 500),
       url: safeDisplayUrl(result.url),
       text: clean(result.text, this.maxText),
+      textTruncated: result.text.length > this.maxText,
+      readyState: normalizeReadyState(result.readyState),
       meta: cleanMetadata(result.meta),
       outline: cleanOutline(result.outline),
+      outlineTruncated: result.outline.length > 200,
       pageVersion: this.version(tabId)
     }
   }
 
-  async find(tabId: string, locator: BrowserLocator): Promise<BrowserElementResult[]> {
+  async waitForPage(tabId: string, rawUrl: string, timeoutMs: number, context: BrowserCallContext): Promise<BrowserInspectResult> {
+    this.assertContext(context)
+    const expectedOrigin = new URL(safeWebUrl(rawUrl)).origin.toLowerCase()
+    const deadline = Math.min(context.deadline, Date.now() + Math.max(100, Math.min(timeoutMs, 30_000)))
+    while (Date.now() < deadline) {
+      const result = await this.inspect(tabId, { ...context, deadline })
+      let currentOrigin = ''
+      try { currentOrigin = new URL(result.url).origin.toLowerCase() } catch { /* still loading */ }
+      if (result.readyState === 'complete' && currentOrigin === expectedOrigin) return result
+      await pause(Math.min(100, Math.max(1, deadline - Date.now())), context.signal)
+    }
+    throw new Error('等待页面稳定超时')
+  }
+
+  async find(tabId: string, locator: BrowserLocator, context?: BrowserCallContext): Promise<BrowserElementResult[]> {
     if (!locator || !Object.values(locator).some((value) => typeof value === 'string' && value.trim())) throw new Error('元素定位条件无效')
     const version = this.version(tabId)
-    return (await this.withReadPermit(() => this.adapter.find(tabId, locator))).slice(0, 100).map((item) => {
+    return (await this.withReadPermit(() => this.adapter.find(tabId, locator), context)).slice(0, 100).map((item) => {
       const id = `element-${randomUUID()}`
       const ref: BrowserElementResult = {
         id, tabId, pageVersion: version, role: short(item.role), name: short(item.name), tag: short(item.tag),
-        visible: Boolean(item.visible), disabled: Boolean(item.disabled), bounds: item.bounds
+        visible: Boolean(item.visible), disabled: Boolean(item.disabled), sensitive: Boolean(item.sensitive),
+        highRisk: Boolean(item.highRisk), bounds: item.bounds
       }
       this.elements.set(id, { backendNodeId: item.backendNodeId, ref })
       return ref
@@ -108,6 +126,10 @@ export class BrowserGateway {
     const record = this.elements.get(reference.id)
     if (!record || record.ref.tabId !== reference.tabId || record.ref.pageVersion !== reference.pageVersion || reference.pageVersion !== this.version(reference.tabId)) {
       throw new Error('元素引用已过期，请重新定位')
+    }
+    if (action.type === 'type' && record.ref.sensitive) throw new Error('敏感字段必须由用户接管输入')
+    if (record.ref.highRisk && !['hover', 'scroll'].includes(action.type) && context.risk !== 'high') {
+      throw new Error('高风险网页动作必须使用确认工具并单次审批')
     }
     if (action.type === 'type' && sensitiveText(action.text)) throw new Error('疑似凭据或敏感内容，已阻止传给浏览器')
     const previous = this.writeQueues.get(reference.tabId) ?? Promise.resolve()
@@ -131,7 +153,7 @@ export class BrowserGateway {
     try { return await next } finally { if (this.writeQueues.get(source.tabId) === next) this.writeQueues.delete(source.tabId) }
   }
 
-  async screenshot(tabId: string, reference?: BrowserElementRef): Promise<Buffer> {
+  async screenshot(tabId: string, reference?: BrowserElementRef, context?: BrowserCallContext): Promise<Buffer> {
     let backendNodeId: number | undefined
     if (reference) {
       const record = this.elements.get(reference.id)
@@ -139,13 +161,13 @@ export class BrowserGateway {
       if (record.ref.pageVersion !== reference.pageVersion || reference.pageVersion !== this.version(tabId)) throw new Error('元素引用已过期，请重新定位')
       backendNodeId = record.backendNodeId
     }
-    const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId))
+    const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId), context)
     if (image.byteLength > 10 * 1024 * 1024) throw new Error('截图超过大小限制')
     return image
   }
 
-  async diagnostics(tabId: string): Promise<BrowserDiagnostics> {
-    const result = await this.withReadPermit(() => this.adapter.diagnostics(tabId))
+  async diagnostics(tabId: string, context?: BrowserCallContext): Promise<BrowserDiagnostics> {
+    const result = await this.withReadPermit(() => this.adapter.diagnostics(tabId), context)
     return {
       consoleErrors: result.consoleErrors.slice(-100).map((v) => clean(v, 1000)),
       failedRequests: result.failedRequests.slice(-100).map((v) => clean(v, 1000)),
@@ -180,10 +202,17 @@ export class BrowserGateway {
     })
   }
 
-  private async withReadPermit<T>(action: () => Promise<T>): Promise<T> {
+  private async withOptionalDeadline<T>(context: BrowserCallContext | undefined, action: () => Promise<T>): Promise<T> {
+    if (!context) return action()
+    this.assertContext(context)
+    return this.withDeadline(context, action)
+  }
+
+  private async withReadPermit<T>(action: () => Promise<T>, context?: BrowserCallContext): Promise<T> {
+    if (context) this.assertContext(context)
     if (this.activeReads >= this.maxConcurrentReads) await new Promise<void>((resolve) => this.readWaiters.push(resolve))
     this.activeReads += 1
-    try { return await action() }
+    try { return context ? await this.withDeadline(context, action) : await action() }
     finally {
       this.activeReads -= 1
       this.readWaiters.shift()?.()
@@ -216,3 +245,14 @@ function cleanOutline(value: BrowserSemanticNode[]): BrowserSemanticNode[] {
   }))
 }
 function finiteMetric(value: number): number { return Number.isFinite(value) && value > 0 ? Math.round(value) : 0 }
+function normalizeReadyState(value: string): BrowserInspectResult['readyState'] {
+  return value === 'complete' || value === 'interactive' ? value : 'loading'
+}
+function pause(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const finish = (): void => { signal?.removeEventListener('abort', aborted); resolve() }
+    const timer = setTimeout(finish, milliseconds)
+    const aborted = (): void => { clearTimeout(timer); signal?.removeEventListener('abort', aborted); reject(new Error('浏览器操作已取消')) }
+    signal?.addEventListener('abort', aborted, { once: true })
+  })
+}

@@ -11,10 +11,26 @@ describe('browser tools', () => {
     expect(tools.every((tool) => !('action' in tool.parameters.properties))).toBe(true)
     expect(tools.find((tool) => tool.name === 'browser.inspect')?.operation).toBe('browser.read')
     expect(tools.find((tool) => tool.name === 'browser.click')?.operation).toBe('browser.interact')
+    expect(tools.find((tool) => tool.name === 'browser.scroll')?.operation).toBe('browser.read')
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
-      'browser.doubleClick', 'browser.hover', 'browser.scroll', 'browser.screenshotElement'
+      'browser.doubleClick', 'browser.hover', 'browser.scroll', 'browser.screenshotElement', 'browser.waitForPage', 'browser.confirmClick'
     ]))
     expect(tools.find((tool) => tool.name === 'browser.screenshotElement')?.operation).toBe('browser.read')
+  })
+
+  it('uses a trusted high-risk context for confirmed consequential clicks', async () => {
+    const assertTabOrigin = vi.fn(async () => undefined)
+    const interact = vi.fn(async () => ({ ok: true }))
+    const confirmClick = createBrowserTools({ assertTabOrigin, interact } as never)
+      .find((tool) => tool.name === 'browser.confirmClick')!
+
+    await confirmClick.execute({
+      elementId: 'element-1', tabId: 'tab-1', pageVersion: 1, url: 'https://example.com/delete'
+    }, { callId: 'confirmed-call', signal: new AbortController().signal } as never)
+
+    expect(interact).toHaveBeenCalledWith(expect.anything(), { type: 'click' }, expect.objectContaining({
+      callId: 'confirmed-call', risk: 'high', source: 'agent'
+    }))
   })
 
   it('bounds every browser call so an unresponsive page cannot block the agent loop', async () => {
@@ -43,6 +59,26 @@ describe('browser tools', () => {
     await vi.advanceTimersByTimeAsync(1)
 
     expect(result).toMatchObject({ ok: false, error: { code: 'BROWSER_OPERATION_FAILED', message: '浏览器操作已取消' } })
+  })
+
+  it('passes trusted call context to both read and navigation gateway calls', async () => {
+    const listTabs = vi.fn(async () => [])
+    const navigate = vi.fn(async () => undefined)
+    const tools = createBrowserTools({ listTabs, navigate } as never)
+    const controller = new AbortController()
+    const context = { callId: 'browser-context-call', signal: controller.signal } as never
+
+    await tools.find((tool) => tool.name === 'browser.listTabs')!.execute({}, context)
+    await tools.find((tool) => tool.name === 'browser.navigate')!.execute({
+      tabId: 'tab-1', url: 'https://example.com'
+    }, context)
+
+    expect(listTabs).toHaveBeenCalledWith(expect.objectContaining({
+      callId: 'browser-context-call', source: 'agent', risk: 'low', signal: controller.signal
+    }))
+    expect(navigate).toHaveBeenCalledWith('tab-1', 'https://example.com', expect.objectContaining({
+      callId: 'browser-context-call', source: 'agent', risk: 'medium', signal: controller.signal
+    }))
   })
 
   it('rejects undeclared fields and values that do not match the closed tool schema', () => {

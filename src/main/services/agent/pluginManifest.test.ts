@@ -26,6 +26,13 @@ describe('readPluginManifest', () => {
     })
   })
 
+  it('recognizes the public Codex mcpServers component name', async () => {
+    const root = await fixture({
+      name: 'connected-tools', version: '1.0.0', description: 'Connected tools', mcpServers: './.mcp.json'
+    }, true)
+    await expect(readPluginManifest(root)).resolves.toMatchObject({ components: ['mcp'] })
+  })
+
   it('accepts the native manifest and rejects traversal in component paths', async () => {
     const valid = await fixture({
       schemaVersion: 1, id: 'acme.browser', name: 'Acme Browser', version: '1.0.0',

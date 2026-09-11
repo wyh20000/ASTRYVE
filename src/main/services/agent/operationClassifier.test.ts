@@ -82,5 +82,10 @@ describe('classifyOperation', () => {
     }, workspace, 'browser.click')).toMatchObject({
       type: 'browser', action: 'click', origin: 'https://example.com', write: true
     })
+    expect(classifyOperation('browser.interact', {
+      url: 'https://example.com/delete', tabId: 'tab-1'
+    }, workspace, 'browser.confirmClick')).toMatchObject({
+      type: 'browser', action: 'confirmclick', write: true, sensitive: true
+    })
   })
 })

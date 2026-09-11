@@ -96,4 +96,33 @@ describe('tool approval execution gate', () => {
     expect(approvalRequest?.scopeOptions).toEqual(['once'])
     expect(approvalRequest?.summary).toContain('LONG_RUNNING_COMMAND_REQUIRES_APPROVAL')
   })
+
+  it.each(['browser.confirmClick', 'browser.history'])(
+    'only offers one-shot approval for %s',
+    async (toolName) => {
+      let approvalRequest: ApprovalRequest | undefined
+      const guard = new ToolAuthorization(async (request) => {
+        approvalRequest = request
+        return 'once'
+      })
+      const context: ToolExecutionContext = {
+        taskId: 'task-browser', callId: `call-${toolName}`,
+        workspace: { id: 'workspace-1', rootPath: path.resolve('fixture'), realRootPath: path.resolve('fixture'), createdAt: 1 },
+        environment: 'local', permissionMode: 'smart-approval', signal: new AbortController().signal
+      }
+      const invocation: ToolInvocation = {
+        taskId: context.taskId, callId: context.callId, workspaceId: context.workspace.id,
+        environment: 'local', permissionMode: 'smart-approval', toolName,
+        args: { tabId: 'tab-1', url: 'https://example.com/account' }
+      }
+      const definition: ToolDefinition = {
+        name: toolName, operation: 'browser.interact', description: toolName,
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        validateArgs: (value): value is unknown => Boolean(value), execute: async () => ({ ok: true })
+      }
+
+      await expect(guard.authorize(invocation, context, definition)).resolves.toBe(true)
+      expect(approvalRequest?.scopeOptions).toEqual(['once'])
+    }
+  )
 })

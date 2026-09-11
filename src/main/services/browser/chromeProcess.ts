@@ -9,6 +9,7 @@ interface ChromeDependencies {
   exists: (path: string) => boolean
   spawn: typeof spawn
   waitForEndpoint: (profile: string, signal: AbortSignal) => Promise<string>
+  killTree?: (child: ChildProcess) => void
 }
 
 export class ChromeProcessManager {
@@ -35,7 +36,7 @@ export class ChromeProcessManager {
     const child = this.deps.spawn(executable, [
       '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${this.profilePath}`,
       '--no-first-run', '--no-default-browser-check', '--disable-background-mode', 'about:blank'
-    ], { shell: false, windowsHide: false, stdio: 'ignore' })
+    ], { shell: false, windowsHide: false, stdio: 'ignore', env: chromeEnvironment(process.env) })
     this.child = child
     this.executable = executable
     const controller = new AbortController()
@@ -48,7 +49,10 @@ export class ChromeProcessManager {
   }
 
   stop(): BrowserStatus {
-    this.child?.kill()
+    if (this.child) {
+      if (this.deps.killTree) this.deps.killTree(this.child)
+      else this.child.kill()
+    }
     this.child = undefined
     this.endpoint = undefined
     return this.status()
@@ -67,6 +71,14 @@ export class ChromeProcessManager {
   getEndpoint(): string | undefined { return this.endpoint }
 }
 
+function chromeEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...source }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ELECTRON_NO_ASAR
+  delete env.NODE_OPTIONS
+  return env
+}
+
 export function chromeCandidates(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
   if (platform === 'win32') return [
     env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -78,7 +90,18 @@ export function chromeCandidates(platform: NodeJS.Platform, env: NodeJS.ProcessE
 }
 
 function defaults(): ChromeDependencies {
-  return { platform: process.platform, exists: existsSync, spawn, waitForEndpoint }
+  return {
+    platform: process.platform, exists: existsSync, spawn, waitForEndpoint,
+    killTree: (child) => killChromeTree(child, process.platform)
+  }
+}
+
+function killChromeTree(child: ChildProcess, platform: NodeJS.Platform): void {
+  if (platform !== 'win32' || !child.pid) { child.kill(); return }
+  const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/T', '/F'], {
+    shell: false, windowsHide: true, stdio: 'ignore', env: chromeEnvironment(process.env)
+  })
+  killer.once('error', () => child.kill())
 }
 
 async function waitForEndpoint(profile: string, signal: AbortSignal): Promise<string> {

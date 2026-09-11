@@ -64,8 +64,20 @@ export interface PluginTaskTools {
   dispose: () => Promise<void>
 }
 
+export interface PluginTaskWorker extends PluginToolWorker {
+  stop(reason?: string): Promise<void>
+}
+
+export type PluginTaskWorkerFactory = (
+  rootPath: string,
+  manifest: ParsedPluginManifest
+) => PluginTaskWorker
+
 /** Captures enabled plugin code and schemas for one task. Later installs/toggles cannot mutate it. */
-export async function capturePluginTaskTools(requestedIds?: readonly string[]): Promise<PluginTaskTools> {
+export async function capturePluginTaskTools(
+  requestedIds?: readonly string[],
+  createWorker: PluginTaskWorkerFactory = (rootPath, manifest) => new LazyPluginWorker(rootPath, manifest)
+): Promise<PluginTaskTools> {
   const root = getInstalledPluginRoot()
   await mkdir(root, { recursive: true })
   const disabled = getDisabledPluginIds()
@@ -89,11 +101,11 @@ export async function capturePluginTaskTools(requestedIds?: readonly string[]): 
     if (missing.length) throw new Error(`插件不可用：${missing.map((id) => `@${id}`).join('、')}`)
   }
   packages.sort((a, b) => a.manifest.id.localeCompare(b.manifest.id))
-  const workers: Array<{ worker: LazyPluginWorker; unregister: () => void }> = []
+  const workers: Array<{ worker: PluginTaskWorker; unregister: () => void }> = []
   const tools: ToolDefinition<any, any>[] = []
   const versions: Record<string, string | undefined> = {}
   for (const item of packages) {
-    const worker = new LazyPluginWorker(item.rootPath, item.manifest)
+    const worker = createWorker(item.rootPath, item.manifest)
     const pluginTools = createPluginTools(item.manifest, worker, {
       succeeded: () => clearPluginFailure(item.manifest.id),
       failed: () => {

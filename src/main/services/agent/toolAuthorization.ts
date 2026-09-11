@@ -37,11 +37,13 @@ export class ToolAuthorization {
       ? await definition.approvalSummary(invocation.args, context)
       : decision.summary
     const websiteApproval = target.type === 'browser' && target.origin !== 'browser://local'
+    const oneShotBrowserApproval = target.type === 'browser' &&
+      (target.sensitive || target.action === 'history' || target.action === 'confirmclick')
     const request = createApprovalRequest(binding, {
       ...decision, summary: `${trustedSummary}（${decision.reasonCode}）`
     }, {
       scopeOptions: reusableCommand && binding.commandPrefix
-        ? ['once', 'task-prefix'] : websiteApproval ? ['once', 'site'] : ['once']
+        ? ['once', 'task-prefix'] : websiteApproval && !oneShotBrowserApproval ? ['once', 'site'] : ['once']
     })
     this.approvals.create(request)
     const controller = new AbortController()
@@ -57,6 +59,7 @@ export class ToolAuthorization {
     try {
       const scope = await Promise.race([this.prompt(request, controller.signal), cancelled])
       if (context.signal.aborted || controller.signal.aborted) return false
+      if (scope && !request.scopeOptions.includes(scope)) return false
       const grant = this.approvals.decide({ requestId: request.id,
         outcome: scope ? 'approved' : 'denied', scope, decidedAt: Date.now() })
       if (!grant) return false

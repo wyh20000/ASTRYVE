@@ -20,8 +20,11 @@ export interface BrowserInspectResult {
   title: string
   url: string
   text: string
+  textTruncated: boolean
+  readyState: 'loading' | 'interactive' | 'complete'
   meta: Record<string, string>
   outline: BrowserSemanticNode[]
+  outlineTruncated: boolean
   pageVersion: number
 }
 export interface BrowserSemanticNode { role?: string; name?: string; tag: string; disabled: boolean }
@@ -42,5 +45,7 @@ export interface BrowserElementResult extends BrowserElementRef {
   tag?: string
   visible: boolean
   disabled: boolean
+  sensitive?: boolean
+  highRisk?: boolean
   bounds?: { x: number; y: number; width: number; height: number }
 }

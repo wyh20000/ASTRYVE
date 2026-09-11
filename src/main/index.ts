@@ -90,6 +90,30 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.AI_AGENT_PLUGIN_SMOKE === '1') {
+    try {
+      const { runPluginRuntimeSmoke } = await import('./services/agent/pluginRuntimeSmoke')
+      await runPluginRuntimeSmoke()
+      console.log('PASS: market download, validation, install, task capture, isolated worker invocation and stop')
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: market plugin runtime smoke', error)
+      app.exit(1)
+    }
+    return
+  }
+  if (process.env.AI_AGENT_BROWSER_SMOKE === '1') {
+    try {
+      const { runManagedBrowserSmoke } = await import('./services/browser/browserSmoke')
+      await runManagedBrowserSmoke()
+      console.log('PASS: managed Chrome start, open URL, inspect, find, interact, screenshot and stop')
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: managed Chrome smoke', error)
+      app.exit(1)
+    }
+    return
+  }
   if (process.env.AI_AGENT_DOCKER_EXECUTION_SMOKE === '1') {
     try {
       const { runDockerExecutionSmoke } = await import('./services/agent/dockerExecutionSmoke')

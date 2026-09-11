@@ -364,8 +364,8 @@ export interface PluginMarketEntry {
   sourceName: string
   sourceKind: PluginMarketSourceKind
   verified: boolean
-  packageUrl: string
-  sha256: string
+  packageUrl?: string
+  sha256?: string
   signature?: string
   signingKeyId?: string
   signingPublicKey?: string
@@ -375,6 +375,16 @@ export interface PluginMarketEntry {
   minAppVersion?: string
   platforms: string[]
   architectures: string[]
+  capabilities?: string[]
+  components?: PluginComponent[]
+  installable?: boolean
+  unavailableReason?: string
+  repository?: {
+    owner: string
+    repo: string
+    ref: string
+    path: string
+  }
 }
 export interface PluginMarketplaceSnapshot {
   sources: PluginMarketSource[]

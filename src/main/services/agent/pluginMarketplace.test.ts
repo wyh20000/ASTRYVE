@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { PluginMarketplace, parseMarketplaceIndex } from './pluginMarketplace'
+import { CODEX_OFFICIAL_SOURCE_ID, PluginMarketplace, parseMarketplaceIndex } from './pluginMarketplace'
 
 const packageBytes = Buffer.from('plugin archive')
 const digest = createHash('sha256').update(packageBytes).digest('hex')
@@ -49,7 +49,7 @@ describe('plugin marketplace', () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(index), { status: 200 }))
       .mockRejectedValueOnce(new Error('offline'))
-    const market = new PluginMarketplace(root, fetcher)
+    const market = new PluginMarketplace(root, fetcher, { includeOfficial: false })
     const source = await market.addSource({ name: 'Acme', url: 'https://example.com/index.json' })
     const first = await market.syncSource(source.id)
     expect(first.entries).toHaveLength(1)
@@ -63,10 +63,35 @@ describe('plugin marketplace', () => {
     const root = await mkdtemp(join(tmpdir(), 'plugin-market-key-'))
     const { publicKey } = generateKeyPairSync('ed25519')
     const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-    const market = new PluginMarketplace(root)
+    const market = new PluginMarketplace(root, fetch, { includeOfficial: false })
     const source = await market.addSource({ name: 'Signed', url: 'https://example.com/index.json', signingKeyId: 'key-1', signingPublicKey: pem })
     expect(source).toMatchObject({ signingKeyId: 'key-1', signingPublicKey: pem })
     expect(() => parseMarketplaceIndex({ ...index, plugins: [{ ...index.plugins[0], signature: 'AA==', signingKeyId: 'other' }] }, source))
       .toThrow('匹配的来源公钥')
+  })
+
+  it('ships and synchronizes the verified Codex official source by default', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'plugin-market-official-'))
+    const commit = 'a'.repeat(40)
+    const catalog = { name: 'openai-curated', plugins: [{
+      name: 'docs-helper', source: { source: 'local', path: './plugins/docs-helper' }, category: 'Developer Tools'
+    }] }
+    const manifest = {
+      name: 'docs-helper', version: '1.2.3', description: 'Use official documentation',
+      author: { name: 'OpenAI' }, skills: './skills/', interface: { displayName: 'Docs Helper', capabilities: ['Read'] }
+    }
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(catalog), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: commit }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(manifest), { status: 200 }))
+    const market = new PluginMarketplace(root, fetcher)
+    const snapshot = await market.snapshot()
+    expect(snapshot.sources[0]).toMatchObject({ id: CODEX_OFFICIAL_SOURCE_ID, kind: 'official', verified: true, enabled: true })
+    expect(snapshot.entries[0]).toMatchObject({
+      id: 'docs-helper', name: 'Docs Helper', version: '1.2.3', verified: true, installable: true,
+      capabilities: ['Read'], components: ['skills'], repository: { ref: commit, path: 'plugins/docs-helper' }
+    })
+    await expect(market.removeSource(CODEX_OFFICIAL_SOURCE_ID)).rejects.toThrow('不能删除')
+    await expect(market.setSourceEnabled(CODEX_OFFICIAL_SOURCE_ID, false)).rejects.toThrow('不能禁用')
   })
 })
