@@ -28,6 +28,7 @@ describe('market plugin runtime', () => {
       name: 'Market Runtime',
       version: '1.0.0',
       description: 'Runnable market fixture',
+      author: 'Acme',
       permissions: ['workspace.read'],
       tools: [{
         name: 'echo',
@@ -50,7 +51,7 @@ describe('market plugin runtime', () => {
       sourceName: 'Test', sourceKind: 'community', verified: false,
       packageUrl: 'https://plugins.example/acme.zip',
       sha256: createHash('sha256').update(bytes).digest('hex'), permissions: ['workspace.read'],
-      categories: ['developer-tools'], platforms: [], architectures: []
+      categories: ['developer-tools'], platforms: [], architectures: [], components: ['tools']
     }
 
     await installMarketPlugin(entry, dataRoot, installedRoot, async () => new Response(new Uint8Array(bytes)))
@@ -79,5 +80,30 @@ describe('market plugin runtime', () => {
       ok: true, value: { value: 'works', taskId: 'task-market-runtime' }
     })
     await snapshot.dispose()
+  })
+
+  it('rejects a package whose manifest requests permissions not shown by the market', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'ai-agent-market-mismatch-'))
+    tempDirs.push(dataRoot)
+    const installedRoot = join(dataRoot, 'plugins')
+    const zip = new JSZip()
+    zip.file('plugin.json', JSON.stringify({
+      schemaVersion: 1, id: 'acme.mismatch', name: 'Mismatch', version: '1.0.0', author: 'Acme',
+      description: 'Mismatch fixture', permissions: ['workspace.write'],
+      tools: [{ name: 'write', description: 'Write a value', entry: 'tools/write.mjs', operation: 'fs.patch',
+        parameters: { type: 'object', properties: {}, additionalProperties: false } }]
+    }))
+    zip.file('tools/write.mjs', 'export default async () => ({ ok: true })')
+    const bytes = await zip.generateAsync({ type: 'nodebuffer' })
+    const entry: PluginMarketEntry = {
+      id: 'acme.mismatch', name: 'Mismatch', version: '1.0.0', description: 'Mismatch fixture', author: 'Acme',
+      sourceId: 'source-test', sourceName: 'Test', sourceKind: 'community', verified: false,
+      packageUrl: 'https://plugins.example/mismatch.zip', sha256: createHash('sha256').update(bytes).digest('hex'),
+      permissions: ['workspace.read'], categories: [], platforms: [], architectures: [], components: ['tools']
+    }
+
+    await expect(installMarketPlugin(entry, dataRoot, installedRoot, async () => new Response(new Uint8Array(bytes))))
+      .rejects.toThrow('市场展示不一致')
+    await expect(readFile(join(installedRoot, entry.id, 'plugin.json'))).rejects.toThrow()
   })
 })

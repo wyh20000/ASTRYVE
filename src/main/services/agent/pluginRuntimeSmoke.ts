@@ -15,7 +15,7 @@ export async function runPluginRuntimeSmoke(): Promise<void> {
     const zip = new JSZip()
     zip.file('plugin.json', JSON.stringify({
       schemaVersion: 1, id: 'smoke.market-plugin', name: 'Smoke market plugin', version: '1.0.0',
-      description: 'Verifies the real isolated plugin worker', permissions: ['workspace.read'],
+      description: 'Verifies the real isolated plugin worker', author: 'AI Agent', permissions: ['workspace.read'],
       tools: [{
         name: 'echo', description: 'Echo smoke input', entry: 'tools/echo.mjs', operation: 'fs.read',
         parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false }
@@ -27,7 +27,7 @@ export async function runPluginRuntimeSmoke(): Promise<void> {
       id: 'smoke.market-plugin', name: 'Smoke market plugin', version: '1.0.0', description: 'Smoke', author: 'AI Agent',
       sourceId: 'source-smoke', sourceName: 'Smoke', sourceKind: 'community', verified: false,
       packageUrl: 'https://plugins.invalid/smoke.zip', sha256: createHash('sha256').update(bytes).digest('hex'),
-      permissions: ['workspace.read'], categories: ['test'], platforms: [], architectures: []
+      permissions: ['workspace.read'], categories: ['test'], platforms: [], architectures: [], components: ['tools']
     }
     await installMarketPlugin(entry, dataRoot, join(dataRoot, 'plugins'), async () => new Response(new Uint8Array(bytes)))
     initPluginRegistry(dataRoot)

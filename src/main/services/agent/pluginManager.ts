@@ -9,12 +9,15 @@ import { PluginWorkerHost } from './pluginWorker'
 import { createPluginTools, type PluginToolWorker } from './pluginTools'
 import { clearPluginFailure, isPluginQuarantined, recordPluginFailure, recoverPluginHealth, resetPluginHealth } from './pluginHealth'
 import { PluginRuntimeRegistry } from './pluginRuntimeRegistry'
+import { loadPluginMarketOrigins } from './pluginProvenance'
 
 let registry: PluginRegistry | undefined
 let installedRoot: string | undefined
+let pluginDataRoot: string | undefined
 const activeRuntimes = new PluginRuntimeRegistry()
 
 export function initPluginRegistry(userDataPath: string): void {
+  pluginDataRoot = userDataPath
   installedRoot = join(userDataPath, 'plugins')
   registry = new PluginRegistry(installedRoot, getDisabledPluginIds)
 }
@@ -26,10 +29,15 @@ export function getInstalledPluginRoot(): string {
 
 export async function listPlugins(): Promise<PluginMetadata[]> {
   if (!registry) throw new Error('Plugin registry not initialized')
-  return (await registry.list()).map((plugin) => isPluginQuarantined(plugin.id) ? {
-    ...plugin, enabled: false, status: 'quarantined' as const,
-    errors: ['插件连续启动或执行失败，已自动隔离；重新启动应用后可重试']
-  } : plugin)
+  const origins = pluginDataRoot ? await loadPluginMarketOrigins(pluginDataRoot) : {}
+  return (await registry.list()).map((plugin) => {
+    const origin = origins[plugin.id]
+    const metadata = origin && origin.pluginVersion === plugin.version ? { ...plugin, marketOrigin: origin } : plugin
+    return isPluginQuarantined(plugin.id) ? {
+      ...metadata, enabled: false, status: 'quarantined' as const,
+      errors: ['插件连续启动或执行失败，已自动隔离；重新启动应用后可重试']
+    } : metadata
+  })
 }
 
 export async function listEnabledPluginSkillRoots(): Promise<Array<{

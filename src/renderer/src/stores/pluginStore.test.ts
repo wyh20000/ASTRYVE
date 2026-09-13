@@ -10,7 +10,7 @@ const plugin: PluginMetadata = {
 
 describe('pluginStore', () => {
   beforeEach(() => {
-    usePluginStore.setState({ items: [], loading: false, error: undefined })
+    usePluginStore.setState({ items: [], marketEntries: [], marketSources: [], loading: false, mutating: false, error: undefined })
   })
 
   it('loads only plugin metadata returned by the trusted preload API', async () => {
@@ -41,5 +41,40 @@ describe('pluginStore', () => {
     expect(accepted).toBe(true)
     expect(importLocal).toHaveBeenCalledWith({ kind: 'zip' })
     expect(usePluginStore.getState().items).toEqual([plugin])
+  })
+
+  it('refreshes the installed list after a rollback and exposes lifecycle errors', async () => {
+    const restored = { ...plugin, version: '0.9.0', enabled: false }
+    const rollback = vi.fn().mockResolvedValue({ ok: true, data: [restored] })
+    const backups = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [{ pluginId: plugin.id, version: '0.9.0', createdAt: 1 }]
+    })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { agent: { plugins: { rollback, backups } } }
+    })
+
+    await expect(usePluginStore.getState().loadBackups(plugin.id)).resolves.toHaveLength(1)
+    await expect(usePluginStore.getState().rollback(plugin.id, '0.9.0')).resolves.toBe(true)
+    expect(rollback).toHaveBeenCalledWith({ id: plugin.id, version: '0.9.0' })
+    expect(usePluginStore.getState().items).toEqual([restored])
+  })
+
+  it('releases the busy state and retains installed plugins when rollback fails', async () => {
+    const rollback = vi.fn().mockResolvedValue({ ok: false, error: { code: 'ERR', message: '回滚失败' } })
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { agent: { plugins: { rollback } } } })
+    usePluginStore.setState({ items: [plugin] })
+    await expect(usePluginStore.getState().rollback(plugin.id, '0.9.0')).resolves.toBe(false)
+    expect(usePluginStore.getState()).toMatchObject({ items: [plugin], mutating: false, error: '回滚失败' })
+  })
+
+  it('synchronizes the installed list after a market install', async () => {
+    const installed = { ...plugin, enabled: false }
+    const installMarket = vi.fn().mockResolvedValue({ ok: true, data: [installed] })
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { agent: { plugins: { installMarket } } } })
+    await expect(usePluginStore.getState().installMarket('official', plugin.id, plugin.version!)).resolves.toBe(true)
+    expect(installMarket).toHaveBeenCalledWith({ sourceId: 'official', id: plugin.id, version: plugin.version })
+    expect(usePluginStore.getState()).toMatchObject({ items: [installed], mutating: false, error: undefined })
   })
 })

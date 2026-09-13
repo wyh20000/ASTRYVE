@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMetadata } from '@shared/types'
+import type { PluginBackup, PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMetadata } from '@shared/types'
 
 interface PluginState {
   items: PluginMetadata[]
@@ -19,6 +19,8 @@ interface PluginState {
   syncSource: (id: string) => Promise<void>
   installMarket: (sourceId: string, id: string, version: string) => Promise<boolean>
   uninstall: (id: string) => Promise<void>
+  loadBackups: (id: string) => Promise<PluginBackup[]>
+  rollback: (id: string, version: string) => Promise<boolean>
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
@@ -83,5 +85,17 @@ export const usePluginStore = create<PluginState>((set) => ({
     const result = await window.agent.plugins.uninstall({ id })
     if (result.ok) set({ items: result.data, error: undefined })
     else set({ error: result.error.message })
+  },
+  loadBackups: async (id) => {
+    const result = await window.agent.plugins.backups({ id })
+    if (result.ok) return result.data
+    set({ error: result.error.message })
+    return []
+  },
+  rollback: async (id, version) => {
+    set({ mutating: true, error: undefined })
+    const result = await window.agent.plugins.rollback({ id, version })
+    if (result.ok) { set({ items: result.data, mutating: false }); return true }
+    set({ error: result.error.message, mutating: false }); return false
   }
 }))

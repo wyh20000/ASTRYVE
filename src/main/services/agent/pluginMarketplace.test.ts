@@ -14,7 +14,8 @@ const index = {
   plugins: [{
     id: 'acme.browser', name: 'Acme Browser', version: '1.2.0', description: 'Inspect pages',
     author: 'Acme', packageUrl: 'https://example.com/acme.zip', sha256: digest,
-    permissions: ['browser.read'], categories: ['browser'], changelog: 'Safer inspection',
+    permissions: ['browser.read'], categories: ['browser'], changelog: 'Safer inspection', recommended: true,
+    capabilities: ['Inspect'], components: ['tools'], dataTargets: ['当前标签页'],
     minAppVersion: '0.1.0', platforms: ['win32'], architectures: ['x64']
   }]
 }
@@ -27,13 +28,44 @@ describe('plugin marketplace', () => {
     })
     expect(parsed[0]).toMatchObject({ id: 'acme.browser', sourceId: 'community', verified: false })
     expect(parsed[0].permissions).toEqual(['browser.read'])
+    expect(parsed[0]).toMatchObject({
+      recommended: false,
+      capabilities: ['Inspect'],
+      components: ['tools'],
+      dataTargets: ['当前标签页']
+    })
   })
+
+  it('keeps legacy schema-v1 entries browsable but blocks install when component metadata is absent', () => {
+    const source = { id: 'legacy', name: 'Legacy', kind: 'community' as const, url: 'https://example.com/index.json', enabled: true, verified: false }
+    const legacy = { ...index.plugins[0] } as Record<string, unknown>
+    delete legacy.components
+    const parsed = parseMarketplaceIndex({ ...index, plugins: [legacy] }, source)
+    expect(parsed[0]).toMatchObject({ components: undefined, installable: false })
+    expect(parsed[0].unavailableReason).toContain('组件声明')
+  })
+
+  it.each([
+    { components: ['mcp'] }, { components: ['hooks'] }, { components: ['tools', 'hooks'] }
+  ] as Array<{ components: Array<'mcp' | 'hooks' | 'tools'> }>)(
+    'keeps unsupported community component set $components visible but non-installable',
+    ({ components }) => {
+      const source = { id: 'community', name: 'Community', kind: 'community' as const, url: 'https://example.com/index.json', enabled: true, verified: false }
+      const raw = { ...index.plugins[0], components: [...components] }
+      const parsed = parseMarketplaceIndex({ ...index, plugins: [raw] }, source)
+      expect(parsed[0].components).toEqual(expect.arrayContaining(components))
+      expect(parsed[0]).toMatchObject({ installable: false })
+      expect(parsed[0].unavailableReason).toContain('Skills 或工具')
+    }
+  )
 
   it('rejects unsafe URLs, duplicate releases and invalid digests', () => {
     const source = { id: 'x', name: 'X', kind: 'github' as const, url: 'https://example.com/index.json', enabled: true, verified: false }
     expect(() => parseMarketplaceIndex({ ...index, plugins: [{ ...index.plugins[0], packageUrl: 'http://example.com/a.zip' }] }, source)).toThrow('HTTPS')
     expect(() => parseMarketplaceIndex({ ...index, plugins: [{ ...index.plugins[0], sha256: 'bad' }] }, source)).toThrow('摘要')
     expect(() => parseMarketplaceIndex({ ...index, plugins: [index.plugins[0], index.plugins[0]] }, source)).toThrow('重复')
+    expect(() => parseMarketplaceIndex({ ...index, plugins: [{ ...index.plugins[0], signature: undefined, signingKeyId: 'spoofed' }] }, source))
+      .toThrow('签名标识')
   })
 
   it('rejects malformed, future and stale marketplace indexes', () => {
@@ -78,7 +110,8 @@ describe('plugin marketplace', () => {
     }] }
     const manifest = {
       name: 'docs-helper', version: '1.2.3', description: 'Use official documentation',
-      author: { name: 'OpenAI' }, skills: './skills/', interface: { displayName: 'Docs Helper', capabilities: ['Read'] }
+      author: { name: 'OpenAI' }, skills: './skills/', permissions: ['workspace.read'],
+      interface: { displayName: 'Docs Helper', capabilities: ['Read'] }
     }
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(catalog), { status: 200 }))
@@ -89,7 +122,7 @@ describe('plugin marketplace', () => {
     expect(snapshot.sources[0]).toMatchObject({ id: CODEX_OFFICIAL_SOURCE_ID, kind: 'official', verified: true, enabled: true })
     expect(snapshot.entries[0]).toMatchObject({
       id: 'docs-helper', name: 'Docs Helper', version: '1.2.3', verified: true, installable: true,
-      capabilities: ['Read'], components: ['skills'], repository: { ref: commit, path: 'plugins/docs-helper' }
+      permissions: ['workspace.read'], capabilities: ['Read'], components: ['skills'], repository: { ref: commit, path: 'plugins/docs-helper' }
     })
     await expect(market.removeSource(CODEX_OFFICIAL_SOURCE_ID)).rejects.toThrow('不能删除')
     await expect(market.setSourceEnabled(CODEX_OFFICIAL_SOURCE_ID, false)).rejects.toThrow('不能禁用')

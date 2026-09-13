@@ -1,16 +1,31 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PluginMetadata, SkillMetadata } from '@shared/types'
-import { ExtensionsSection, filterPlugins, PluginSection, SecuritySection, SkillsSection } from './SettingsPage'
+import type { PluginMarketEntry, PluginMetadata, SkillMetadata } from '@shared/types'
+import {
+  describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
+  listMarketplaceCategories, PluginMarketDetails, PluginSection, SecuritySection, SkillsSection
+} from './SettingsPage'
 
 const skillState = vi.hoisted(() => ({
   items: [] as SkillMetadata[], catalog: [], loading: false, mutating: false, error: undefined as string | undefined,
   load: vi.fn(), loadCatalog: vi.fn(), install: vi.fn(), importLocal: vi.fn(), uninstall: vi.fn(), setEnabled: vi.fn()
 }))
 const pluginState = vi.hoisted(() => ({
-  items: [] as PluginMetadata[], loading: false, mutating: false, error: undefined as string | undefined,
-  load: vi.fn(), importLocal: vi.fn(), setEnabled: vi.fn()
+  items: [] as PluginMetadata[], marketEntries: [] as PluginMarketEntry[], marketSources: [],
+  loading: false, mutating: false, error: undefined as string | undefined,
+  load: vi.fn(), importLocal: vi.fn(), setEnabled: vi.fn(), recover: vi.fn(), loadMarketplace: vi.fn(),
+  addSource: vi.fn(), setSourceEnabled: vi.fn(), removeSource: vi.fn(), syncSource: vi.fn(),
+  installMarket: vi.fn(), uninstall: vi.fn(), loadBackups: vi.fn(), rollback: vi.fn()
 }))
+
+const marketEntry: PluginMarketEntry = {
+  id: 'acme.browser', name: 'Acme Browser', version: '2.0.0', description: '审查当前浏览器页面',
+  author: 'Acme', sourceId: 'official', sourceName: 'Codex official', sourceKind: 'official', verified: true,
+  permissions: ['browser.read', 'browser.interact'], categories: ['浏览器'], changelog: '新增安全点击',
+  minAppVersion: '0.1.0', platforms: ['win32'], architectures: ['x64'], recommended: true,
+  capabilities: ['Inspect', 'Click'], components: ['tools'], dataTargets: ['当前标签页'], installable: true,
+  signingKeyId: 'acme-key-v2'
+}
 
 vi.mock('../../stores/skillStore', () => ({
   useSkillStore: (selector: (state: typeof skillState) => unknown) => selector(skillState)
@@ -36,6 +51,7 @@ beforeEach(() => {
   skillState.loading = false
   skillState.error = undefined
   pluginState.items = []
+  pluginState.marketEntries = []
   pluginState.loading = false
   pluginState.mutating = false
   pluginState.error = undefined
@@ -120,6 +136,63 @@ describe('Extensions settings page', () => {
     expect(html).toContain('清单无效')
     expect(html).toContain('插件清单不是有效 JSON')
     expect(html).toContain('disabled=""')
+  })
+
+  it('filters the market by discovery scope, category and searchable capability metadata', () => {
+    const community = {
+      ...marketEntry, id: 'community.writer', name: 'Writer', sourceId: 'community', sourceName: 'Community Hub',
+      sourceKind: 'community' as const, verified: false, recommended: false, categories: ['写作'], capabilities: ['Draft']
+    }
+    expect(filterMarketplaceEntries([marketEntry, community], { scope: 'recommended', category: 'all', query: '' }))
+      .toEqual([marketEntry])
+    expect(filterMarketplaceEntries([marketEntry, community], { scope: 'community', category: '写作', query: 'draft' }))
+      .toEqual([community])
+    expect(listMarketplaceCategories([community, marketEntry])).toEqual(['浏览器', '写作'])
+  })
+
+  it('flags permission and publisher changes before an update', () => {
+    const installed: PluginMetadata = {
+      id: marketEntry.id, name: marketEntry.name, version: '1.0.0', description: marketEntry.description,
+      source: 'installed', sourceFormat: 'native', enabled: false, status: 'ready',
+      permissions: ['browser.read'], capabilities: ['Inspect'], components: ['tools'], errors: [],
+      marketOrigin: { pluginVersion: '1.0.0', sourceId: 'legacy-source', sourceName: 'Legacy', sourceKind: 'community', verified: false, publisherId: 'key-v1' }
+    }
+    const rewrittenRelease: PluginMarketEntry = { ...marketEntry, version: '1.0.0', permissions: ['browser.read'] }
+    const risk = describePluginInstallRisk(marketEntry, installed, [rewrittenRelease, marketEntry])
+    expect(risk).toMatchObject({
+      mode: 'update', addedPermissions: ['browser.interact'], sourceChanged: true,
+      signingChanged: true, requiresFreshApproval: true
+    })
+    expect(describePluginInstallRisk({ ...marketEntry, version: '0.9.0' }, installed, [marketEntry]).mode).toBe('older')
+  })
+
+  it('renders a complete keyboard-accessible plugin detail and update summary', () => {
+    const installed: PluginMetadata = {
+      id: marketEntry.id, name: marketEntry.name, version: '1.0.0', description: marketEntry.description,
+      source: 'installed', sourceFormat: 'native', enabled: false, status: 'ready',
+      permissions: ['browser.read'], capabilities: ['Inspect'], components: ['tools'], errors: [],
+      marketOrigin: { pluginVersion: '1.0.0', sourceId: marketEntry.sourceId, sourceName: marketEntry.sourceName, sourceKind: 'official', verified: true, publisherId: 'key-v1' }
+    }
+    const html = renderToStaticMarkup(<PluginMarketDetails entry={marketEntry} installed={installed}
+      releases={[{ ...marketEntry, version: '1.0.0', permissions: ['browser.read'], signingKeyId: 'acme-key-v1' }, marketEntry]}
+      onClose={vi.fn()} onConfirm={vi.fn()} mutating={false} />)
+    expect(html).toContain('aria-modal="true"')
+    expect(html).toContain('autofocus=""')
+    expect(html).toContain('新增安全点击')
+    expect(html).toContain('当前标签页')
+    expect(html).toContain('浏览器交互')
+    expect(html).toContain('发布者签名已变化')
+    expect(html).toContain('更新并重新确认')
+  })
+
+  it('contains tab focus inside the plugin detail drawer', () => {
+    const first = { focus: vi.fn() }
+    const last = { focus: vi.fn() }
+    const root = { querySelectorAll: vi.fn().mockReturnValue([first, last]) }
+    const event = { key: 'Tab', shiftKey: false, preventDefault: vi.fn(), target: last }
+    trapPluginDialogFocus(event, root)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(first.focus).toHaveBeenCalledOnce()
   })
 })
 

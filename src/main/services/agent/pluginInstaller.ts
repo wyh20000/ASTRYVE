@@ -4,8 +4,8 @@ import {
 } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path'
 import JSZip, { type JSZipObject } from 'jszip'
-import type { PluginMetadata } from '../../../shared/types'
-import { readPluginManifest } from './pluginManifest'
+import type { PluginComponent, PluginMetadata, PluginPermission } from '../../../shared/types'
+import { readPluginManifest, type ParsedPluginManifest } from './pluginManifest'
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
 const MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -16,7 +16,15 @@ const FORBIDDEN_DIRECTORIES = new Set(['.git', 'node_modules'])
 const NATIVE_EXECUTABLES = new Set(['.exe', '.dll', '.node', '.msi', '.com', '.scr'])
 
 interface ImportBudget { files: number; entries: number; bytes: number }
-interface PluginImportExpectations { expectedId?: string; expectedVersion?: string }
+export interface PluginImportExpectations {
+  expectedId?: string
+  expectedVersion?: string
+  expectedAuthor?: string
+  expectedPermissions?: PluginPermission[]
+  expectedCapabilities?: string[]
+  expectedComponents?: PluginComponent[]
+  beforeReplace?: (manifest: ParsedPluginManifest) => Promise<void>
+}
 
 export async function importPluginPackage(
   installedRoot: string,
@@ -42,6 +50,13 @@ export async function importPluginPackage(
         (expectations.expectedVersion && parsed.version !== expectations.expectedVersion)) {
       throw new Error('下载包身份与市场索引不一致')
     }
+    if ((expectations.expectedAuthor && parsed.author !== expectations.expectedAuthor) ||
+        (expectations.expectedPermissions && !sameStrings(parsed.permissions, expectations.expectedPermissions)) ||
+        (expectations.expectedCapabilities && !sameStrings(parsed.capabilities, expectations.expectedCapabilities)) ||
+        (expectations.expectedComponents && !sameStrings(parsed.components, expectations.expectedComponents))) {
+      throw new Error('下载包清单与市场展示不一致')
+    }
+    await expectations.beforeReplace?.(parsed)
     const destination = join(installed, parsed.id)
     await assertIdAvailable(installed, destination, parsed.id)
     await replacePluginDirectoryAtomically(stage, packageRoot, destination, parsed.id)
@@ -230,4 +245,10 @@ export async function replacePluginDirectoryAtomically(
 function isWithin(child: string, parent: string): boolean {
   const path = relative(parent, child)
   return path === '' || (!path.startsWith('..') && !isAbsolute(path))
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  const sortedLeft = [...left].sort()
+  const sortedRight = [...right].sort()
+  return sortedLeft.length === sortedRight.length && sortedLeft.every((value, index) => value === sortedRight[index])
 }

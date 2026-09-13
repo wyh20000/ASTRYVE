@@ -1,9 +1,10 @@
-import { createPublicKey, randomUUID } from 'node:crypto'
+import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   PluginComponent, PluginMarketEntry, PluginMarketplaceSnapshot, PluginMarketSource, PluginMarketSourceInput, PluginPermission
 } from '../../../shared/types'
+import { compareSemver } from '../../../shared/semver'
 
 const MAX_INDEX_BYTES = 1024 * 1024
 const MAX_ENTRIES = 2_000
@@ -19,6 +20,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const PERMISSIONS = new Set<PluginPermission>([
   'workspace.read', 'workspace.write', 'network', 'process', 'browser.read', 'browser.interact'
 ])
+const COMPONENTS = new Set<PluginComponent>(['skills', 'hooks', 'mcp', 'tools'])
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -179,8 +181,11 @@ export function parseMarketplaceIndex(value: unknown, source: PluginMarketSource
     if (!SHA256_PATTERN.test(sha256)) throw new Error('插件摘要无效')
     const permissions = strings(raw.permissions, '插件权限', 32, 64) as PluginPermission[]
     if (permissions.some((permission) => !PERMISSIONS.has(permission))) throw new Error('插件权限无效')
+    const components = raw.components === undefined ? undefined : strings(raw.components, '插件组件', 8, 30) as PluginComponent[]
+    if (components?.some((component) => !COMPONENTS.has(component))) throw new Error('插件组件无效')
     const signature = optionalText(raw.signature, 4096)
     const signingKeyId = optionalText(raw.signingKeyId, 200)
+    if (signingKeyId && !signature) throw new Error('市场插件签名标识缺少签名')
     if (signature && (!signingKeyId || !source.signingPublicKey || source.signingKeyId !== signingKeyId)) {
       throw new Error('市场插件签名没有匹配的来源公钥')
     }
@@ -193,8 +198,17 @@ export function parseMarketplaceIndex(value: unknown, source: PluginMarketSource
       verified: source.kind === 'official' && source.verified === true,
       packageUrl: requireHttps(raw.packageUrl, '插件下载地址'),
       signature, signingKeyId, signingPublicKey: signature ? source.signingPublicKey : undefined,
+      publisherId: signature && source.signingPublicKey ? signingKeyFingerprint(source.signingPublicKey) : undefined,
       permissions: [...new Set(permissions)].sort(),
       categories: strings(raw.categories, '插件分类', 16, 40),
+      recommended: source.kind === 'official' && optionalBoolean(raw.recommended) === true,
+      capabilities: raw.capabilities === undefined ? undefined : strings(raw.capabilities, '插件能力', 32, 64),
+      components: components ? [...new Set(components)].sort() : undefined,
+      dataTargets: raw.dataTargets === undefined ? undefined : strings(raw.dataTargets, '数据目标', 32, 100),
+      installable: supportsCurrentRuntime(components),
+      unavailableReason: supportsCurrentRuntime(components) ? undefined : components?.length
+        ? '当前仅支持由 Skills 或工具组成的插件'
+        : '市场索引缺少组件声明，请联系来源维护者更新索引',
       changelog: optionalText(raw.changelog, 4000), minAppVersion: optionalText(raw.minAppVersion, 64),
       platforms: strings(raw.platforms, '支持平台', 10, 30),
       architectures: strings(raw.architectures, '支持架构', 10, 30)
@@ -240,6 +254,8 @@ export async function parseCodexMarketplaceIndex(
       id, name: id, version: '0.0.0', description: 'Codex 官方插件', author: 'OpenAI',
       sourceId: source.id, sourceName: source.name, sourceKind: 'official', verified: true,
       permissions: [], categories: category ? [category] : [], platforms: [], architectures: [],
+      recommended: true,
+      publisherId: `github:${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}`,
       installable: false, unavailableReason: '当前来源类型暂不支持直接安装'
     }
     if (!path) return base
@@ -253,9 +269,12 @@ export async function parseCodexMarketplaceIndex(
       const components: PluginComponent[] = []
       if (typeof manifest.skills === 'string') components.push('skills')
       if (record(manifest.hooks) && Object.keys(manifest.hooks).length) components.push('hooks')
-      if (manifest.mcp !== undefined || manifest.mcpServers !== undefined || manifest.apps !== undefined) components.push('mcp')
+      if (manifest.mcp !== undefined || manifest.mcpServers !== undefined) components.push('mcp')
       if (Array.isArray(manifest.tools) && manifest.tools.length) components.push('tools')
-      const installable = components.includes('skills') || components.includes('tools')
+      const permissions = strings(manifest.permissions, '插件权限', 32, 64) as PluginPermission[]
+      if (permissions.some((permission) => !PERMISSIONS.has(permission))) throw new Error('插件权限无效')
+      const hasUnsupportedApps = manifest.apps !== undefined
+      const installable = !hasUnsupportedApps && supportsCurrentRuntime(components)
       const author = typeof manifest.author === 'string'
         ? manifest.author
         : record(manifest.author) && typeof manifest.author.name === 'string' ? manifest.author.name : 'OpenAI'
@@ -265,10 +284,14 @@ export async function parseCodexMarketplaceIndex(
         version: typeof manifest.version === 'string' && VERSION_PATTERN.test(manifest.version) ? manifest.version : '0.0.0',
         description: typeof manifest.description === 'string' ? manifest.description.slice(0, 1000) : base.description,
         author: author.slice(0, 100),
+        permissions: [...new Set(permissions)].sort(),
         capabilities: strings(interfaceValue?.capabilities, '插件能力', 32, 64),
+        dataTargets: strings(interfaceValue?.dataTargets, '数据目标', 32, 100),
         components,
         installable,
-        unavailableReason: installable ? undefined : '此插件需要尚未接入的 MCP 或应用连接',
+        unavailableReason: installable ? undefined : hasUnsupportedApps
+          ? '此插件包含尚未接入的应用连接'
+          : '此插件需要尚未接入的 MCP 或应用连接',
         repository: { ...CODEX_REPOSITORY, ref, path }
       }
     } catch (error) {
@@ -279,10 +302,7 @@ export async function parseCodexMarketplaceIndex(
 }
 
 export function compareVersions(left: string, right: string): number {
-  const a = left.split(/[.-]/).slice(0, 3).map(Number)
-  const b = right.split(/[.-]/).slice(0, 3).map(Number)
-  for (let index = 0; index < 3; index += 1) if (a[index] !== b[index]) return a[index] - b[index]
-  return left.localeCompare(right)
+  return compareSemver(left, right)
 }
 
 function inferSourceKind(url: string): 'github' | 'community' {
@@ -310,6 +330,18 @@ function text(value: unknown, label: string, max: number): string {
 function optionalText(value: unknown, max: number): string | undefined {
   if (value === undefined) return undefined
   return text(value, '字段', max)
+}
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') throw new Error('字段无效')
+  return value
+}
+function signingKeyFingerprint(publicKey: string): string {
+  const der = createPublicKey(publicKey).export({ type: 'spki', format: 'der' })
+  return `ed25519:${createHash('sha256').update(der).digest('hex')}`
+}
+function supportsCurrentRuntime(components: readonly PluginComponent[] | undefined): boolean {
+  return Boolean(components?.length && components.every((component) => component === 'skills' || component === 'tools'))
 }
 function normalizeCodexPluginPath(value: string, id: string): string | undefined {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')

@@ -167,8 +167,12 @@ export function setPluginEnabled(id: string, enabled: boolean): void {
   if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(id)) throw new Error('插件标识无效')
   const previous = data.disabledPlugins
   const disabled = new Set(previous)
-  if (enabled) disabled.delete(id); else disabled.add(id)
-  data.disabledPlugins = [...disabled].slice(0, 500)
+  if (enabled) disabled.delete(id)
+  else {
+    if (!disabled.has(id) && disabled.size >= 500) throw new Error('插件禁用列表已满，无法安全安装更多插件')
+    disabled.add(id)
+  }
+  data.disabledPlugins = [...disabled]
   try { persist(true) } catch (error) { data.disabledPlugins = previous; throw error }
 }
 

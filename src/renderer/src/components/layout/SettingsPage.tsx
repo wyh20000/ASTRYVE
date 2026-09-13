@@ -1,15 +1,16 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUiStore } from '../../stores/uiStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { useModelStore } from '../../stores/modelStore'
 import { THEMES, getTheme, normalizeHex, type ThemePreset } from '../../theme/theme'
-import type { ModelProvider, ModelConfig, ModelPreset, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
+import type { ModelProvider, ModelConfig, ModelPreset, PluginMarketEntry, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
 import { Icon } from '../ui/icons'
 import { useSkillStore } from '../../stores/skillStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { AgentSettingsSection } from '../chat/AgentControls'
 import { usePluginStore } from '../../stores/pluginStore'
+import { compareSemver } from '@shared/semver'
 
 type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'browser' | 'security'
 type ExtensionTab = 'plugins' | 'skills'
@@ -177,8 +178,6 @@ export function PluginSection(): JSX.Element {
   const recover = usePluginStore((state) => state.recover)
   useEffect(() => { void load(); if (loadMarketplace) void loadMarketplace() }, [load, loadMarketplace])
   const filtered = filterPlugins(items, query)
-  const market = marketEntries.filter((entry) => !query.trim() ||
-    `${entry.name} ${entry.description} ${entry.author} ${entry.sourceName} ${entry.categories.join(' ')} ${(entry.capabilities ?? []).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
   return <div>
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
@@ -211,12 +210,12 @@ export function PluginSection(): JSX.Element {
       <input aria-label="搜索插件" className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[12px]"
         value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索插件" />
     </div>
+    {error && <p role="alert" className="mt-3 rounded-lg bg-red-950/30 px-3 py-2 text-[11px] text-red-300">{error}</p>}
     {view === 'installed' && <section className="mt-7">
       <div className="flex items-center gap-2 border-b border-border pb-3">
         <h2 className="text-[13px] font-semibold text-txt-primary">已安装</h2>
         <span className="text-[10px] tabular-nums text-txt-muted">{items.length}</span>
       </div>
-      {error && <p role="alert" className="border-b border-border py-3 text-[11px] text-red-300">{error}</p>}
       {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin}
         onToggle={() => void setEnabled(plugin.id, !plugin.enabled)}
         onRecover={() => void recover(plugin.id)} />)}
@@ -230,7 +229,7 @@ export function PluginSection(): JSX.Element {
         </p>
       </div>}
     </section>}
-    {view === 'market' && <PluginMarketView entries={market} installed={items} />}
+    {view === 'market' && <PluginMarketView entries={marketEntries} installed={items} query={query} />}
     {view === 'sources' && <PluginSourcesView />}
     {view === 'developer' && <section className="mt-7 rounded-xl border border-border bg-bg-panel p-5">
       <h2 className="text-[13px] font-semibold">开发者</h2>
@@ -239,27 +238,189 @@ export function PluginSection(): JSX.Element {
   </div>
 }
 
-function PluginMarketView({ entries, installed }: { entries: import('@shared/types').PluginMarketEntry[]; installed: PluginMetadata[] }): JSX.Element {
+type MarketScope = 'recommended' | 'official' | 'community' | 'all'
+interface MarketFilter { scope: MarketScope; category: string; query: string }
+
+export function filterMarketplaceEntries(entries: PluginMarketEntry[], filter: MarketFilter): PluginMarketEntry[] {
+  const query = filter.query.trim().toLocaleLowerCase()
+  return entries.filter((entry) => {
+    const matchesScope = filter.scope === 'all' ||
+      (filter.scope === 'recommended' && entry.sourceKind === 'official' && entry.recommended !== false) ||
+      (filter.scope === 'official' && entry.sourceKind === 'official') ||
+      (filter.scope === 'community' && entry.sourceKind !== 'official')
+    const matchesCategory = filter.category === 'all' || entry.categories.includes(filter.category)
+    const searchable = [entry.name, entry.description, entry.author, entry.sourceName,
+      ...entry.categories, ...(entry.capabilities ?? []), ...(entry.components ?? []), ...(entry.dataTargets ?? [])]
+      .join(' ').toLocaleLowerCase()
+    return matchesScope && matchesCategory && (!query || searchable.includes(query))
+  })
+}
+
+export function listMarketplaceCategories(entries: PluginMarketEntry[]): string[] {
+  return [...new Set(entries.flatMap((entry) => entry.categories))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
+
+interface PluginInstallRisk {
+  mode: 'install' | 'update' | 'installed' | 'older'
+  addedPermissions: PluginPermission[]
+  sourceChanged: boolean
+  signingChanged: boolean
+  publisherUnknown: boolean
+  requiresFreshApproval: boolean
+}
+
+export function describePluginInstallRisk(
+  entry: PluginMarketEntry,
+  installed: PluginMetadata | undefined,
+  _releases: PluginMarketEntry[]
+): PluginInstallRisk {
+  if (!installed) return { mode: 'install', addedPermissions: entry.permissions, sourceChanged: false, signingChanged: false, publisherUnknown: false, requiresFreshApproval: false }
+  if (installed.version === entry.version) return { mode: 'installed', addedPermissions: [], sourceChanged: false, signingChanged: false, publisherUnknown: false, requiresFreshApproval: false }
+  if (installed.version && compareSemver(entry.version, installed.version) < 0) return { mode: 'older', addedPermissions: [], sourceChanged: false, signingChanged: false, publisherUnknown: false, requiresFreshApproval: false }
+  const previous = installed.marketOrigin
+  const addedPermissions = entry.permissions.filter((permission) => !installed.permissions.includes(permission))
+  const sourceChanged = Boolean(previous && previous.sourceId !== entry.sourceId)
+  const signingChanged = Boolean(previous && (previous.publisherId ?? '') !== (entry.publisherId ?? ''))
+  const publisherUnknown = !previous
+  return {
+    mode: 'update', addedPermissions, sourceChanged, signingChanged, publisherUnknown,
+    requiresFreshApproval: Boolean(addedPermissions.length || sourceChanged || signingChanged || publisherUnknown)
+  }
+}
+
+function latestMarketplaceEntries(entries: PluginMarketEntry[]): PluginMarketEntry[] {
+  const latest = new Map<string, PluginMarketEntry>()
+  for (const entry of entries) {
+    const key = `${entry.sourceId}:${entry.id}`
+    const current = latest.get(key)
+    if (!current || compareSemver(entry.version, current.version) > 0) latest.set(key, entry)
+  }
+  return [...latest.values()]
+}
+
+function PluginMarketView({ entries, installed, query }: { entries: PluginMarketEntry[]; installed: PluginMetadata[]; query: string }): JSX.Element {
   const install = usePluginStore((state) => state.installMarket)
   const mutating = usePluginStore((state) => state.mutating)
-  const [pending, setPending] = useState<import('@shared/types').PluginMarketEntry>()
+  const [scope, setScope] = useState<MarketScope>('recommended')
+  const [category, setCategory] = useState('all')
+  const [pending, setPending] = useState<PluginMarketEntry>()
+  const opener = useRef<HTMLElement | null>(null)
+  const categories = listMarketplaceCategories(entries)
+  const visible = latestMarketplaceEntries(filterMarketplaceEntries(entries, { scope, category, query }))
+  const openDetails = (entry: PluginMarketEntry, element: HTMLElement): void => { opener.current = element; setPending(entry) }
+  const closeDetails = (): void => { setPending(undefined); queueMicrotask(() => opener.current?.focus()) }
   return <section className="mt-7">
-    <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">{entries.map((entry) => <article key={`${entry.sourceId}:${entry.id}:${entry.version}`} className="border-b border-border py-4">
+    <div className="flex flex-wrap gap-2" role="group" aria-label="市场范围">
+      {([['recommended', '推荐'], ['official', '官方'], ['community', '社区'], ['all', '全部']] as const).map(([id, label]) =>
+        <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[10px] ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted'}`}>{label}</button>)}
+    </div>
+    {!!categories.length && <div className="mt-3 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="插件分类">
+      {['all', ...categories].map((item) => <button key={item} type="button" aria-pressed={category === item} onClick={() => setCategory(item)} className={`shrink-0 text-[10px] ${category === item ? 'text-txt-primary' : 'text-txt-muted'}`}>{item === 'all' ? '全部分类' : item}</button>)}
+    </div>}
+    <div className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">{visible.map((entry) => <article key={`${entry.sourceId}:${entry.id}:${entry.version}`} className="border-b border-border py-4">
       <div className="flex items-start gap-3"><SkillGlyph /><div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5"><strong className="text-[12px]">{entry.name}</strong><span className="text-[9px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[9px] text-accent">已验证</span>}</div>
+        <button type="button" className="block w-full text-left" onClick={(event) => openDetails(entry, event.currentTarget)} aria-label={`查看 ${entry.name} 详情`}><div className="flex flex-wrap items-center gap-1.5"><strong className="text-[12px]">{entry.name}</strong><span className="text-[9px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[9px] text-accent">已验证</span>}</div>
         <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-txt-muted">{entry.description}</p>
-        <p className="mt-1 text-[9px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p>
+        <p className="mt-1 text-[9px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p></button>
         {entry.installable === false && <p className="mt-1 text-[9px] text-amber-300">{entry.unavailableReason}</p>}
-      </div><button title={entry.unavailableReason} disabled={entry.installable === false || installed.some((item) => item.id === entry.id && item.version === entry.version) || mutating} onClick={() => setPending(entry)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[10px] text-txt-secondary disabled:text-txt-muted">{entry.installable === false ? '待支持' : installed.some((item) => item.id === entry.id && item.version === entry.version) ? '已安装' : installed.some((item) => item.id === entry.id) ? '更新' : '安装'}</button></div>
+      </div><MarketActionButton entry={entry} installed={installed.find((item) => item.id === entry.id)} releases={entries} mutating={mutating} onOpen={openDetails} /></div>
     </article>)}</div>
-    {!entries.length && <EmptySkills label="正在同步 Codex 官方市场；也可以在“市场源”添加其他来源" />}
-    {pending && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={() => setPending(undefined)}><div role="dialog" aria-modal="true" className="max-h-[min(560px,calc(100vh-2rem))] w-full max-w-[480px] overflow-y-auto rounded-2xl border border-border bg-bg-panel p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-      <h2 className="text-[15px] font-semibold">安装 {pending.name}？</h2><p className="mt-2 text-[11px] leading-5 text-txt-muted">{pending.author} · {pending.sourceName} · {pending.version}</p>
-      <div className="mt-4 rounded-xl bg-bg-raised p-3 text-[11px]"><div>来源：{pending.sourceKind}{pending.verified ? '（已验证）' : '（未验证）'}</div><div className="mt-2">权限：{pending.permissions.map(pluginPermissionLabel).join('、') || '无额外权限'}</div>{pending.sha256 && <div className="mt-2 break-all font-mono text-[9px] text-txt-muted">SHA-256 {pending.sha256}</div>}{pending.repository && <div className="mt-2 break-all font-mono text-[9px] text-txt-muted">固定版本 {pending.repository.ref.slice(0, 12)}</div>}</div>
-      <p className="mt-3 text-[10px] text-txt-muted">安装会校验摘要，完成后默认禁用；你检查权限后再手动启用。</p>
-      <div className="mt-5 flex justify-end gap-2"><button className="btn px-3 text-[11px]" onClick={() => setPending(undefined)}>取消</button><button className="btn bg-accent px-3 text-[11px] text-white" onClick={() => void install(pending.sourceId, pending.id, pending.version).then((ok) => { if (ok) setPending(undefined) })}>校验并安装</button></div>
-    </div></div>}
+    {!visible.length && <EmptySkills label={entries.length ? '没有符合当前筛选条件的插件' : '正在同步 Codex 官方市场；也可以在“市场源”添加其他来源'} />}
+    {pending && <PluginMarketDetails entry={pending} installed={installed.find((item) => item.id === pending.id)} releases={entries}
+      mutating={mutating} onClose={closeDetails} onConfirm={() => void install(pending.sourceId, pending.id, pending.version).then((ok) => { if (ok) closeDetails() })} />}
   </section>
+}
+
+function MarketActionButton({ entry, installed, releases, mutating, onOpen }: {
+  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean
+  onOpen: (entry: PluginMarketEntry, element: HTMLElement) => void
+}): JSX.Element {
+  const risk = describePluginInstallRisk(entry, installed, releases)
+  const label = entry.installable === false ? '待支持' : risk.mode === 'installed' ? '已安装' : risk.mode === 'older' ? '版本较旧' : risk.mode === 'update' ? '更新' : '安装'
+  return <button type="button" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'installed' || risk.mode === 'older' || mutating}
+    onClick={(event) => onOpen(entry, event.currentTarget)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[10px] text-txt-secondary disabled:text-txt-muted">{label}</button>
+}
+
+interface DialogFocusEvent { key: string; shiftKey: boolean; target: unknown; preventDefault: () => void }
+interface DialogFocusRoot { querySelectorAll: (selector: string) => ArrayLike<{ focus: () => void }> }
+
+export function trapPluginDialogFocus(event: DialogFocusEvent, root: DialogFocusRoot): void {
+  if (event.key !== 'Tab') return
+  const focusable = Array.from(root.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+  if (!focusable.length) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if ((!event.shiftKey && event.target === last) || (event.shiftKey && event.target === first)) {
+    event.preventDefault()
+    ;(event.shiftKey ? last : first).focus()
+  }
+}
+
+export function PluginMarketDetails({ entry, installed, releases, mutating, onClose, onConfirm }: {
+  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean
+  onClose: () => void; onConfirm: () => void
+}): JSX.Element {
+  const risk = describePluginInstallRisk(entry, installed, releases)
+  const dialog = useRef<HTMLElement | null>(null)
+  const componentLabels: Record<string, string> = { skills: 'Skills', tools: '工具', mcp: 'MCP / 外部账号', hooks: 'Hooks' }
+  const action = entry.installable === false ? '暂不可安装' : risk.mode === 'installed' ? '已安装' :
+    risk.mode === 'install' ? '校验并安装' : risk.mode === 'older' ? '版本较旧' : risk.requiresFreshApproval ? '更新并重新确认' : '校验并更新'
+  return <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onMouseDown={onClose}>
+    <aside ref={dialog} role="dialog" aria-modal="true" aria-labelledby="plugin-detail-title" tabIndex={-1}
+      onKeyDown={(event) => { if (event.key === 'Escape') onClose(); else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot) }} onMouseDown={(event) => event.stopPropagation()}
+      className="h-full w-full max-w-[560px] overflow-y-auto border-l border-border bg-bg-panel p-5 shadow-2xl sm:p-7">
+      <div className="flex items-start gap-4"><SkillGlyph /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
+        <p className="mt-1 text-[10px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.version}</p></div>
+        <button type="button" autoFocus aria-label="关闭插件详情" onClick={onClose} className="btn-icon text-lg text-txt-muted">×</button></div>
+      <p className="mt-5 text-[12px] leading-6 text-txt-secondary">{entry.description}</p>
+      <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[11px] sm:grid-cols-2">
+        <DetailField label="来源">{sourceKindLabel(entry.sourceKind)}{entry.verified ? ' · 已验证' : ' · 未验证'}</DetailField>
+        <DetailField label="兼容性">{compatibilityLabel(entry)}</DetailField>
+        <DetailField label="组件">{(entry.components ?? []).map((item) => componentLabels[item] ?? item).join('、') || '未声明'}</DetailField>
+        <DetailField label="能力">{entry.capabilities?.join('、') || '未声明'}</DetailField>
+        <DetailField label="权限">{entry.permissions.map(pluginPermissionLabel).join('、') || '无额外权限'}</DetailField>
+        <DetailField label="数据目标（市场声明）">{entry.dataTargets?.join('、') || inferDataTargets(entry.permissions)}</DetailField>
+      </div>
+      {!!entry.categories.length && <div className="mt-4 flex flex-wrap gap-2">{entry.categories.map((item) => <span key={item} className="rounded-full bg-bg-active px-2 py-1 text-[9px] text-txt-muted">{item}</span>)}</div>}
+      {entry.changelog && <section className="mt-6"><h3 className="text-[12px] font-semibold">更新记录</h3><p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-txt-muted">{entry.changelog}</p></section>}
+      {risk.mode === 'update' && <section className={`mt-6 rounded-xl border p-4 text-[11px] ${risk.requiresFreshApproval ? 'border-amber-500/40 bg-amber-950/20' : 'border-border'}`}>
+        <h3 className="font-semibold text-txt-primary">从 {installed?.version ?? '未知版本'} 更新</h3>
+        {risk.addedPermissions.length > 0 && <p className="mt-2 text-amber-300">新增权限：{risk.addedPermissions.map(pluginPermissionLabel).join('、')}</p>}
+        {risk.sourceChanged && <p className="mt-2 text-amber-300">插件来源已变化</p>}
+        {risk.signingChanged && <p className="mt-2 text-amber-300">发布者签名已变化</p>}
+        {risk.publisherUnknown && <p className="mt-2 text-amber-300">无法确认已安装版本的发布者签名</p>}
+        {!risk.requiresFreshApproval && <p className="mt-2 text-txt-muted">未发现新增权限或发布者变化。</p>}
+      </section>}
+      {entry.sha256 && <p className="mt-5 break-all font-mono text-[9px] text-txt-muted">SHA-256 {entry.sha256}</p>}
+      {entry.repository && <p className="mt-2 break-all font-mono text-[9px] text-txt-muted">固定版本 {entry.repository.ref.slice(0, 12)}</p>}
+      <p className="mt-5 text-[10px] leading-5 text-txt-muted">安装或更新会校验内容，完成后插件保持禁用，需由你检查后启用。</p>
+      <div className="sticky bottom-0 mt-7 flex justify-end gap-2 border-t border-border bg-bg-panel py-4"><button type="button" className="btn px-3 text-[11px]" onClick={onClose}>取消</button>
+        <button type="button" disabled={mutating || entry.installable === false || risk.mode === 'installed' || risk.mode === 'older'} className="btn bg-accent px-3 text-[11px] text-white disabled:opacity-50" onClick={onConfirm}>{mutating ? '处理中…' : action}</button></div>
+    </aside>
+  </div>
+}
+
+function DetailField({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return <div><div className="text-[9px] text-txt-muted">{label}</div><div className="mt-1 text-txt-secondary">{children}</div></div>
+}
+
+function sourceKindLabel(kind: PluginMarketEntry['sourceKind']): string {
+  return kind === 'official' ? '官方' : kind === 'github' ? 'GitHub' : '社区'
+}
+
+function compatibilityLabel(entry: PluginMarketEntry): string {
+  const platforms = entry.platforms.length ? entry.platforms.join(' / ') : '所有平台'
+  const architectures = entry.architectures.length ? entry.architectures.join(' / ') : '所有架构'
+  return `${platforms} · ${architectures}${entry.minAppVersion ? ` · 应用 ≥ ${entry.minAppVersion}` : ''}`
+}
+
+function inferDataTargets(permissions: PluginPermission[]): string {
+  const targets = new Set<string>()
+  if (permissions.some((item) => item.startsWith('workspace.'))) targets.add('当前项目')
+  if (permissions.includes('network')) targets.add('外部网络')
+  if (permissions.some((item) => item.startsWith('browser.'))) targets.add('独立浏览器页面')
+  if (permissions.includes('process')) targets.add('本机进程')
+  return [...targets].join('、') || '未声明'
 }
 
 function PluginSourcesView(): JSX.Element {
@@ -305,10 +466,11 @@ function PluginRow({ plugin, onToggle, onRecover }: {
 }): JSX.Element {
   const badges = plugin.permissions.slice(0, 2).map(pluginPermissionLabel)
   const uninstall = usePluginStore((state) => state.uninstall)
-  const reload = usePluginStore((state) => state.load)
+  const loadBackups = usePluginStore((state) => state.loadBackups)
+  const rollback = usePluginStore((state) => state.rollback)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
-  const showBackups = async (): Promise<void> => { const result = await window.agent.plugins.backups({ id: plugin.id }); if (result.ok) setBackups(result.data) }
+  const showBackups = async (): Promise<void> => setBackups(await loadBackups(plugin.id))
   return <article className="border-b border-border py-3"><div className="flex min-h-[52px] items-center gap-3">
     <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${plugin.status === 'ready' ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-red-300'}`}>
       <Icon.FileDir size={16} />
@@ -335,7 +497,7 @@ function PluginRow({ plugin, onToggle, onRecover }: {
     {!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
       : <span className="flex shrink-0 items-center gap-1 text-[10px]"><button className="text-red-300" onClick={() => void uninstall(plugin.id)}>确认</button><button className="text-txt-muted" onClick={() => setConfirmRemove(false)}>取消</button></span>}
     <button type="button" title="历史版本" className="btn-icon shrink-0 text-txt-muted" onClick={() => void showBackups()}><Icon.ChevronDown size={12} /></button>
-  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void window.agent.plugins.rollback({ id: plugin.id, version: backup.version }).then((result) => { if (result.ok) { setBackups(undefined); void reload() } })}>回滚</button></div>) : '没有可回滚版本'}</div>}</article>
+  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}</article>
 }
 
 function pluginPermissionLabel(permission: PluginPermission): string {

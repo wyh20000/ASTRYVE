@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { PluginMarketEntry } from '../../../shared/types'
 import { installMarketPlugin, verifyPluginArchive, verifyPluginSignature } from './pluginLifecycle'
+import { initPluginRegistry, listPlugins } from './pluginManager'
 
 describe('plugin lifecycle verification', () => {
   it('accepts the exact SHA-256 and rejects tampered packages', () => {
@@ -47,11 +48,16 @@ describe('plugin lifecycle verification', () => {
     const entry: PluginMarketEntry = {
       id: 'docs-helper', name: 'Docs Helper', version: '1.2.3', description: 'Official docs', author: 'OpenAI',
       sourceId: 'official', sourceName: 'Codex official', sourceKind: 'official', verified: true,
-      permissions: [], categories: [], platforms: [], architectures: [], installable: true,
+      permissions: [], categories: [], platforms: [], architectures: [], components: ['skills'], installable: true,
       repository: { owner: 'openai', repo: 'plugins', ref, path: 'plugins/docs-helper' }
     }
     const result = await installMarketPlugin(entry, root, installed, fetcher)
-    expect(result).toMatchObject({ id: 'docs-helper', version: '1.2.3', sourceFormat: 'codex' })
+    expect(result).toMatchObject({
+      id: 'docs-helper', version: '1.2.3', sourceFormat: 'codex',
+      marketOrigin: { sourceId: 'official', sourceKind: 'official', verified: true, publisherId: 'github:openai/plugins' }
+    })
     expect(await readFile(join(installed, 'docs-helper', 'skills', 'docs', 'SKILL.md'), 'utf8')).toContain('Use official docs')
+    initPluginRegistry(root)
+    await expect(listPlugins()).resolves.toEqual([expect.objectContaining({ marketOrigin: result.marketOrigin })])
   })
 })

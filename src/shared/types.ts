@@ -319,6 +319,14 @@ export type PluginPermission =
 
 export type PluginComponent = 'skills' | 'hooks' | 'mcp' | 'tools'
 export type PluginStatus = 'ready' | 'invalid' | 'quarantined'
+export interface PluginMarketOrigin {
+  pluginVersion: string
+  sourceId: string
+  sourceName: string
+  sourceKind: PluginMarketSourceKind
+  verified: boolean
+  publisherId?: string
+}
 
 export interface PluginMetadata {
   id: string
@@ -334,6 +342,7 @@ export interface PluginMetadata {
   capabilities: string[]
   components: PluginComponent[]
   errors: string[]
+  marketOrigin?: PluginMarketOrigin
 }
 
 export interface PluginToggleInput { id: string; enabled: boolean }
@@ -369,14 +378,17 @@ export interface PluginMarketEntry {
   signature?: string
   signingKeyId?: string
   signingPublicKey?: string
+  publisherId?: string
   permissions: PluginPermission[]
   categories: string[]
+  recommended?: boolean
   changelog?: string
   minAppVersion?: string
   platforms: string[]
   architectures: string[]
   capabilities?: string[]
   components?: PluginComponent[]
+  dataTargets?: string[]
   installable?: boolean
   unavailableReason?: string
   repository?: {

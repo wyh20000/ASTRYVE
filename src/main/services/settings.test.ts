@@ -63,6 +63,16 @@ describe('project settings persistence', () => {
     expect(reloaded.getDisabledPluginIds()).toEqual(new Set(['acme.browser']))
   })
 
+  it('fails closed instead of silently enabling a plugin when the disabled list is full', async () => {
+    state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-plugin-settings-cap-'))
+    vi.resetModules()
+    const settings = await import('./settings')
+    for (let index = 0; index < 500; index += 1) settings.setPluginEnabled(`plugin.${String(index).padStart(3, '0')}`, false)
+    expect(() => settings.setPluginEnabled('plugin.overflow', false)).toThrow('禁用列表已满')
+    expect(settings.getDisabledPluginIds()).toHaveLength(500)
+    expect(settings.getDisabledPluginIds().has('plugin.overflow')).toBe(false)
+  })
+
   it('normalizes and persists browser site policies', async () => {
     state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-browser-settings-test-'))
     vi.resetModules()

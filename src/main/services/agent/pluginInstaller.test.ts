@@ -2,7 +2,7 @@ import { readFile, lstat, mkdir, mkdtemp, rename, symlink, writeFile } from 'nod
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import JSZip from 'jszip'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { importPluginPackage, replacePluginDirectoryAtomically } from './pluginInstaller'
 
 const manifest = (id: string) => ({
@@ -157,6 +157,17 @@ describe('importPluginPackage', () => {
     await mkdir(join(source, 'skills'))
     await writeFile(join(source, 'plugin.json'), JSON.stringify(manifest('occupied.tools')))
     await expect(importPluginPackage(installed, source)).rejects.toThrow('插件标识已由其他目录占用')
+  })
+
+  it('runs trusted metadata preparation before replacing the plugin directory', async () => {
+    const { installed, source } = await roots()
+    await mkdir(join(source, 'skills'))
+    await writeFile(join(source, 'plugin.json'), JSON.stringify(manifest('prepared.tools')))
+    const beforeReplace = vi.fn().mockRejectedValue(new Error('metadata unavailable'))
+
+    await expect(importPluginPackage(installed, source, { beforeReplace })).rejects.toThrow('metadata unavailable')
+    expect(beforeReplace).toHaveBeenCalledWith(expect.objectContaining({ id: 'prepared.tools', version: '1.0.0' }))
+    await expect(lstat(join(installed, 'prepared.tools'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('restores the previous directory if the final atomic rename fails', async () => {

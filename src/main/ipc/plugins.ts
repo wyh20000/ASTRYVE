@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { EVENTS, IPC } from '@shared/ipc'
-import type { PluginImportInput, PluginMarketInstallInput, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
+import type { PluginImportInput, PluginMarketInstallInput, PluginMarketOrigin, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
 import { getInstalledPluginRoot, listPlugins, recoverPlugin, stopPluginRuntimes } from '../services/agent/pluginManager'
 import { importPluginPackage } from '../services/agent/pluginInstaller'
 import { setPluginEnabled } from '../services/settings'
@@ -10,6 +10,7 @@ import { PluginMarketplace } from '../services/agent/pluginMarketplace'
 import { installMarketPlugin, listPluginBackups, rollbackPlugin } from '../services/agent/pluginLifecycle'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { replacePluginMarketOrigin, savePluginMarketOrigin } from '../services/agent/pluginProvenance'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
@@ -32,7 +33,21 @@ export function registerPluginsIpc(): void {
         filters: input.kind === 'zip' ? [{ name: '插件 ZIP', extensions: ['zip'] }] : undefined
       })
       if (selected.canceled || !selected.filePaths[0]) return ok(await listPlugins())
-      const installed = await importPluginPackage(getInstalledPluginRoot(), selected.filePaths[0])
+      let preparedId: string | undefined
+      let previousOrigin: PluginMarketOrigin | undefined
+      let prepared = false
+      let installed: PluginMetadata
+      try {
+        installed = await importPluginPackage(getInstalledPluginRoot(), selected.filePaths[0], { beforeReplace: async (manifest) => {
+          setPluginEnabled(manifest.id, false)
+          previousOrigin = await replacePluginMarketOrigin(app.getPath('userData'), manifest.id)
+          preparedId = manifest.id
+          prepared = true
+        } })
+      } catch (error) {
+        if (prepared && preparedId) await replacePluginMarketOrigin(app.getPath('userData'), preparedId, previousOrigin).catch(() => undefined)
+        throw error
+      }
       // Local packages may contain executable code. Importing makes the package
       // available for inspection, but activation remains an explicit user choice.
       setPluginEnabled(installed.id, false)
@@ -97,7 +112,10 @@ export function registerPluginsIpc(): void {
     const snapshot = await marketplace.snapshot()
     const entry = snapshot.entries.find((item) => item.sourceId === input.sourceId && item.id === input.id && item.version === input.version)
     if (!entry) throw new Error('市场插件版本不存在，请先同步市场源')
-    const installed = await installMarketPlugin(entry, app.getPath('userData'), getInstalledPluginRoot())
+    const installed = await installMarketPlugin(
+      entry, app.getPath('userData'), getInstalledPluginRoot(), fetch,
+      (id) => setPluginEnabled(id, false)
+    )
     setPluginEnabled(installed.id, false)
     notifyPluginsChanged()
     return listPlugins()
@@ -107,6 +125,7 @@ export function registerPluginsIpc(): void {
     setPluginEnabled(input.id, false)
     await stopPluginRuntimes(input.id)
     await rm(join(getInstalledPluginRoot(), input.id), { recursive: true, force: true })
+    await savePluginMarketOrigin(app.getPath('userData'), input.id)
     notifyPluginsChanged()
     return listPlugins()
   }))
@@ -117,6 +136,7 @@ export function registerPluginsIpc(): void {
   ipcMain.handle(IPC.plugins.rollback, async (event, input?: PluginRollbackInput) => marketResult(event, async () => {
     assertPluginId(input)
     if (typeof input.version !== 'string') throw new Error('回滚版本无效')
+    setPluginEnabled(input.id, false)
     const restored = await rollbackPlugin(input.id, input.version, app.getPath('userData'), getInstalledPluginRoot())
     setPluginEnabled(restored.id, false)
     notifyPluginsChanged()

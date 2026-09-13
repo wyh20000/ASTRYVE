@@ -2,19 +2,34 @@ import { createHash, randomUUID, verify } from 'node:crypto'
 import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { PluginBackup, PluginMarketEntry, PluginMetadata } from '../../../shared/types'
-import { importPluginPackage } from './pluginInstaller'
+import { importPluginPackage, type PluginImportExpectations } from './pluginInstaller'
 import { readPluginManifest } from './pluginManifest'
+import {
+  backupPluginMarketOrigin, marketOriginFromEntry, readPluginBackupOrigin, replacePluginMarketOrigin
+} from './pluginProvenance'
+import { compareSemver } from '../../../shared/semver'
 
 const MAX_DOWNLOAD = 25 * 1024 * 1024
 const MAX_FILE = 5 * 1024 * 1024
 const MAX_FILES = 1_000
 
-export async function installMarketPlugin(entry: PluginMarketEntry, dataRoot: string, installedRoot: string, fetcher = fetch): Promise<PluginMetadata> {
+export async function installMarketPlugin(
+  entry: PluginMarketEntry,
+  dataRoot: string,
+  installedRoot: string,
+  fetcher = fetch,
+  prepareActivation?: (id: string) => void
+): Promise<PluginMetadata> {
   if (entry.installable === false) throw new Error(entry.unavailableReason ?? '此插件当前不可安装')
+  if (!entry.components?.length) throw new Error('市场插件缺少可验证的组件声明，请同步市场源后重试')
+  if (entry.components.some((component) => component !== 'skills' && component !== 'tools')) throw new Error('此插件包含尚未支持的运行组件')
+  if (entry.signingKeyId && !entry.signature) throw new Error('市场插件签名标识缺少签名')
   if (entry.platforms.length && !entry.platforms.includes(process.platform)) throw new Error('插件不支持当前操作系统')
   if (entry.architectures.length && !entry.architectures.includes(process.arch)) throw new Error('插件不支持当前处理器架构')
   if (entry.minAppVersion && compareSemver(process.env.npm_package_version ?? '0.1.0', entry.minAppVersion) < 0) throw new Error('当前应用版本不满足插件要求')
-  if (entry.repository) return installRepositoryPlugin(entry, dataRoot, installedRoot, fetcher)
+  if (entry.repository) {
+    return installRepositoryPlugin(entry, dataRoot, installedRoot, fetcher, prepareActivation)
+  }
   if (!entry.packageUrl || !entry.sha256) throw new Error('市场插件缺少可验证的下载信息')
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 30_000)
   let response: Response
@@ -32,10 +47,7 @@ export async function installMarketPlugin(entry: PluginMarketEntry, dataRoot: st
   try {
     await writeFile(archive, bytes, { flag: 'wx', mode: 0o600 })
     await backupInstalledPlugin(entry.id, dataRoot, installedRoot)
-    return await importPluginPackage(installedRoot, archive, {
-      expectedId: entry.id,
-      expectedVersion: entry.version
-    })
+    return await importMarketPackage(installedRoot, archive, entry, dataRoot, marketExpectations(entry, true), prepareActivation)
   } finally { await rm(archive, { force: true }).catch(() => undefined) }
 }
 
@@ -43,7 +55,8 @@ async function installRepositoryPlugin(
   entry: PluginMarketEntry,
   dataRoot: string,
   installedRoot: string,
-  fetcher: typeof fetch
+  fetcher: typeof fetch,
+  prepareActivation?: (id: string) => void
 ): Promise<PluginMetadata> {
   const repository = entry.repository
   if (!repository || repository.owner !== 'openai' || repository.repo !== 'plugins' ||
@@ -91,10 +104,10 @@ async function installRepositoryPlugin(
       await writeFile(target, bytes, { flag: 'wx', mode: 0o600 })
     }
     await backupInstalledPlugin(entry.id, dataRoot, installedRoot)
-    return await importPluginPackage(installedRoot, stage, {
-      expectedId: entry.id,
+    return await importMarketPackage(installedRoot, stage, entry, dataRoot, {
+      ...marketExpectations(entry, false),
       expectedVersion: entry.version === '0.0.0' ? undefined : entry.version
-    })
+    }, prepareActivation)
   } finally {
     await rm(stage, { recursive: true, force: true }).catch(() => undefined)
   }
@@ -109,6 +122,7 @@ export async function backupInstalledPlugin(id: string, dataRoot: string, instal
   await rm(destination, { recursive: true, force: true })
   await mkdir(join(destination, '..'), { recursive: true })
   await cp(current, destination, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true })
+  await backupPluginMarketOrigin(dataRoot, id, manifest.version)
 }
 
 export async function listPluginBackups(id: string, dataRoot: string): Promise<PluginBackup[]> {
@@ -127,7 +141,19 @@ export async function rollbackPlugin(id: string, version: string, dataRoot: stri
   const source = join(dataRoot, 'plugin-history', id, version)
   const manifest = await readPluginManifest(source)
   if (manifest.id !== id || manifest.version !== version) throw new Error('回滚包身份无效')
-  return importPluginPackage(installedRoot, source)
+  const marketOrigin = await readPluginBackupOrigin(dataRoot, id, version)
+  let previousOrigin
+  let prepared = false
+  try {
+    const restored = await importPluginPackage(installedRoot, source, { beforeReplace: async () => {
+      previousOrigin = await replacePluginMarketOrigin(dataRoot, id, marketOrigin)
+      prepared = true
+    } })
+    return marketOrigin ? { ...restored, marketOrigin } : restored
+  } catch (error) {
+    if (prepared) await replacePluginMarketOrigin(dataRoot, id, previousOrigin).catch(() => undefined)
+    throw error
+  }
 }
 
 export function verifyPluginArchive(bytes: Buffer, expected: string): void {
@@ -143,18 +169,49 @@ export function verifyPluginSignature(bytes: Buffer, entry: Pick<PluginMarketEnt
   if (!signature.length || !verify(null, bytes, entry.signingPublicKey, signature)) throw new Error('插件签名校验失败')
 }
 
-function compareSemver(left: string, right: string): number {
-  const parse = (value: string): number[] => value.split(/[.-]/).slice(0, 3).map((part) => Number(part) || 0)
-  const a = parse(left), b = parse(right)
-  for (let index = 0; index < 3; index += 1) if (a[index] !== b[index]) return a[index] - b[index]
-  return 0
-}
-
 async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 30_000)
   try { return await fetcher(url, { ...init, signal: controller.signal }) }
   finally { clearTimeout(timer) }
+}
+
+function marketExpectations(entry: PluginMarketEntry, requireAuthor: boolean): PluginImportExpectations {
+  return {
+    expectedId: entry.id,
+    expectedVersion: entry.version,
+    expectedAuthor: requireAuthor ? entry.author : undefined,
+    expectedPermissions: entry.permissions,
+    expectedCapabilities: entry.capabilities,
+    expectedComponents: entry.components
+  }
+}
+
+async function importMarketPackage(
+  installedRoot: string,
+  source: string,
+  entry: PluginMarketEntry,
+  dataRoot: string,
+  expectations: PluginImportExpectations,
+  prepareActivation?: (id: string) => void
+): Promise<PluginMetadata> {
+  const marketOrigin = marketOriginFromEntry(entry)
+  let previousOrigin
+  let prepared = false
+  try {
+    const installed = await importPluginPackage(installedRoot, source, {
+      ...expectations,
+      beforeReplace: async () => {
+        prepareActivation?.(entry.id)
+        previousOrigin = await replacePluginMarketOrigin(dataRoot, entry.id, marketOrigin)
+        prepared = true
+      }
+    })
+    return { ...installed, marketOrigin }
+  } catch (error) {
+    if (prepared) await replacePluginMarketOrigin(dataRoot, entry.id, previousOrigin).catch(() => undefined)
+    throw error
+  }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
