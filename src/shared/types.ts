@@ -18,7 +18,6 @@ import type {
   WorkspaceSearchMatch,
   WorkspaceSummary
 } from './agent'
-import type { BrowserStatus, BrowserTab } from './browser'
 
 export interface AgentProjectPreferences {
   workspaceId: string
@@ -547,14 +546,6 @@ export interface AgentApi {
     uninstall: (input: PluginUninstallInput) => Promise<IpcResult<PluginMetadata[]>>
     backups: (input: PluginUninstallInput) => Promise<IpcResult<PluginBackup[]>>
     rollback: (input: PluginRollbackInput) => Promise<IpcResult<PluginMetadata[]>>
-  }
-  browser: {
-    status: () => Promise<IpcResult<BrowserStatus>>
-    start: () => Promise<IpcResult<BrowserStatus>>
-    stop: () => Promise<IpcResult<BrowserStatus>>
-    restart: () => Promise<IpcResult<BrowserStatus>>
-    clearProfile: () => Promise<IpcResult<BrowserStatus>>
-    listTabs: () => Promise<IpcResult<BrowserTab[]>>
   }
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>

@@ -54,10 +54,6 @@ export const IPC = {
     syncSource: 'plugins:sync-source', installMarket: 'plugins:install-market', uninstall: 'plugins:uninstall',
     backups: 'plugins:backups', rollback: 'plugins:rollback'
   },
-  browser: {
-    status: 'browser:status', start: 'browser:start', stop: 'browser:stop', restart: 'browser:restart',
-    clearProfile: 'browser:clear-profile', listTabs: 'browser:list-tabs'
-  },
   terminal: {
     open: 'terminal:open',
     write: 'terminal:write',

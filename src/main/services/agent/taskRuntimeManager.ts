@@ -24,8 +24,6 @@ import { createHostPatchTool } from './hostPatchTool'
 import { createScriptDiscoveryTool } from './scriptDiscoveryTool'
 import { refreshAgentExecutionCapabilities } from './projectPreferences'
 import { capturePluginTaskTools } from './pluginManager'
-import { createBrowserTools } from '../browser/browserTools'
-import { getBrowserGatewayIfReady } from '../browser/browserManager'
 import { getBrowserPreferences } from '../settings'
 
 export async function createProjectTask(sessionId: string, ownerWebContentsId: number, pluginIds?: readonly string[]) {
@@ -96,8 +94,6 @@ export function initTaskRuntime(): TaskRuntime {
   registry.register(createWorkspacePatchTool(patchWorkspace))
   registry.register(createHostPatchTool(patchWorkspace))
   for (const tool of createGitReadTools(localBackend)) registry.register(tool)
-  const browserGateway = getBrowserGatewayIfReady()
-  if (browserGateway) for (const tool of createBrowserTools(browserGateway)) registry.register(tool)
   runtime.subscribe((event) => {
     const status = runtime?.getTaskSnapshot(event.taskId)?.status
     if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) {

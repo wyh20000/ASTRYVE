@@ -1,8 +1,10 @@
 # M14/M15 Runnable-First Implementation Plan
 
+> **归档说明（2026-09-13）：** 本计划的 M14 插件内容仍可作为历史实施依据；所有 M15 managed Chrome 任务均已取消且不得继续执行。当前仓库仅保留适配器中立的 Browser Gateway、安全策略和协议，Chrome 扩展由独立项目承接。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task with review checkpoints.
 
-**Goal:** Deliver demonstrably runnable vertical slices for market-installed executable plugins (M14) and managed Chrome browser tools (M15), then close the highest-risk acceptance gaps without destabilizing the existing dirty worktree.
+**Historical goal:** This document originally covered market-installed executable plugins (M14) and managed Chrome tools (M15). The managed-Chrome half is superseded by the archive decision above.
 
 **Architecture:** Keep the existing Plugin Marketplace → installer → registry → task tool snapshot → isolated worker path and Browser Manager → Gateway → task tool registry path. Add integration seams and tests only where the current layers are not proven together. Treat the milestone checklist as evidence-driven: check an item only after automated or recorded manual verification.
 
@@ -67,4 +69,3 @@
 1. Run focused plugin/browser tests, full tests, Node/Web type checks, production build, and `git diff --check`.
 2. If a visible Chrome run is possible locally, execute a smoke flow: start → open tab → inspect/find → interact → screenshot → stop.
 3. Record exact results and remaining manual DeepSeek/other-model/UI evidence; do not mark those complete without execution.
-

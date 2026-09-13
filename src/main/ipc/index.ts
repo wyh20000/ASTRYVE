@@ -10,7 +10,6 @@ import { registerTerminalIpc } from './terminal'
 import { registerSkillsIpc } from './skills'
 import { registerApprovalIpc } from './approval'
 import { registerPluginsIpc } from './plugins'
-import { registerBrowserIpc } from './browser'
 import { ok, err } from './result'
 import { assertTrustedIpcSender } from './validation'
 
@@ -33,6 +32,5 @@ export function registerIpcHandlers(): void {
   registerTerminalIpc()
   registerSkillsIpc()
   registerPluginsIpc()
-  registerBrowserIpc()
   registerApprovalIpc()
 }

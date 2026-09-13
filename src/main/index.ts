@@ -23,7 +23,6 @@ import { cleanupEmptySessions } from './services/emptySessionCleanup'
 import { initSkillRegistry } from './services/agent/skillManager'
 import { initPluginRegistry } from './services/agent/pluginManager'
 import { configureTrustedIpcSender } from './ipc/validation'
-import { initBrowserService, shutdownBrowser } from './services/browser/browserManager'
 import {
   createSecureWebPreferences,
   isAllowedExternalUrl,
@@ -102,18 +101,6 @@ app.whenReady().then(async () => {
     }
     return
   }
-  if (process.env.AI_AGENT_BROWSER_SMOKE === '1') {
-    try {
-      const { runManagedBrowserSmoke } = await import('./services/browser/browserSmoke')
-      await runManagedBrowserSmoke()
-      console.log('PASS: managed Chrome start, open URL, inspect, find, interact, screenshot and stop')
-      app.exit(0)
-    } catch (error) {
-      console.error('FAIL: managed Chrome smoke', error)
-      app.exit(1)
-    }
-    return
-  }
   if (process.env.AI_AGENT_DOCKER_EXECUTION_SMOKE === '1') {
     try {
       const { runDockerExecutionSmoke } = await import('./services/agent/dockerExecutionSmoke')
@@ -149,7 +136,6 @@ app.whenReady().then(async () => {
   void dockerPreflight
   startDockerCleanupTimer()
   initWorkspaceService()
-  initBrowserService(app.getPath('userData'))
   initTaskRuntime()
   initPluginRegistry(app.getPath('userData'))
   initSkillRegistry(app.getPath('userData'))
@@ -191,7 +177,6 @@ app.on('before-quit', (event) => {
   shutdownStarted = true
   cancelAllGenerations()
   cancelAllAgentTasks('app_quit')
-  shutdownBrowser()
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<void>((resolve) => {
     timeoutHandle = setTimeout(resolve, 2_000)

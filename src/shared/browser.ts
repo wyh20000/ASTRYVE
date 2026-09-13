@@ -1,12 +1,4 @@
 export type BrowserRisk = 'low' | 'medium' | 'high'
-export interface BrowserStatus {
-  available: boolean
-  running: boolean
-  executable?: string
-  profilePath?: string
-  reason?: string
-  activeTabId?: string
-}
 export interface BrowserTab { id: string; title: string; url: string; active: boolean; pageVersion: number }
 export interface BrowserElementRef { id: string; tabId: string; pageVersion: number }
 export interface BrowserCallContext {

@@ -12,7 +12,7 @@ import { AgentSettingsSection } from '../chat/AgentControls'
 import { usePluginStore } from '../../stores/pluginStore'
 import { compareSemver } from '@shared/semver'
 
-type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'browser' | 'security'
+type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'security'
 type ExtensionTab = 'plugins' | 'skills'
 
 const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
@@ -52,81 +52,17 @@ export default function SettingsPage(): JSX.Element {
           <NavItem active={section === 'model'} icon={<Icon.Brain size={14} />} label="模型设置" onClick={() => setSection('model')} />
           <NavItem active={section === 'agent'} icon={<Icon.Shield size={14} />} label="Agent 设置" onClick={() => setSection('agent')} />
           <NavItem active={section === 'extensions'} icon={<Icon.FileDir size={14} />} label="插件" onClick={() => setSection('extensions')} />
-          <NavItem active={section === 'browser'} icon={<Icon.Link size={14} />} label="浏览器" onClick={() => setSection('browser')} />
           <NavItem active={section === 'security'} icon={<Icon.Shield size={14} />} label="安全与数据" onClick={() => setSection('security')} />
         </nav>
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[820px] px-4 py-5 sm:px-6 sm:py-6">
-          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'extensions' ? <ExtensionsSection /> : section === 'browser' ? <BrowserSection /> : <SecuritySection />}
+          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'extensions' ? <ExtensionsSection /> : <SecuritySection />}
         </div>
       </div>
     </div>
   )
-}
-
-function BrowserSection(): JSX.Element {
-  const [status, setStatus] = useState<import('@shared/browser').BrowserStatus>()
-  const [tabs, setTabs] = useState<import('@shared/browser').BrowserTab[]>([])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [confirmClear, setConfirmClear] = useState(false)
-  const [preferences, setPreferences] = useState<import('@shared/types').BrowserPreferences>({ allowAllSites: false, allowedOrigins: [], blockedOrigins: [] })
-  const [site, setSite] = useState('')
-  const refresh = async (): Promise<void> => {
-    const result = await window.agent.browser.status()
-    if (result.ok) {
-      setStatus(result.data)
-      if (result.data.running) {
-        const list = await window.agent.browser.listTabs()
-        if (list.ok) setTabs(list.data)
-      } else setTabs([])
-    } else setError(result.error.message)
-  }
-  useEffect(() => { void refresh() }, [])
-  useEffect(() => { void window.agent.settings.getBrowserPreferences().then((result) => { if (result.ok) setPreferences(result.data) }) }, [])
-  const savePreferences = async (next: import('@shared/types').BrowserPreferences): Promise<void> => {
-    const result = await window.agent.settings.setBrowserPreferences(next)
-    if (result.ok) setPreferences(result.data); else setError(result.error.message)
-  }
-  const action = async (run: () => Promise<import('@shared/types').IpcResult<import('@shared/browser').BrowserStatus>>): Promise<void> => {
-    setBusy(true); setError('')
-    const result = await run()
-    setBusy(false)
-    if (result.ok) { setStatus(result.data); setConfirmClear(false); await refresh() } else setError(result.error.message)
-  }
-  return <div>
-    <h1 className="selectable text-[22px] font-semibold tracking-tight">浏览器</h1>
-    <p className="mt-1 text-[12px] text-txt-muted">使用独立资料目录的 Google Chrome，不读取日常浏览器资料</p>
-    <Group title="独立 Chrome">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={`h-2.5 w-2.5 rounded-full ${status?.running ? 'bg-green-400' : 'bg-txt-muted'}`} />
-        <div className="min-w-[200px] flex-1"><div className="text-[12px] text-txt-primary">{status?.running ? '正在运行' : status?.available ? '已安装，尚未启动' : '未检测到 Chrome'}</div><div className="truncate text-[10px] text-txt-muted">{status?.reason ?? status?.executable}</div></div>
-        {!status?.running ? <button className="btn bg-bg-raised px-3 text-[11px]" disabled={busy || !status?.available} onClick={() => void action(window.agent.browser.start)}>启动</button>
-          : <><button className="btn bg-bg-raised px-3 text-[11px]" disabled={busy} onClick={() => void action(window.agent.browser.restart)}>重启</button><button className="btn bg-bg-raised px-3 text-[11px]" disabled={busy} onClick={() => void action(window.agent.browser.stop)}>关闭</button></>}
-      </div>
-      <div className="mt-4 border-t border-border pt-4"><div className="text-[11px] text-txt-secondary">专用资料目录</div><div className="mt-1 break-all font-mono text-[9px] text-txt-muted">{status?.profilePath}</div>
-        {!confirmClear ? <button className="mt-3 text-[10px] text-red-300" disabled={status?.running} onClick={() => setConfirmClear(true)}>清除专用浏览数据</button>
-          : <div className="mt-3 flex items-center gap-3 text-[10px]"><span className="text-red-300">这会删除独立 Chrome 的登录和站点数据</span><button className="rounded bg-red-500/15 px-2 py-1 text-red-300" onClick={() => void action(window.agent.browser.clearProfile)}>确认清除</button><button className="text-txt-muted" onClick={() => setConfirmClear(false)}>取消</button></div>}
-      </div>
-      {error && <p role="alert" className="mt-3 text-[11px] text-red-300">{error}</p>}
-    </Group>
-    <Group title={`标签页 ${tabs.length}`}>
-      {tabs.map((tab) => <div key={tab.id} className="flex items-center gap-3 border-b border-border py-2.5 last:border-0"><Icon.Link size={14} className="text-txt-muted" /><div className="min-w-0 flex-1"><div className="truncate text-[11px]">{tab.title || '未命名页面'}</div><div className="truncate text-[9px] text-txt-muted">{tab.url}</div></div>{tab.active && <span className="text-[9px] text-accent">当前</span>}</div>)}
-      {!tabs.length && <p className="py-8 text-center text-[11px] text-txt-muted">启动独立 Chrome 后，标签页会显示在这里</p>}
-    </Group>
-    <Group title="网站权限">
-      <label className="flex items-start gap-2 text-[11px] text-txt-secondary"><input type="checkbox" checked={preferences.allowAllSites} onChange={(event) => void savePreferences({ ...preferences, allowAllSites: event.target.checked })} /><span><strong className="block font-medium text-txt-primary">允许所有网站</strong><span className="text-txt-muted">高风险选项，默认关闭；敏感动作仍需审批。</span></span></label>
-      <div className="mt-4 flex gap-2"><input className="input h-8 min-w-0 flex-1" value={site} onChange={(event) => setSite(event.target.value)} placeholder="https://example.com" /><button className="btn bg-bg-raised px-3 text-[10px]" onClick={() => { void savePreferences({ ...preferences, allowedOrigins: [...preferences.allowedOrigins, site] }); setSite('') }}>允许</button><button className="btn bg-bg-raised px-3 text-[10px] text-red-300" onClick={() => { void savePreferences({ ...preferences, blockedOrigins: [...preferences.blockedOrigins, site] }); setSite('') }}>阻止</button></div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2"><SiteList title="允许列表" values={preferences.allowedOrigins} onRemove={(value) => void savePreferences({ ...preferences, allowedOrigins: preferences.allowedOrigins.filter((item) => item !== value) })} /><SiteList title="阻止列表" values={preferences.blockedOrigins} onRemove={(value) => void savePreferences({ ...preferences, blockedOrigins: preferences.blockedOrigins.filter((item) => item !== value) })} /></div>
-    </Group>
-    <p className="mt-5 text-[10px] leading-5 text-txt-muted">网页内容始终视为不可信。发送、发布、删除、上传、下载、购买和支付等高风险动作必须再次审批。</p>
-  </div>
-}
-
-function SiteList({ title, values, onRemove }: { title: string; values: string[]; onRemove: (value: string) => void }): JSX.Element {
-  return <div><div className="mb-2 text-[10px] text-txt-muted">{title}</div><div className="rounded-lg border border-border">{values.map((value) => <div key={value} className="flex items-center gap-2 border-b border-border px-2 py-1.5 last:border-0"><span className="min-w-0 flex-1 truncate text-[9px]">{value}</span><button className="text-txt-muted hover:text-red-300" onClick={() => onRemove(value)}><Icon.X size={11} /></button></div>)}{!values.length && <div className="px-2 py-3 text-center text-[9px] text-txt-muted">暂无</div>}</div></div>
 }
 
 export function ExtensionsSection({ initialTab = 'plugins' }: { initialTab?: ExtensionTab }): JSX.Element {
@@ -418,7 +354,7 @@ function inferDataTargets(permissions: PluginPermission[]): string {
   const targets = new Set<string>()
   if (permissions.some((item) => item.startsWith('workspace.'))) targets.add('当前项目')
   if (permissions.includes('network')) targets.add('外部网络')
-  if (permissions.some((item) => item.startsWith('browser.'))) targets.add('独立浏览器页面')
+  if (permissions.some((item) => item.startsWith('browser.'))) targets.add('已连接浏览器页面')
   if (permissions.includes('process')) targets.add('本机进程')
   return [...targets].join('、') || '未声明'
 }

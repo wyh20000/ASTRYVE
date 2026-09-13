@@ -42,6 +42,45 @@ describe('BrowserGateway', () => {
     expect(max).toBe(1)
   })
 
+  it('keeps a cancelled write in the queue until the adapter operation settles', async () => {
+    let active = 0
+    let max = 0
+    let calls = 0
+    let releaseFirst!: () => void
+    let markFirstStarted!: () => void
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve })
+    const fake = adapter()
+    fake.interact = vi.fn(async () => {
+      calls += 1
+      active += 1
+      max = Math.max(max, active)
+      if (calls === 1) {
+        markFirstStarted()
+        await firstGate
+      }
+      active -= 1
+      return { ok: true }
+    })
+    const gateway = new BrowserGateway(fake)
+    const [element] = await gateway.find('tab-1', { role: 'button' })
+    const controller = new AbortController()
+
+    const first = gateway.interact(element, { type: 'click' }, {
+      ...context('cancelled-write'), signal: controller.signal
+    })
+    await firstStarted
+    controller.abort()
+    await expect(first).rejects.toThrow('取消')
+
+    const second = gateway.interact(element, { type: 'click' }, context('following-write'))
+    await Promise.resolve()
+    expect(fake.interact).toHaveBeenCalledTimes(1)
+    releaseFirst()
+    await second
+    expect(max).toBe(1)
+  })
+
   it('limits concurrent page reads across browser tools', async () => {
     let active = 0
     let max = 0
@@ -63,6 +102,66 @@ describe('BrowserGateway', () => {
     expect(max).toBe(2)
     release()
     await Promise.all(reads)
+  })
+
+  it('removes a cancelled read while it is waiting for a permit', async () => {
+    let releaseFirst!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const fake = adapter()
+    fake.inspect = vi.fn(async () => {
+      await gate
+      return { title: 'Example', url: 'https://example.com', text: '', readyState: 'complete', meta: {}, outline: [] }
+    })
+    const gateway = new BrowserGateway(fake, { maxConcurrentReads: 1 })
+    const first = gateway.inspect('tab-1')
+    await Promise.resolve()
+    const controller = new AbortController()
+    const second = gateway.inspect('tab-1', { ...context('queued-read'), signal: controller.signal })
+
+    controller.abort()
+    await expect(second).rejects.toThrow('取消')
+    expect(fake.inspect).toHaveBeenCalledTimes(1)
+    releaseFirst()
+    await first
+  })
+
+  it('releases a read permit when an adapter throws synchronously', async () => {
+    const fake = adapter()
+    let calls = 0
+    fake.inspect = vi.fn(() => {
+      calls += 1
+      if (calls === 1) throw new Error('sync failure')
+      return Promise.resolve({ title: 'Example', url: 'https://example.com', text: '', readyState: 'complete', meta: {}, outline: [] })
+    })
+    const gateway = new BrowserGateway(fake, { maxConcurrentReads: 1 })
+
+    await expect(gateway.inspect('tab-1')).rejects.toThrow('sync failure')
+    const second = gateway.inspect('tab-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(fake.inspect).toHaveBeenCalledTimes(2)
+    await second
+  })
+
+  it('serializes navigation with interactions and rejects the stale queued element', async () => {
+    let releaseNavigation!: () => void
+    let markNavigationStarted!: () => void
+    const navigationGate = new Promise<void>((resolve) => { releaseNavigation = resolve })
+    const navigationStarted = new Promise<void>((resolve) => { markNavigationStarted = resolve })
+    const fake = adapter()
+    fake.navigate = vi.fn(async () => { markNavigationStarted(); await navigationGate })
+    const gateway = new BrowserGateway(fake)
+    const [element] = await gateway.find('tab-1', { role: 'button' })
+
+    const navigation = gateway.navigate('tab-1', 'https://example.com/next', context('navigate'))
+    await navigationStarted
+    const interaction = gateway.interact(element, { type: 'click' }, context('after-navigation'))
+    await Promise.resolve()
+    expect(fake.interact).not.toHaveBeenCalled()
+    releaseNavigation()
+    await navigation
+    await expect(interaction).rejects.toThrow('过期')
+    expect(fake.interact).not.toHaveBeenCalled()
   })
 
   it('redacts sensitive values and limits page text', async () => {

@@ -98,14 +98,6 @@ const api: AgentApi = {
     backups: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.backups, input),
     rollback: (input: PluginRollbackInput) => ipcRenderer.invoke(IPC.plugins.rollback, input)
   },
-  browser: {
-    status: () => ipcRenderer.invoke(IPC.browser.status),
-    start: () => ipcRenderer.invoke(IPC.browser.start),
-    stop: () => ipcRenderer.invoke(IPC.browser.stop),
-    restart: () => ipcRenderer.invoke(IPC.browser.restart),
-    clearProfile: () => ipcRenderer.invoke(IPC.browser.clearProfile),
-    listTabs: () => ipcRenderer.invoke(IPC.browser.listTabs)
-  },
   terminal: {
     open: (sessionId: string) => ipcRenderer.invoke(IPC.terminal.open, sessionId),
     write: (terminalId: string, text: string) => ipcRenderer.invoke(IPC.terminal.write, terminalId, text),

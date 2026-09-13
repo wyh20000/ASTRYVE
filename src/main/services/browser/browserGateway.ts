@@ -2,19 +2,19 @@ import { randomUUID } from 'node:crypto'
 import type { BrowserCallContext, BrowserDiagnostics, BrowserElementRef, BrowserElementResult, BrowserInspectResult, BrowserSemanticNode, BrowserTab } from '../../../shared/browser'
 
 export interface BrowserAdapter {
-  listTabs(): Promise<Array<Omit<BrowserTab, 'pageVersion'>>>
-  createTab(url: string): Promise<string>
-  activateTab(tabId: string): Promise<void>
-  closeTab(tabId: string): Promise<void>
-  history(tabId: string, direction: 'back' | 'forward'): Promise<void>
-  reload(tabId: string): Promise<void>
-  navigate(tabId: string, url: string): Promise<void>
-  inspect(tabId: string): Promise<{ title: string; url: string; text: string; readyState: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }>
-  find(tabId: string, locator: BrowserLocator): Promise<Array<Omit<BrowserElementResult, 'id' | 'tabId' | 'pageVersion'> & { backendNodeId: number }>>
-  interact(tabId: string, backendNodeId: number, action: BrowserInteraction): Promise<unknown>
-  drag(tabId: string, sourceBackendNodeId: number, targetBackendNodeId: number): Promise<unknown>
-  screenshot(tabId: string, elementBackendNodeId?: number): Promise<Buffer>
-  diagnostics(tabId: string): Promise<BrowserDiagnostics>
+  listTabs(context?: BrowserCallContext): Promise<Array<Omit<BrowserTab, 'pageVersion'>>>
+  createTab(url: string, context?: BrowserCallContext): Promise<string>
+  activateTab(tabId: string, context?: BrowserCallContext): Promise<void>
+  closeTab(tabId: string, context?: BrowserCallContext): Promise<void>
+  history(tabId: string, direction: 'back' | 'forward', context?: BrowserCallContext): Promise<void>
+  reload(tabId: string, context?: BrowserCallContext): Promise<void>
+  navigate(tabId: string, url: string, context?: BrowserCallContext): Promise<void>
+  inspect(tabId: string, context?: BrowserCallContext): Promise<{ title: string; url: string; text: string; readyState: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }>
+  find(tabId: string, locator: BrowserLocator, context?: BrowserCallContext): Promise<Array<Omit<BrowserElementResult, 'id' | 'tabId' | 'pageVersion'> & { backendNodeId: number }>>
+  interact(tabId: string, backendNodeId: number, action: BrowserInteraction, context?: BrowserCallContext): Promise<unknown>
+  drag(tabId: string, sourceBackendNodeId: number, targetBackendNodeId: number, context?: BrowserCallContext): Promise<unknown>
+  screenshot(tabId: string, elementBackendNodeId?: number, context?: BrowserCallContext): Promise<Buffer>
+  diagnostics(tabId: string, context?: BrowserCallContext): Promise<BrowserDiagnostics>
 }
 
 export interface BrowserLocator { role?: string; tag?: string; text?: string; css?: string }
@@ -31,7 +31,7 @@ interface ElementRecord { backendNodeId: number; ref: BrowserElementResult }
 export class BrowserGateway {
   private readonly versions = new Map<string, number>()
   private readonly elements = new Map<string, ElementRecord>()
-  private readonly writeQueues = new Map<string, Promise<unknown>>()
+  private readonly writeQueues = new Map<string, Promise<void>>()
   private readonly readWaiters: Array<() => void> = []
   private activeReads = 0
   private readonly maxText: number
@@ -44,12 +44,12 @@ export class BrowserGateway {
   }
 
   async listTabs(context?: BrowserCallContext): Promise<BrowserTab[]> {
-    return (await this.withReadPermit(() => this.adapter.listTabs(), context)).map((tab) => ({ ...tab, pageVersion: this.version(tab.id) }))
+    return (await this.withReadPermit(() => this.adapter.listTabs(context), context)).map((tab) => ({ ...tab, pageVersion: this.version(tab.id) }))
   }
 
   async assertTabOrigin(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
     const expected = new URL(safeWebUrl(rawUrl)).origin.toLowerCase()
-    const actual = (await this.withReadPermit(() => this.adapter.listTabs(), context)).find((tab) => tab.id === tabId)
+    const actual = (await this.withReadPermit(() => this.adapter.listTabs(context), context)).find((tab) => tab.id === tabId)
     if (!actual) throw new Error('浏览器标签页不存在')
     let actualOrigin: string
     try { actualOrigin = new URL(actual.url).origin.toLowerCase() } catch { throw new Error('标签页地址不可审核') }
@@ -60,25 +60,36 @@ export class BrowserGateway {
   async navigate(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
     const url = safeWebUrl(rawUrl)
     if (this.canNavigate && !this.canNavigate(new URL(url))) throw new Error('该网站已被浏览器设置阻止')
-    await this.withOptionalDeadline(context, () => this.adapter.navigate(tabId, url))
-    this.versions.set(tabId, this.version(tabId) + 1)
-    for (const [id, record] of this.elements) if (record.ref.tabId === tabId) this.elements.delete(id)
+    await this.withWriteQueue(tabId, context, async () => {
+      await this.adapter.navigate(tabId, url, context)
+      this.bump(tabId)
+    })
   }
 
   async createTab(rawUrl = 'about:blank', context?: BrowserCallContext): Promise<string> {
     const url = rawUrl === 'about:blank' ? rawUrl : safeWebUrl(rawUrl)
     if (url !== 'about:blank' && this.canNavigate && !this.canNavigate(new URL(url))) throw new Error('该网站已被浏览器设置阻止')
-    const id = await this.withOptionalDeadline(context, () => this.adapter.createTab(url))
+    const id = await this.withOptionalDeadline(context, () => this.adapter.createTab(url, context))
     this.versions.set(id, 1)
     return id
   }
-  async selectTab(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.activateTab(tabId)) }
-  async closeTab(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.closeTab(tabId)); this.versions.delete(tabId) }
-  async history(tabId: string, direction: 'back' | 'forward', context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.history(tabId, direction)); this.bump(tabId) }
-  async reload(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.reload(tabId)); this.bump(tabId) }
+  async selectTab(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.activateTab(tabId, context)) }
+  async closeTab(tabId: string, context?: BrowserCallContext): Promise<void> {
+    await this.withWriteQueue(tabId, context, async () => {
+      await this.adapter.closeTab(tabId, context)
+      this.versions.delete(tabId)
+      for (const [id, record] of this.elements) if (record.ref.tabId === tabId) this.elements.delete(id)
+    })
+  }
+  async history(tabId: string, direction: 'back' | 'forward', context?: BrowserCallContext): Promise<void> {
+    await this.withWriteQueue(tabId, context, async () => { await this.adapter.history(tabId, direction, context); this.bump(tabId) })
+  }
+  async reload(tabId: string, context?: BrowserCallContext): Promise<void> {
+    await this.withWriteQueue(tabId, context, async () => { await this.adapter.reload(tabId, context); this.bump(tabId) })
+  }
 
   async inspect(tabId: string, context?: BrowserCallContext): Promise<BrowserInspectResult> {
-    const result = await this.withReadPermit(() => this.adapter.inspect(tabId), context)
+    const result = await this.withReadPermit(() => this.adapter.inspect(tabId, context), context)
     return {
       title: clean(result.title, 500),
       url: safeDisplayUrl(result.url),
@@ -109,7 +120,7 @@ export class BrowserGateway {
   async find(tabId: string, locator: BrowserLocator, context?: BrowserCallContext): Promise<BrowserElementResult[]> {
     if (!locator || !Object.values(locator).some((value) => typeof value === 'string' && value.trim())) throw new Error('元素定位条件无效')
     const version = this.version(tabId)
-    return (await this.withReadPermit(() => this.adapter.find(tabId, locator), context)).slice(0, 100).map((item) => {
+    return (await this.withReadPermit(() => this.adapter.find(tabId, locator, context), context)).slice(0, 100).map((item) => {
       const id = `element-${randomUUID()}`
       const ref: BrowserElementResult = {
         id, tabId, pageVersion: version, role: short(item.role), name: short(item.name), tag: short(item.tag),
@@ -132,10 +143,13 @@ export class BrowserGateway {
       throw new Error('高风险网页动作必须使用确认工具并单次审批')
     }
     if (action.type === 'type' && sensitiveText(action.text)) throw new Error('疑似凭据或敏感内容，已阻止传给浏览器')
-    const previous = this.writeQueues.get(reference.tabId) ?? Promise.resolve()
-    const next = previous.catch(() => undefined).then(() => this.withDeadline(context, () => this.adapter.interact(reference.tabId, record.backendNodeId, action)))
-    this.writeQueues.set(reference.tabId, next)
-    try { return await next } finally { if (this.writeQueues.get(reference.tabId) === next) this.writeQueues.delete(reference.tabId) }
+    return this.withWriteQueue(reference.tabId, context, () => {
+      const current = this.elements.get(reference.id)
+      if (!current || current.ref.tabId !== reference.tabId || current.ref.pageVersion !== reference.pageVersion || reference.pageVersion !== this.version(reference.tabId)) {
+        throw new Error('元素引用已过期，请重新定位')
+      }
+      return this.adapter.interact(reference.tabId, current.backendNodeId, action, context)
+    })
   }
 
   async drag(source: BrowserElementRef, target: BrowserElementRef, context: BrowserCallContext): Promise<unknown> {
@@ -146,11 +160,14 @@ export class BrowserGateway {
     const sourceRecord = this.elements.get(source.id)
     const targetRecord = this.elements.get(target.id)
     if (!sourceRecord || !targetRecord) throw new Error('拖放元素引用已过期，请重新定位')
-    const previous = this.writeQueues.get(source.tabId) ?? Promise.resolve()
-    const next = previous.catch(() => undefined).then(() => this.withDeadline(context,
-      () => this.adapter.drag(source.tabId, sourceRecord.backendNodeId, targetRecord.backendNodeId)))
-    this.writeQueues.set(source.tabId, next)
-    try { return await next } finally { if (this.writeQueues.get(source.tabId) === next) this.writeQueues.delete(source.tabId) }
+    return this.withWriteQueue(source.tabId, context, () => {
+      const currentSource = this.elements.get(source.id)
+      const currentTarget = this.elements.get(target.id)
+      if (!currentSource || !currentTarget || source.pageVersion !== this.version(source.tabId)) {
+        throw new Error('拖放元素引用已过期，请重新定位')
+      }
+      return this.adapter.drag(source.tabId, currentSource.backendNodeId, currentTarget.backendNodeId, context)
+    })
   }
 
   async screenshot(tabId: string, reference?: BrowserElementRef, context?: BrowserCallContext): Promise<Buffer> {
@@ -161,13 +178,13 @@ export class BrowserGateway {
       if (record.ref.pageVersion !== reference.pageVersion || reference.pageVersion !== this.version(tabId)) throw new Error('元素引用已过期，请重新定位')
       backendNodeId = record.backendNodeId
     }
-    const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId), context)
+    const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId, context), context)
     if (image.byteLength > 10 * 1024 * 1024) throw new Error('截图超过大小限制')
     return image
   }
 
   async diagnostics(tabId: string, context?: BrowserCallContext): Promise<BrowserDiagnostics> {
-    const result = await this.withReadPermit(() => this.adapter.diagnostics(tabId), context)
+    const result = await this.withReadPermit(() => this.adapter.diagnostics(tabId, context), context)
     return {
       consoleErrors: result.consoleErrors.slice(-100).map((v) => clean(v, 1000)),
       failedRequests: result.failedRequests.slice(-100).map((v) => clean(v, 1000)),
@@ -208,15 +225,72 @@ export class BrowserGateway {
     return this.withDeadline(context, action)
   }
 
+  private async withWriteQueue<T>(tabId: string, context: BrowserCallContext | undefined, action: () => Promise<T>): Promise<T> {
+    const previous = this.writeQueues.get(tabId) ?? Promise.resolve()
+    const operation = previous.then(() => {
+      if (context) this.assertContext(context)
+      return action()
+    })
+    const queueTail = operation.then(() => undefined, () => undefined)
+    this.writeQueues.set(tabId, queueTail)
+    void queueTail.then(() => { if (this.writeQueues.get(tabId) === queueTail) this.writeQueues.delete(tabId) })
+    return context ? this.withDeadline(context, () => operation) : operation
+  }
+
   private async withReadPermit<T>(action: () => Promise<T>, context?: BrowserCallContext): Promise<T> {
+    await this.acquireReadPermit(context)
+    const operation = Promise.resolve().then(() => {
+      if (context) this.assertContext(context)
+      return action()
+    })
+    void operation.then(() => this.releaseReadPermit(), () => this.releaseReadPermit())
+    return context ? this.withDeadline(context, () => operation) : operation
+  }
+
+  private async acquireReadPermit(context?: BrowserCallContext): Promise<void> {
     if (context) this.assertContext(context)
-    if (this.activeReads >= this.maxConcurrentReads) await new Promise<void>((resolve) => this.readWaiters.push(resolve))
-    this.activeReads += 1
-    try { return context ? await this.withDeadline(context, action) : await action() }
-    finally {
+    if (this.activeReads < this.maxConcurrentReads) {
+      this.activeReads += 1
+      return
+    }
+    await new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const removeWaiter = (): void => {
+        const index = this.readWaiters.indexOf(grant)
+        if (index >= 0) this.readWaiters.splice(index, 1)
+      }
+      const cleanup = (): void => {
+        if (timer) clearTimeout(timer)
+        context?.signal?.removeEventListener('abort', aborted)
+      }
+      const fail = (error: Error): void => {
+        removeWaiter()
+        cleanup()
+        reject(error)
+      }
+      const aborted = (): void => fail(new Error('浏览器操作已取消'))
+      const grant = (): void => {
+        cleanup()
+        try {
+          if (context) this.assertContext(context)
+          this.activeReads += 1
+          resolve()
+        } catch (error) {
+          reject(error)
+          this.readWaiters.shift()?.()
+        }
+      }
+      this.readWaiters.push(grant)
+      if (context) {
+        timer = setTimeout(() => fail(new Error('浏览器操作已超时')), Math.max(1, context.deadline - Date.now()))
+        context.signal?.addEventListener('abort', aborted, { once: true })
+      }
+    })
+  }
+
+  private releaseReadPermit(): void {
       this.activeReads -= 1
       this.readWaiters.shift()?.()
-    }
   }
 }
 

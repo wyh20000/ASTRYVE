@@ -5,6 +5,7 @@ import {
   describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
   listMarketplaceCategories, PluginMarketDetails, PluginSection, SecuritySection, SkillsSection
 } from './SettingsPage'
+import SettingsPage from './SettingsPage'
 
 const skillState = vi.hoisted(() => ({
   items: [] as SkillMetadata[], catalog: [], loading: false, mutating: false, error: undefined as string | undefined,
@@ -55,6 +56,14 @@ beforeEach(() => {
   pluginState.loading = false
   pluginState.mutating = false
   pluginState.error = undefined
+})
+
+describe('Settings navigation', () => {
+  it('does not expose the removed managed Chrome controls', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    expect(html).not.toContain('>浏览器</span>')
+    expect(html).not.toContain('独立 Chrome')
+  })
 })
 
 describe('Skills settings page', () => {
@@ -183,6 +192,13 @@ describe('Extensions settings page', () => {
     expect(html).toContain('浏览器交互')
     expect(html).toContain('发布者签名已变化')
     expect(html).toContain('更新并重新确认')
+  })
+
+  it('describes browser permissions without implying a managed Chrome instance', () => {
+    const html = renderToStaticMarkup(<PluginMarketDetails entry={{ ...marketEntry, dataTargets: [] }}
+      releases={[{ ...marketEntry, dataTargets: [] }]} onClose={vi.fn()} onConfirm={vi.fn()} mutating={false} />)
+    expect(html).toContain('已连接浏览器页面')
+    expect(html).not.toContain('独立浏览器页面')
   })
 
   it('contains tab focus inside the plugin detail drawer', () => {
