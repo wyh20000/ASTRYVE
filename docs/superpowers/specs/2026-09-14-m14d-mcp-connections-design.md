@@ -54,6 +54,8 @@ interface PluginMcpServerDeclaration {
   transport: 'streamable-http'
   auth: 'none' | 'api-key' | 'oauth2'
   apiKeyHeader?: 'Authorization' | 'X-API-Key'
+  oauthClientId?: string
+  oauthScopes?: string[]
 }
 ```
 
@@ -64,6 +66,7 @@ interface PluginMcpServerDeclaration {
 - 拒绝 loopback、私网、链路本地、保留地址和运行时 DNS 重绑定目标；OAuth 回调自身的 `127.0.0.1` 是唯一例外。
 - 声明中禁止出现 Token、API Key、Cookie、任意 headers、环境变量、命令或参数。
 - API Key header 只允许 `Authorization` 和 `X-API-Key`；值由宿主连接提供。
+- OAuth 可声明非秘密 public client ID 和最多 20 个 scope；未声明 client ID 时要求授权服务器支持动态客户端注册。
 - 限制 MCP 文件大小、server 数量、字符串长度、结构深度和节点数；拒绝符号链接。
 
 市场条目只有在下载包内 MCP 声明通过上述校验后才能安装。仅含受支持 MCP 的插件不再标记“待支持”；声明包含未支持传输或能力时仍不可安装。
