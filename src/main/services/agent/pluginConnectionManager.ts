@@ -11,15 +11,17 @@ interface CredentialAccess {
   deleteConnection(connectionId: string): Promise<void>
 }
 
+export type PluginMcpClientFactory = (
+  declaration: PluginMcpServerDeclaration,
+  connectionId: string,
+  getCredential: () => Promise<string | undefined>
+) => PluginMcpClient
+
 interface ManagerOptions {
   store: PluginConnectionStore
   vault?: CredentialAccess
   resolveDeclaration(pluginId: string, serverId: string): Promise<PluginMcpServerDeclaration | undefined>
-  createClient?: (
-    declaration: PluginMcpServerDeclaration,
-    connectionId: string,
-    getCredential: () => Promise<string | undefined>
-  ) => PluginMcpClient
+  createClient?: PluginMcpClientFactory
   leaseTtlMs?: number
   now?: () => number
 }
@@ -45,6 +47,14 @@ export interface PluginMcpLease {
   release(): Promise<void>
 }
 
+export interface PluginMcpToolSnapshot {
+  serverId: string
+  connectionId: string
+  serverOrigin: string
+  accountLabel?: string
+  tools: PluginMcpTool[]
+}
+
 export class PluginConnectionManager {
   private readonly clients = new Map<string, ClientEntry>()
   private readonly connecting = new Map<string, Promise<ClientEntry>>()
@@ -55,6 +65,36 @@ export class PluginConnectionManager {
   constructor(private readonly options: ManagerOptions) {
     this.now = options.now ?? Date.now
     this.leaseTtlMs = options.leaseTtlMs ?? 15 * 60_000
+  }
+
+  async snapshotPluginTools(pluginId: string): Promise<PluginMcpToolSnapshot[]> {
+    const bindings = (await this.options.store.listBindings())
+      .filter((binding) => binding.pluginId === pluginId)
+      .sort((left, right) => left.serverId.localeCompare(right.serverId))
+    const snapshots: PluginMcpToolSnapshot[] = []
+    for (const binding of bindings) {
+      const connection = await this.options.store.getConnection(binding.connectionId)
+      if (!connection || connection.state !== 'connected') continue
+      try {
+        const declaration = await this.options.resolveDeclaration(pluginId, binding.serverId)
+        if (!declaration || new URL(declaration.url).toString() !== connection.serverUrl || declaration.auth !== connection.auth) continue
+        const entry = await this.getOrConnect(connection.id, declaration)
+        const tools = await entry.client.listTools(entry.controller.signal)
+        snapshots.push({
+          serverId: binding.serverId,
+          connectionId: connection.id,
+          serverOrigin: connection.serverOrigin,
+          ...(connection.accountLabel === undefined ? {} : { accountLabel: connection.accountLabel }),
+          tools: structuredClone(tools)
+        })
+      } catch (error) {
+        if (error instanceof PluginMcpError && this.clients.has(connection.id)) {
+          await this.invalidateConnection(connection.id, error)
+        }
+        // One unavailable external service must not suppress healthy task tools.
+      }
+    }
+    return snapshots
   }
 
   async acquireLease(input: {

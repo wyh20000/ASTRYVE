@@ -20,6 +20,50 @@ function fakeClient(call: () => Promise<unknown> = async () => ({ content: [] })
 }
 
 describe('plugin connection manager', () => {
+  it('snapshots tools only from exact connected bindings and skips pending connections', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'plugin-manager-snapshot-'))
+    const store = new PluginConnectionStore(root)
+    const connected = await store.saveConnection({ serverOrigin: 'https://api.example.com', serverUrl: declaration.url, auth: 'none', state: 'connected', accountLabel: 'a***@example.com' })
+    const pending = await store.saveConnection({ serverOrigin: 'https://api.example.com', serverUrl: declaration.url, auth: 'none', state: 'pending' })
+    await store.bindPlugin({ pluginId: 'one.plugin', serverId: 'api', connectionId: connected.id })
+    await store.bindPlugin({ pluginId: 'one.plugin', serverId: 'pending', connectionId: pending.id })
+    const manager = new PluginConnectionManager({
+      store,
+      resolveDeclaration: async (_pluginId, serverId) => serverId === 'api' ? declaration : { ...declaration, id: 'pending' },
+      createClient: () => fakeClient()
+    })
+
+    await expect(manager.snapshotPluginTools('one.plugin')).resolves.toEqual([{
+      serverId: 'api', connectionId: connected.id, serverOrigin: 'https://api.example.com',
+      accountLabel: 'a***@example.com',
+      tools: [{ name: 'ping', inputSchema: { type: 'object', additionalProperties: false } }]
+    }])
+  })
+
+  it('isolates snapshot discovery failures and retains healthy connections', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'plugin-manager-snapshot-failure-'))
+    const store = new PluginConnectionStore(root)
+    const failed = await store.saveConnection({ serverOrigin: 'https://api.example.com', serverUrl: declaration.url, auth: 'none', state: 'connected' })
+    const healthy = await store.saveConnection({ serverOrigin: 'https://api.example.com', serverUrl: declaration.url, auth: 'none', state: 'connected' })
+    await store.bindPlugin({ pluginId: 'one.plugin', serverId: 'broken', connectionId: failed.id })
+    await store.bindPlugin({ pluginId: 'one.plugin', serverId: 'healthy', connectionId: healthy.id })
+    const brokenClient = fakeClient()
+    brokenClient.listTools = async () => { throw new PluginMcpError('MCP_TOOLS_INVALID', 'broken catalog') }
+    const healthyClient = fakeClient()
+    const isolated = new PluginConnectionManager({
+      store,
+      resolveDeclaration: async (_pluginId, serverId) => ({ ...declaration, id: serverId }),
+      createClient: (_declaration, id) => id === failed.id ? brokenClient : healthyClient
+    })
+
+    const snapshots = await isolated.snapshotPluginTools('one.plugin')
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0].serverId).toBe('healthy')
+    expect((await store.getConnection(failed.id))?.state).toBe('failed')
+    expect((await store.getConnection(healthy.id))?.state).toBe('connected')
+    await isolated.close()
+  })
+
   it('requires an exact explicit plugin/server binding before creating a task lease', async () => {
     const root = await mkdtemp(join(tmpdir(), 'plugin-manager-binding-'))
     const store = new PluginConnectionStore(root)

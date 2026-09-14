@@ -24,6 +24,9 @@ import { createHostPatchTool } from './hostPatchTool'
 import { createScriptDiscoveryTool } from './scriptDiscoveryTool'
 import { refreshAgentExecutionCapabilities } from './projectPreferences'
 import { capturePluginTaskTools } from './pluginManager'
+import { captureTaskPluginCapabilities } from './pluginMcpTools'
+import { createInstalledPluginConnectionManager } from './pluginMcpRuntime'
+import type { PluginConnectionManager } from './pluginConnectionManager'
 import { getBrowserPreferences } from '../settings'
 
 export async function createProjectTask(sessionId: string, ownerWebContentsId: number, pluginIds?: readonly string[]) {
@@ -31,8 +34,12 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
     import('electron'), import('../../db'), import('../settings'), import('./workspaceManager')
   ])
   const capabilities = await refreshAgentExecutionCapabilities()
-  const pluginSnapshot = await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit)
-  return launchProjectTask(sessionId, ownerWebContentsId, {
+  const localPluginSnapshot = await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit)
+  const pluginSnapshot = pluginConnectionManager
+    ? await captureTaskPluginCapabilities(localPluginSnapshot, pluginConnectionManager, writeAgentAudit)
+    : localPluginSnapshot
+  try {
+    return await launchProjectTask(sessionId, ownerWebContentsId, {
     sessionExists: async (id) => Boolean(await getStore().getSession(id)),
     activeWorkspace: workspaces.getSessionWorkspaceId,
     verifyWorkspace: async (id) => { await workspaces.getWorkspaceService().activate(id) },
@@ -47,7 +54,11 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
       pluginVersions: pluginSnapshot.pluginVersions,
       dispose: pluginSnapshot.dispose
     })
-  })
+    })
+  } catch (error) {
+    await pluginSnapshot.dispose().catch(() => undefined)
+    throw error
+  }
 }
 
 let registry: ToolRegistry | null = null
@@ -56,6 +67,7 @@ let journal: TaskEventJournal | null = null
 let unsubscribeJournal: (() => void) | null = null
 let auditJournal: AuditJournal | null = null
 let patchWorkspace: PatchWorkspaceService | null = null
+let pluginConnectionManager: PluginConnectionManager | null = null
 
 export function initTaskRuntime(): TaskRuntime {
   unsubscribeJournal?.()
@@ -116,6 +128,8 @@ export async function initTaskPersistence(userDataPath: string): Promise<{
   const activeRuntime = getTaskRuntime()
   patchWorkspace?.setRuntimeRoot(join(userDataPath, 'agent-runtime', 'tasks'))
   auditJournal = new AuditJournal(join(userDataPath, 'agent-audit.json'))
+  await pluginConnectionManager?.close()
+  pluginConnectionManager = createInstalledPluginConnectionManager(userDataPath)
   const store = new FileTaskEventStore(join(userDataPath, 'agent-task-journal.json'))
   const removedInterruptedWrites = await store.cleanupInterruptedWrites()
   const staleTaskIds = await store.recoverStaleTasks()
@@ -178,7 +192,7 @@ export function cancelAllAgentTasks(reason: string): number {
 }
 
 export async function flushTaskPersistence(): Promise<void> {
-  await journal?.close()
+  await Promise.all([journal?.close(), pluginConnectionManager?.close()])
 }
 
 export function resetTaskRuntimeForTests(): void {
@@ -191,4 +205,6 @@ export function resetTaskRuntimeForTests(): void {
   registry = null
   auditJournal = null
   patchWorkspace = null
+  void pluginConnectionManager?.close()
+  pluginConnectionManager = null
 }

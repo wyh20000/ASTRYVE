@@ -31,10 +31,10 @@
 - Produces: `snapshotPluginTools(pluginId)` returning sanitized `{ serverId, connectionId, serverOrigin, accountLabel?, tools }[]` for exact connected bindings.
 - Consumes: the existing connection store, declaration resolver, client isolation and normalized MCP tool list.
 
-- [ ] Write failing tests proving disconnected/unbound connections are excluded, healthy connected connections are discovered, and one failed connection does not suppress another.
-- [ ] Run `npm test -- src/main/services/agent/pluginConnectionManager.test.ts` and confirm the method is missing.
-- [ ] Implement deterministic binding iteration, declaration/connection identity checks, per-connection failure isolation and defensive snapshot copies.
-- [ ] Re-run the manager tests and confirm they pass.
+- [x] Write failing tests proving disconnected/unbound connections are excluded, healthy connected connections are discovered, and one failed connection does not suppress another.
+- [x] Run `npm test -- src/main/services/agent/pluginConnectionManager.test.ts` and confirm the method is missing.
+- [x] Implement deterministic binding iteration, declaration/connection identity checks, per-connection failure isolation and defensive snapshot copies.
+- [x] Re-run the manager tests and confirm they pass.
 
 ### Task 2: Convert discovery snapshots into task-scoped ToolDefinitions
 
@@ -47,10 +47,10 @@
 - Each produced definition has deterministic name `mcp__<pluginId>__<serverId>__<toolName>`, `operation: 'external.call'`, a trusted `externalTarget`, defensive schema copies and schema-based argument validation.
 - Execution consumes `manager.acquireLease(...)`; successful MCP results become `{ ok: true, value }`, stable MCP failures become bounded `{ ok: false, error }`.
 
-- [ ] Write failing tests for deterministic names, frozen schemas, spoof-resistant identity, real lease invocation, cancellation, stable error mapping and disposal.
-- [ ] Run `npm test -- src/main/services/agent/pluginMcpTools.test.ts` and confirm the module is missing.
-- [ ] Implement the factory with one cached lease promise per task/connection and no credential/client exposure.
-- [ ] Re-run the factory, registry and authorization tests.
+- [x] Write failing tests for deterministic names, frozen schemas, spoof-resistant identity, real lease invocation, cancellation, stable error mapping and disposal.
+- [x] Run `npm test -- src/main/services/agent/pluginMcpTools.test.ts` and confirm the module is missing.
+- [x] Implement the factory with one cached lease promise per task/connection and no credential/client exposure.
+- [x] Re-run the factory, registry and authorization tests.
 
 ### Task 3: Integrate MCP definitions into plugin and task snapshots
 
@@ -65,17 +65,17 @@
 - Task runtime persistence initializes one host connection manager from `userDataPath` and installed plugin declarations.
 - `createProjectTask` combines local plugin tools and MCP task tools, and composes both disposal functions.
 
-- [ ] Write failing tests for MCP-only plugin selection and combined immutable task definitions/disposal.
-- [ ] Run the two manager test files and verify failures are caused by missing integration.
-- [ ] Implement declaration resolution from the installed package, host manager initialization, combined capture and terminal cleanup.
-- [ ] Re-run integration tests plus existing tool-calling-loop tests.
+- [x] Write failing tests for MCP-only plugin selection and combined immutable task definitions/disposal.
+- [x] Run the two manager test files and verify failures are caused by missing integration.
+- [x] Implement declaration resolution from the installed package, host manager initialization, combined capture and terminal cleanup.
+- [x] Re-run integration tests plus existing tool-calling-loop tests.
 
 ### Task 4: Record progress, verify and commit
 
 **Files:**
 - Modify: `docs/08-第四阶段计划.md`
 
-- [ ] Record that Agent registration and lease execution are complete while leaving UI-dependent M14-D checklist items unchecked.
-- [ ] Run `npm test`, `npm run typecheck`, `npm run build`, `npm run smoke:plugin`, `npm run smoke:plugin-mcp`, and `git diff --check`.
-- [ ] Review the complete diff for plaintext credentials, untrusted identity propagation, open schemas, leaked leases and unrelated changes.
-- [ ] Commit as `feat(agent): connect MCP tools to task runtime`.
+- [x] Record that Agent registration and lease execution are complete while leaving UI-dependent M14-D checklist items unchecked.
+- [x] Run `npm test`, `npm run typecheck`, `npm run build`, `npm run smoke:plugin`, `npm run smoke:plugin-mcp`, and `git diff --check`.
+- [x] Review the complete diff for plaintext credentials, untrusted identity propagation, open schemas, leaked leases and unrelated changes.
+- [x] Commit as `feat(agent): connect MCP tools to task runtime`.

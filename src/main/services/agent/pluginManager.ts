@@ -106,7 +106,7 @@ export async function capturePluginTaskTools(
     try {
       const rootPath = join(root, entry.name)
       const manifest = await readPluginManifest(rootPath)
-      if (!manifest.tools.length || disabled.has(manifest.id) || isPluginQuarantined(manifest.id) || (requested && !requested.has(manifest.id))) continue
+      if ((!manifest.tools.length && !manifest.mcpPath) || disabled.has(manifest.id) || isPluginQuarantined(manifest.id) || (requested && !requested.has(manifest.id))) continue
       packages.push({ rootPath, manifest })
     } catch {
       // Invalid packages remain visible in settings but never enter a task tool snapshot.
@@ -122,6 +122,8 @@ export async function capturePluginTaskTools(
   const tools: ToolDefinition<any, any>[] = []
   const versions: Record<string, string | undefined> = {}
   for (const item of packages) {
+    versions[item.manifest.id] = item.manifest.version
+    if (!item.manifest.tools.length) continue
     const worker = createWorker(item.rootPath, item.manifest)
     const pluginTools = createPluginTools(item.manifest, worker, {
       succeeded: () => clearPluginFailure(item.manifest.id),
@@ -156,7 +158,6 @@ export async function capturePluginTaskTools(
     })
     workers.push({ worker, unregister: activeRuntimes.add(item.manifest.id, worker) })
     tools.push(...pluginTools)
-    versions[item.manifest.id] = item.manifest.version
   }
   return {
     tools,

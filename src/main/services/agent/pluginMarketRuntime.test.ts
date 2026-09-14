@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -19,6 +19,29 @@ afterEach(async () => {
 })
 
 describe('market plugin runtime', () => {
+  it('captures an MCP-only plugin without creating a local worker', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'ai-agent-mcp-only-runtime-'))
+    tempDirs.push(dataRoot)
+    const pluginRoot = join(dataRoot, 'plugins', 'acme.mcp-only')
+    await mkdir(pluginRoot, { recursive: true })
+    await writeFile(join(pluginRoot, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'acme.mcp-only', name: 'MCP Only', version: '1.0.0',
+      description: 'External tools only', permissions: ['network'], mcp: './mcp.json'
+    }))
+    await writeFile(join(pluginRoot, 'mcp.json'), JSON.stringify({ mcpServers: {
+      api: { url: 'https://api.example.com/mcp', auth: 'none' }
+    } }))
+    initPluginRegistry(dataRoot)
+    const workerFactory = (() => { throw new Error('MCP-only plugins must not create workers') }) as NonNullable<Parameters<typeof capturePluginTaskTools>[1]>
+
+    const snapshot = await capturePluginTaskTools(['acme.mcp-only'], workerFactory)
+
+    expect(snapshot.pluginIds).toEqual(['acme.mcp-only'])
+    expect(snapshot.pluginVersions).toEqual({ 'acme.mcp-only': '1.0.0' })
+    expect(snapshot.tools).toEqual([])
+    await expect(snapshot.dispose()).resolves.toBeUndefined()
+  })
+
   it('installs a verified market package and invokes its tool from a task snapshot', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'ai-agent-market-runtime-'))
     tempDirs.push(dataRoot)
