@@ -88,6 +88,32 @@ describe('DenyFirstPolicyEngine', () => {
     })
   })
 
+  it('denies external calls in read-only mode and requires approval in both active modes', () => {
+    const target: NormalizedOperationTarget = {
+      type: 'external', pluginId: 'acme.tools', serverId: 'api', serverOrigin: 'https://api.example.com',
+      connectionIdHash: `sha256:${'a'.repeat(64)}`, toolName: 'search'
+    }
+    expect(evaluate('read-only', 'external.call', target)).toMatchObject({ outcome: 'deny', reasonCode: 'READ_ONLY_MODE' })
+    for (const mode of ['ask-every-time', 'smart-approval'] as const) {
+      expect(evaluate(mode, 'external.call', target)).toMatchObject({
+        outcome: 'ask', risk: 'medium', reasonCode: 'EXTERNAL_CALL_REQUIRES_APPROVAL'
+      })
+    }
+  })
+
+  it('audits external targets only by hash without service, account, or connection metadata', () => {
+    const events: AuditEvent[] = []
+    const engine = new DenyFirstPolicyEngine((event) => events.push(event))
+    const target: NormalizedOperationTarget = {
+      type: 'external', pluginId: 'acme.tools', serverId: 'api', serverOrigin: 'https://api.example.com',
+      connectionIdHash: `sha256:${'a'.repeat(64)}`, accountLabel: 'a***@example.com', toolName: 'search'
+    }
+    engine.evaluate(context('smart-approval', 'external.call', target))
+    expect(events[0].target).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(JSON.stringify(events)).not.toContain('api.example.com')
+    expect(JSON.stringify(events)).not.toContain('a***@example.com')
+  })
+
   it('denies Docker network grants in the local execution environment', () => {
     const target = classifyOperation('network.enable', { url: 'https://example.com', scope: 'once' }, workspace)
     expect(evaluate('ask-every-time', 'network.enable', target, 'local')).toMatchObject({

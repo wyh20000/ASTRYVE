@@ -12,6 +12,7 @@ import type {
 } from '../../../shared/agent'
 import type { AuditWriter } from './policyEngine'
 import { sanitizeAuditEvent } from './audit'
+import { isToolName } from './validation'
 
 const DEFAULT_TTL_MS = 2 * 60_000
 
@@ -279,7 +280,7 @@ function samePlugin(
 }
 
 function isTrustedEvidence(request: ApprovalRequest): boolean {
-  return /^[a-z][a-z0-9.-]{0,127}$/i.test(request.toolName) &&
+  return isToolName(request.toolName) &&
     (!request.plugin || (/^[a-z0-9][a-z0-9._-]{1,63}$/.test(request.plugin.id) &&
       (request.plugin.version === undefined || /^[a-z0-9][a-z0-9.+_-]{0,63}$/i.test(request.plugin.version)))) &&
     PERMISSION_MODES.includes(request.permissionMode) &&

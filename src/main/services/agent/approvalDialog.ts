@@ -86,6 +86,7 @@ function operationTitle(operation: ApprovalRequest['operation']): string {
   if (operation === 'process.run' || operation === 'process.start') return '确认运行命令'
   if (operation === 'network.enable') return '确认开放网络访问'
   if (operation === 'browser.interact') return '确认操作网页'
+  if (operation === 'external.call') return '确认调用外部服务'
   if (operation === 'git.write') return '确认执行 Git 写操作'
   return '确认执行操作'
 }
@@ -95,7 +96,7 @@ function operationLabel(operation: ApprovalRequest['operation']): string {
     'fs.patch': '修改文件', 'fs.apply-host': '写入项目', 'process.run': '运行命令',
     'process.start': '启动服务', 'process.stop': '停止服务', 'network.enable': '访问网络',
     'git.write': 'Git 写操作', 'git.read': 'Git 读取', 'fs.read': '读取文件', 'fs.search': '搜索文件',
-    'browser.read': '读取网页', 'browser.interact': '操作网页'
+    'browser.read': '读取网页', 'browser.interact': '操作网页', 'external.call': '调用外部服务'
   }
   return labels[operation] ?? operation
 }
@@ -122,6 +123,10 @@ function safeTargetView(rawTarget: string): SafeTargetView {
       return { preview: cleanText(paths.slice(0, 3).join('、') + (paths.length > 3 ? ` 等 ${paths.length} 个文件` : ''), 320), details: JSON.stringify(value, null, 2), truncated: pathValues.some((path) => path.truncated) || (Array.isArray(target.paths) && target.paths.length > 20) }
     }
     if (target.type === 'browser') return targetView('browser', { action: safeString(target.action), origin: safeString(target.origin) }, 'origin')
+    if (target.type === 'external') return targetView('external', {
+      pluginId: safeString(target.pluginId), serverOrigin: safeString(target.serverOrigin),
+      serverId: safeString(target.serverId), accountLabel: safeString(target.accountLabel), toolName: safeString(target.toolName)
+    }, 'serverOrigin')
     if (target.type === 'file') return targetView('file', { path: safeString(target.path) }, 'path')
     if (target.type === 'network') return targetView('network', { protocol: safeString(target.protocol), host: safeString(target.host) }, 'host')
     if (target.type === 'service-stop') return targetView('service-stop', { serviceId: safeString(target.serviceId) }, 'serviceId')

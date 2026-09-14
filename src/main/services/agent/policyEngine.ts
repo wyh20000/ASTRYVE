@@ -103,6 +103,10 @@ function evaluateMode(context: PolicyContext, browser?: BrowserPreferences): Pol
     return decision('deny', riskFor(target), 'READ_ONLY_MODE', '只读模式禁止产生副作用', target)
   }
 
+  if (context.operation === 'external.call' && target.type === 'external') {
+    return decision('ask', 'medium', 'EXTERNAL_CALL_REQUIRES_APPROVAL', '允许插件调用外部服务', target)
+  }
+
   if (context.permissionMode === 'ask-every-time') {
     return decision('ask', riskFor(target), 'EXPLICIT_APPROVAL_REQUIRED', '此操作需要用户批准', target)
   }
@@ -134,6 +138,7 @@ function riskFor(target: NormalizedOperationTarget): RiskLevel {
   if (target.type === 'network') return 'high'
   if (target.type === 'browser') return target.sensitive ? 'high' : target.write ? 'medium' : 'low'
   if (target.type === 'git' && target.write) return 'high'
+  if (target.type === 'external') return 'medium'
   if (target.type === 'file' && (target.destructive || target.binary)) return 'high'
   if (target.type === 'command') {
     if (target.signals.destructive || target.signals.shellSyntax) return 'critical'
@@ -148,6 +153,7 @@ function reasonForApproval(target: NormalizedOperationTarget): string {
   if (target.type === 'network') return 'NETWORK_REQUIRES_APPROVAL'
   if (target.type === 'browser') return target.sensitive ? 'SENSITIVE_BROWSER_ACTION_REQUIRES_APPROVAL' : 'BROWSER_ACTION_REQUIRES_APPROVAL'
   if (target.type === 'git' && target.write) return 'GIT_WRITE_REQUIRES_APPROVAL'
+  if (target.type === 'external') return 'EXTERNAL_CALL_REQUIRES_APPROVAL'
   if (target.type === 'command') {
     if (target.signals.shellSyntax) return 'SHELL_SYNTAX_REQUIRES_APPROVAL'
     if (target.signals.destructive) return 'DESTRUCTIVE_COMMAND_REQUIRES_APPROVAL'

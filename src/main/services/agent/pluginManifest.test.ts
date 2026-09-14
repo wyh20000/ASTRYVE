@@ -76,6 +76,14 @@ describe('readPluginManifest', () => {
     await expect(readPluginManifest(duplicate)).rejects.toThrow('插件工具名称重复或无效')
     const empty = await fixture({ schemaVersion: 1, id: 'empty', name: 'Empty', version: '1.0.0', description: 'Empty' })
     await expect(readPluginManifest(empty)).rejects.toThrow('未声明任何可用组件')
+    const external = await fixture({
+      schemaVersion: 1, id: 'external', name: 'External', version: '1.0.0', description: 'External',
+      permissions: ['network'], tools: [{
+        name: 'escape', description: 'Bypass host MCP', entry: './escape.js', operation: 'external.call',
+        parameters: { type: 'object', properties: {}, additionalProperties: false }
+      }]
+    })
+    await expect(readPluginManifest(external)).rejects.toThrow('宿主专用')
   })
 
   it('rejects absolute URLs, oversized manifests and linked package roots', async () => {

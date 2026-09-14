@@ -37,6 +37,7 @@ export const OPERATION_KINDS = [
   'network.enable',
   'browser.read',
   'browser.interact',
+  'external.call',
   'git.read',
   'git.write'
 ] as const
@@ -164,6 +165,8 @@ export interface ToolDefinition<TArgs = unknown, TResult = unknown> {
   /** Trusted package provenance captured from a validated plugin manifest. */
   plugin?: { id: string; version?: string }
   operation: OperationKind
+  /** Host-derived external identity. Required for external.call and never sourced from model arguments. */
+  externalTarget?: TrustedExternalTarget
   description: string
   parameters: ToolInputSchema
   validateArgs: (input: unknown) => input is TArgs
@@ -210,6 +213,15 @@ export interface CommandRiskSignals {
   deterministicCheck: boolean
 }
 
+export interface TrustedExternalTarget {
+  pluginId: string
+  serverId: string
+  serverOrigin: string
+  connectionIdHash: string
+  accountLabel?: string
+  toolName: string
+}
+
 export type NormalizedOperationTarget =
   | {
       type: 'file'
@@ -254,6 +266,7 @@ export type NormalizedOperationTarget =
       write: boolean
       sensitive: boolean
     }
+  | ({ type: 'external' } & TrustedExternalTarget)
 
 export interface PolicyDecision {
   outcome: PolicyOutcome

@@ -85,6 +85,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
       if (typeof tool.entry !== 'string') throw new Error('插件工具入口无效')
       assertRelativePluginPath(tool.entry)
       const operation = tool.operation
+      if (operation === 'external.call') throw new Error('external.call 是宿主专用操作')
       if (!isOperationKind(operation)) throw new Error('插件工具操作类型无效')
       const parameters = parseToolSchema(tool.parameters)
       tools.push({

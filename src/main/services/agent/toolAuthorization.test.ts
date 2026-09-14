@@ -142,4 +142,26 @@ describe('tool approval execution gate', () => {
       expect(approvalRequest?.scopeOptions).toEqual(['once'])
     }
   )
+
+  it('offers only one-shot approval for every external call in smart mode', async () => {
+    let request: ApprovalRequest | undefined
+    const guard = new ToolAuthorization(async (value) => { request = value; return 'once' })
+    const context: ToolExecutionContext = {
+      taskId: 'task-external', callId: 'call-external', workspace: {
+        id: 'workspace-1', rootPath: path.resolve('fixture'), realRootPath: path.resolve('fixture'), createdAt: 1
+      }, environment: 'local', permissionMode: 'smart-approval', signal: new AbortController().signal
+    }
+    const definition: ToolDefinition = {
+      name: 'mcp__acme.tools__api__search', plugin: { id: 'acme.tools' }, operation: 'external.call',
+      externalTarget: { pluginId: 'acme.tools', serverId: 'api', serverOrigin: 'https://api.example.com', connectionIdHash: `sha256:${'a'.repeat(64)}`, toolName: 'search' },
+      description: 'search', parameters: { type: 'object', properties: {}, additionalProperties: false },
+      validateArgs: (value): value is object => Boolean(value), execute: async () => ({ ok: true })
+    }
+    const invocation: ToolInvocation = {
+      taskId: context.taskId, callId: context.callId, workspaceId: context.workspace.id,
+      environment: 'local', permissionMode: 'smart-approval', toolName: definition.name, args: {}
+    }
+    await expect(guard.authorize(invocation, context, definition)).resolves.toBe(true)
+    expect(request).toMatchObject({ operation: 'external.call', scopeOptions: ['once'] })
+  })
 })

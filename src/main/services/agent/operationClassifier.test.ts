@@ -88,4 +88,17 @@ describe('classifyOperation', () => {
       type: 'browser', action: 'confirmclick', write: true, sensitive: true
     })
   })
+
+  it('classifies external calls only from trusted host metadata and ignores model spoofing', () => {
+    expect(classifyOperation('external.call', {
+      serverOrigin: 'https://evil.example', accountLabel: 'attacker'
+    }, workspace, 'mcp__acme.tools__api__search', {
+      pluginId: 'acme.tools', serverId: 'api', serverOrigin: 'https://api.example.com',
+      connectionIdHash: 'sha256:' + 'a'.repeat(64), accountLabel: 'a***@example.com', toolName: 'search'
+    })).toEqual({
+      type: 'external', pluginId: 'acme.tools', serverId: 'api', serverOrigin: 'https://api.example.com',
+      connectionIdHash: 'sha256:' + 'a'.repeat(64), accountLabel: 'a***@example.com', toolName: 'search'
+    })
+    expect(() => classifyOperation('external.call', {}, workspace)).toThrow('trusted metadata')
+  })
 })

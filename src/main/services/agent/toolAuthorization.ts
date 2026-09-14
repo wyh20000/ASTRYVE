@@ -18,7 +18,9 @@ export class ToolAuthorization {
 
   async authorize(invocation: ToolInvocation, context: ToolExecutionContext, definition: ToolDefinition): Promise<boolean> {
     if (context.signal.aborted) return false
-    const target = classifyOperation(definition.operation, invocation.args, context.workspace, invocation.toolName)
+    const target = classifyOperation(
+      definition.operation, invocation.args, context.workspace, invocation.toolName, definition.externalTarget
+    )
     const decision = this.policy.evaluate({
       permissionMode: context.permissionMode, workspace: context.workspace,
       invocation, operation: definition.operation, target

@@ -12,7 +12,7 @@ const PERMISSION_BY_OPERATION: Record<OperationKind, PluginPermission> = {
   'fs.patch': 'workspace.write', 'fs.apply-host': 'workspace.write',
   'process.run': 'process', 'process.start': 'process', 'process.stop': 'process',
   'network.enable': 'network', 'git.read': 'workspace.read', 'git.write': 'workspace.write',
-  'browser.read': 'browser.read', 'browser.interact': 'browser.interact'
+  'browser.read': 'browser.read', 'browser.interact': 'browser.interact', 'external.call': 'network'
 }
 
 export function createPluginTools(
@@ -58,6 +58,7 @@ export function createPluginTools(
 }
 
 function assertOperationTargetSchema(tool: ParsedPluginTool): void {
+  if (tool.operation === 'external.call') throw new Error(`插件工具 ${tool.name} 不能声明宿主专用 external.call`)
   if (tool.operation === 'browser.read' || tool.operation === 'browser.interact') {
     throw new Error(`插件工具 ${tool.name} 不能直接声明浏览器操作；必须使用 Browser Gateway`)
   }

@@ -20,7 +20,8 @@ export function classifyOperation(
   operation: OperationKind,
   input: unknown,
   workspace: WorkspaceGrant,
-  toolName?: string
+  toolName?: string,
+  externalTarget?: import('../../../shared/agent').TrustedExternalTarget
 ): NormalizedOperationTarget {
   const args = asRecord(input)
   switch (operation) {
@@ -73,6 +74,8 @@ export function classifyOperation(
         sensitive: Boolean(args.sensitive) || toolName === 'browser.confirmClick'
       }
     }
+    case 'external.call':
+      return normalizeExternalTarget(externalTarget, toolName)
     case 'git.read':
     case 'git.write':
       return {
@@ -107,6 +110,25 @@ export function classifyOperation(
       }
     }
   }
+}
+
+function normalizeExternalTarget(
+  target: import('../../../shared/agent').TrustedExternalTarget | undefined,
+  registeredToolName: string | undefined
+): NormalizedOperationTarget {
+  if (!target) throw new OperationClassificationError('external.call requires trusted metadata')
+  let origin: URL
+  try { origin = new URL(target.serverOrigin) } catch { throw new OperationClassificationError('trusted external origin is invalid') }
+  if (origin.protocol !== 'https:' || origin.origin !== target.serverOrigin || origin.pathname !== '/' || origin.search || origin.hash ||
+      !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(target.pluginId) ||
+      !/^[a-z][a-z0-9._-]{0,63}$/.test(target.serverId) ||
+      !/^sha256:[a-f0-9]{64}$/.test(target.connectionIdHash) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(target.toolName) ||
+      registeredToolName !== `mcp__${target.pluginId}__${target.serverId}__${target.toolName}` ||
+      (target.accountLabel !== undefined && (!target.accountLabel.trim() || target.accountLabel.length > 100 || /[\u0000-\u001f]/.test(target.accountLabel)))) {
+    throw new OperationClassificationError('trusted external metadata is invalid')
+  }
+  return { type: 'external', ...target, serverOrigin: origin.origin }
 }
 
 function resolveBrowserAction(toolName: string | undefined, operation: 'browser.read' | 'browser.interact'): string {

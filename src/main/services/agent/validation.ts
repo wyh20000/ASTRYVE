@@ -10,6 +10,7 @@ import {
 
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/
 const TOOL_NAME_PATTERN = /^[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z][a-zA-Z0-9_-]*)+$/
+const MCP_TOOL_NAME_PATTERN = /^mcp__[a-z0-9][a-z0-9._-]{1,63}__[a-z][a-z0-9._-]{0,63}__[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
 
 export const MAX_TOOL_ARGUMENT_DEPTH = 12
 export const MAX_TOOL_ARGUMENT_NODES = 10_000
@@ -35,7 +36,7 @@ export function isOperationKind(value: unknown): value is OperationKind {
 }
 
 export function isToolName(value: unknown): value is string {
-  return typeof value === 'string' && TOOL_NAME_PATTERN.test(value)
+  return typeof value === 'string' && (TOOL_NAME_PATTERN.test(value) || MCP_TOOL_NAME_PATTERN.test(value))
 }
 
 /** 拒绝循环、过深和异常庞大的工具参数，避免在 schema 校验前耗尽主进程。 */
