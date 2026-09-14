@@ -23,6 +23,7 @@ export interface ParsedPluginTool {
 export interface ParsedPluginManifest extends Omit<PluginMetadata, 'enabled' | 'status' | 'source' | 'errors'> {
   tools: ParsedPluginTool[]
   skillsPath?: string
+  mcpPath?: string
 }
 
 export async function readPluginManifest(root: string): Promise<ParsedPluginManifest> {
@@ -68,6 +69,8 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   for (const field of ['skills', 'mcp', 'mcpServers'] as const) {
     if (typeof value[field] === 'string') assertRelativePluginPath(value[field])
   }
+  const mcpPath = typeof value.mcp === 'string' ? value.mcp : typeof value.mcpServers === 'string' ? value.mcpServers : undefined
+  if (components.includes('mcp') && !mcpPath) throw new Error('MCP 声明路径无效')
   if (Array.isArray(value.tools)) {
     const names = new Set<string>()
     for (const tool of value.tools) {
@@ -95,7 +98,8 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   }
   return {
     id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools,
-    skillsPath: typeof value.skills === 'string' ? value.skills : undefined
+    skillsPath: typeof value.skills === 'string' ? value.skills : undefined,
+    mcpPath
   }
 }
 

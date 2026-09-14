@@ -33,6 +33,14 @@ describe('readPluginManifest', () => {
     await expect(readPluginManifest(root)).resolves.toMatchObject({ components: ['mcp'] })
   })
 
+  it('retains a validated MCP file path without loading it during discovery', async () => {
+    const root = await fixture({
+      schemaVersion: 1, id: 'remote.tools', name: 'Remote', description: 'Remote tools', mcp: './mcp.json'
+    })
+
+    await expect(readPluginManifest(root)).resolves.toMatchObject({ components: ['mcp'], mcpPath: './mcp.json' })
+  })
+
   it('accepts the native manifest and rejects traversal in component paths', async () => {
     const valid = await fixture({
       schemaVersion: 1, id: 'acme.browser', name: 'Acme Browser', version: '1.0.0',

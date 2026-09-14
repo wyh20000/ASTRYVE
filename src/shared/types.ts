@@ -325,6 +325,32 @@ export type PluginPermission =
 
 export type PluginComponent = 'skills' | 'hooks' | 'mcp' | 'tools'
 export type PluginStatus = 'ready' | 'invalid' | 'quarantined'
+export type PluginMcpAuthKind = 'none' | 'api-key' | 'oauth2'
+export interface PluginMcpServerDeclaration {
+  id: string
+  url: string
+  transport: 'streamable-http'
+  auth: PluginMcpAuthKind
+  apiKeyHeader?: 'Authorization' | 'X-API-Key'
+  oauthClientId?: string
+  oauthScopes?: string[]
+}
+export type PluginMcpConnectionState = 'pending' | 'connected' | 'failed' | 'restricted'
+export interface PluginMcpConnection {
+  id: string
+  serverOrigin: string
+  serverUrl: string
+  auth: PluginMcpAuthKind
+  state: PluginMcpConnectionState
+  accountLabel?: string
+  lastConnectedAt?: number
+  errorCode?: string
+}
+export interface PluginMcpBinding {
+  pluginId: string
+  serverId: string
+  connectionId: string
+}
 export type PluginInstallSourceKind = PluginMarketSourceKind | 'local'
 export interface PluginInstallOrigin {
   pluginVersion?: string

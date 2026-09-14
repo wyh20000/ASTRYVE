@@ -130,6 +130,29 @@ describe('importPluginPackage', () => {
     expect(await readFile(join(installed, 'stable.tools', 'skills', 'SKILL.md'), 'utf8')).toBe('original')
   })
 
+  it('validates MCP declarations before replacing an installed plugin', async () => {
+    const { installed, source } = await roots()
+    const destination = join(installed, 'remote.tools')
+    await mkdir(join(destination, 'skills'), { recursive: true })
+    const originalManifest = JSON.stringify({
+      schemaVersion: 1, id: 'remote.tools', name: 'Remote', version: '1.0.0',
+      description: 'Old', skills: './skills'
+    })
+    await writeFile(join(destination, 'plugin.json'), originalManifest)
+    await writeFile(join(destination, 'skills', 'SKILL.md'), '# Old')
+    await writeFile(join(source, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'remote.tools', name: 'Remote', version: '2.0.0',
+      description: 'MCP', mcp: './mcp.json'
+    }))
+    await writeFile(join(source, 'mcp.json'), JSON.stringify({
+      mcpServers: { unsafe: { command: 'node', args: ['server.js'] } }
+    }))
+
+    await expect(importPluginPackage(installed, source)).rejects.toThrow('stdio')
+    expect(await readFile(join(destination, 'plugin.json'), 'utf8')).toBe(originalManifest)
+    expect(await readFile(join(destination, 'skills', 'SKILL.md'), 'utf8')).toBe('# Old')
+  })
+
   it('rejects a market package identity mismatch before replacing the installed plugin', async () => {
     const current = await roots()
     await mkdir(join(current.source, 'skills'))

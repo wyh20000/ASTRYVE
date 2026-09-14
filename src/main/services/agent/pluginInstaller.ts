@@ -6,6 +6,7 @@ import { basename, extname, isAbsolute, join, posix, relative, resolve, win32 } 
 import JSZip, { type JSZipObject } from 'jszip'
 import type { PluginComponent, PluginMetadata, PluginPermission } from '../../../shared/types'
 import { readPluginManifest, type ParsedPluginManifest } from './pluginManifest'
+import { readPluginMcpDeclarations } from './pluginMcpManifest'
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
 const MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -46,6 +47,7 @@ export async function importPluginPackage(
 
     const packageRoot = await locatePackageRoot(stage)
     const parsed = await readPluginManifest(packageRoot)
+    if (parsed.mcpPath) await readPluginMcpDeclarations(packageRoot, parsed.mcpPath)
     if ((expectations.expectedId && parsed.id !== expectations.expectedId) ||
         (expectations.expectedVersion && parsed.version !== expectations.expectedVersion)) {
       throw new Error('下载包身份与市场索引不一致')

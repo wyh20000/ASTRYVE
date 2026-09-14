@@ -13,7 +13,7 @@ import { auditPluginOperation } from '../services/agent/pluginAudit'
 import { runSafeAutoUpdates, selectSafeAutoUpdates } from '../services/agent/pluginAutoUpdate'
 import { assertPluginUninstallAllowed } from '../services/agent/pluginDeploymentPolicy'
 import { uninstallPlugin } from '../services/agent/pluginUninstall'
-import { clearPluginCredentials } from '../services/agent/pluginCredentials'
+import { removePluginConnectionData } from '../services/agent/pluginCredentials'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
@@ -147,7 +147,8 @@ export function registerPluginsIpc(): void {
     }, async () => {
       setPluginEnabled(input.id, false)
       await uninstallPlugin(input.id, input.dataDisposition ?? 'keep', app.getPath('userData'), getInstalledPluginRoot(), {
-        stop: stopPluginRuntimes, clearCredentials: clearPluginCredentials
+        stop: stopPluginRuntimes,
+        disposeConnections: (id, disposition) => removePluginConnectionData(id, disposition, app.getPath('userData'))
       })
       await savePluginInstallOrigin(app.getPath('userData'), input.id)
       notifyPluginsChanged()

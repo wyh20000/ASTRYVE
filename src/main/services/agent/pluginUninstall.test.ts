@@ -16,26 +16,26 @@ describe('plugin uninstall data boundary', () => {
     }
     await writeFile(join(root, 'agent-audit.json'), 'audit')
     const stop = vi.fn(async () => undefined)
-    const clearCredentials = vi.fn(async () => undefined)
+    const disposeConnections = vi.fn(async () => undefined)
 
-    await uninstallPlugin(id, 'keep', root, installed, { stop, clearCredentials })
+    await uninstallPlugin(id, 'keep', root, installed, { stop, disposeConnections })
     expect(await exists(join(installed, id))).toBe(false)
     expect(await exists(join(root, 'plugin-data', id))).toBe(true)
     expect(await exists(join(root, 'agent-audit.json'))).toBe(true)
 
     await mkdir(join(installed, id), { recursive: true })
-    await uninstallPlugin(id, 'clear', root, installed, { stop, clearCredentials })
+    await uninstallPlugin(id, 'clear', root, installed, { stop, disposeConnections })
     expect(await exists(join(root, 'plugin-history', id))).toBe(false)
     expect(await exists(join(root, 'plugin-data', id))).toBe(false)
     expect(await exists(join(root, 'plugin-cache', id))).toBe(false)
     expect(await exists(join(root, 'agent-audit.json'))).toBe(true)
-    expect(clearCredentials).toHaveBeenCalledOnce()
+    expect(disposeConnections.mock.calls).toEqual([[id, 'keep'], [id, 'clear']])
   })
 
   it('rejects path-like plugin identifiers before touching storage', async () => {
     const root = await mkdtemp(join(tmpdir(), 'plugin-uninstall-invalid-'))
     await expect(uninstallPlugin('../escape', 'clear', root, join(root, 'plugins'), {
-      stop: async () => undefined, clearCredentials: async () => undefined
+      stop: async () => undefined, disposeConnections: async () => undefined
     })).rejects.toThrow('插件标识无效')
   })
 })
