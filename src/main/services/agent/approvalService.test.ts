@@ -17,9 +17,12 @@ const decision: PolicyDecision = {
 const binding: ApprovalBinding = {
   taskId: 'task-1',
   callId: 'call-1',
+  toolName: 'process.run',
   workspaceId: 'workspace-1',
   environment: 'docker',
   operation: 'process.run',
+  permissionMode: 'ask-every-time',
+  policyReasonCode: 'COMMAND_REQUIRES_APPROVAL',
   normalizedTarget: decision.normalizedTarget!,
   commandPrefix: ['vitest', 'run']
 }
@@ -116,5 +119,33 @@ describe('BoundApprovalService', () => {
       'APPROVAL_REQUESTED',
       'APPROVAL_EXPIRED'
     ])
+  })
+
+  it('audits the selected approval scope without recording target parameters', () => {
+    const events: AuditEvent[] = []
+    const sensitiveBinding = {
+      ...binding,
+      normalizedTarget: JSON.stringify({ command: 'npm publish', token: 'super-secret-token' })
+    }
+    const service = new BoundApprovalService((event) => events.push(event), () => 1_000)
+    const request = createApprovalRequest(sensitiveBinding, {
+      ...decision,
+      normalizedTarget: sensitiveBinding.normalizedTarget
+    }, { now: 1_000 })
+    service.create(request)
+    service.decide({ requestId: request.id, outcome: 'approved', scope: 'task-prefix', decidedAt: 1_001 })
+
+    const approved = events.find((event) => event.reasonCode === 'USER_APPROVED')!
+    expect(approved.metadata?.scope).toBe('task-prefix')
+    expect(JSON.stringify(approved)).not.toContain('super-secret-token')
+    expect(JSON.stringify(approved)).not.toContain('npm publish')
+  })
+
+  it('rejects approval requests when trusted evidence is missing or tampered', () => {
+    const service = new BoundApprovalService(() => undefined, () => 1_000)
+    const request = createApprovalRequest(binding, decision, { now: 1_000 })
+
+    expect(() => service.create({ ...request, toolName: '' })).toThrowError(ApprovalServiceError)
+    expect(() => service.create({ ...request, policyReasonCode: 'TAMPERED_POLICY' })).toThrowError(ApprovalServiceError)
   })
 })

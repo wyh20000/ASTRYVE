@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { PERMISSION_MODES } from '../../../shared/agent'
 import type {
   ApprovalBinding,
   ApprovalDecision,
@@ -24,6 +25,9 @@ interface PrefixApproval {
   workspaceId: string
   environment: ApprovalBinding['environment']
   operation: ApprovalBinding['operation']
+  toolName: string
+  permissionMode: ApprovalRequest['permissionMode']
+  policyReasonCode: string
   commandPrefix: string[]
   normalizedTarget: string
 }
@@ -58,6 +62,7 @@ export class BoundApprovalService implements ApprovalService {
     if (
       request.expiresAt <= request.createdAt ||
       request.expiresAt <= this.now() ||
+      !isTrustedEvidence(request) ||
       request.bindingHash !== hashRequestBinding(request)
     ) {
       throw new ApprovalServiceError('INVALID_REQUEST', 'Approval request binding is invalid')
@@ -96,7 +101,7 @@ export class BoundApprovalService implements ApprovalService {
       expiresAt: request.expiresAt
     }
     this.grants.set(grant.token, { grant, request })
-    this.audit(request, 'allow', 'USER_APPROVED')
+    this.audit(request, 'allow', 'USER_APPROVED', scope)
     return grant
   }
 
@@ -123,6 +128,9 @@ export class BoundApprovalService implements ApprovalService {
         workspaceId: stored.request.workspaceId,
         environment: stored.request.environment,
         operation: stored.request.operation,
+        toolName: stored.request.toolName,
+        permissionMode: stored.request.permissionMode,
+        policyReasonCode: stored.request.policyReasonCode,
         commandPrefix: [...stored.request.commandPrefix],
         normalizedTarget: stored.request.normalizedTarget
       })
@@ -139,6 +147,9 @@ export class BoundApprovalService implements ApprovalService {
         approval.workspaceId === binding.workspaceId &&
         approval.environment === binding.environment &&
         approval.operation === binding.operation &&
+        approval.toolName === binding.toolName &&
+        approval.permissionMode === binding.permissionMode &&
+        approval.policyReasonCode === binding.policyReasonCode &&
         approval.normalizedTarget === binding.normalizedTarget &&
         arraysEqual(approval.commandPrefix, binding.commandPrefix!)
     )
@@ -167,7 +178,8 @@ export class BoundApprovalService implements ApprovalService {
   private audit(
     request: ApprovalRequest,
     outcome: AuditEvent['outcome'],
-    reasonCode: string
+    reasonCode: string,
+    scope?: ApprovalScope
   ): void {
     this.writeAudit(sanitizeAuditEvent({
       id: randomUUID(),
@@ -180,7 +192,7 @@ export class BoundApprovalService implements ApprovalService {
       risk: request.risk,
       reasonCode,
       target: `sha256:${request.bindingHash}`,
-      metadata: { requestId: request.id, environment: request.environment }
+      metadata: { requestId: request.id, environment: request.environment, ...(scope ? { scope } : {}) }
     }))
   }
 }
@@ -203,9 +215,12 @@ export function createApprovalRequest(
     id: randomUUID(),
     taskId: binding.taskId,
     callId: binding.callId,
+    toolName: binding.toolName,
     workspaceId: binding.workspaceId,
     environment: binding.environment,
     operation: binding.operation,
+    permissionMode: binding.permissionMode,
+    policyReasonCode: binding.policyReasonCode,
     normalizedTarget: binding.normalizedTarget,
     bindingHash: hashApprovalBinding(binding),
     commandPrefix: binding.commandPrefix ? [...binding.commandPrefix] : undefined,
@@ -224,9 +239,12 @@ export function hashApprovalBinding(binding: ApprovalBinding): string {
       JSON.stringify({
         taskId: binding.taskId,
         callId: binding.callId,
+        toolName: binding.toolName,
         workspaceId: binding.workspaceId,
         environment: binding.environment,
         operation: binding.operation,
+        permissionMode: binding.permissionMode,
+        policyReasonCode: binding.policyReasonCode,
         normalizedTarget: binding.normalizedTarget,
         commandPrefix: binding.commandPrefix ?? null
       })
@@ -240,4 +258,10 @@ function hashRequestBinding(request: ApprovalRequest): string {
 
 function arraysEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function isTrustedEvidence(request: ApprovalRequest): boolean {
+  return /^[a-z][a-z0-9.-]{0,127}$/i.test(request.toolName) &&
+    PERMISSION_MODES.includes(request.permissionMode) &&
+    /^[A-Z][A-Z0-9_]{2,127}$/.test(request.policyReasonCode)
 }

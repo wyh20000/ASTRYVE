@@ -269,9 +269,13 @@ export interface ApprovalRequest {
   id: string
   taskId: string
   callId: string
+  /** Trusted registry name, never supplied by model-generated preview content. */
+  toolName: string
   workspaceId: string
   environment: ExecutionEnvironment
   operation: OperationKind
+  permissionMode: PermissionMode
+  policyReasonCode: string
   normalizedTarget: string
   bindingHash: string
   commandPrefix?: string[]
@@ -299,9 +303,12 @@ export interface ApprovalGrant {
 export interface ApprovalBinding {
   taskId: string
   callId: string
+  toolName: string
   workspaceId: string
   environment: ExecutionEnvironment
   operation: OperationKind
+  permissionMode: PermissionMode
+  policyReasonCode: string
   normalizedTarget: string
   commandPrefix?: string[]
 }

@@ -244,6 +244,9 @@ export interface UserInputResponse {
 export interface ApprovalUiRequest {
   id: string
   sessionId: string
+  toolName: string
+  callId: string
+  permissionBasis: string
   title: string
   summary: string
   workspace: string

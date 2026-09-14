@@ -27,6 +27,7 @@ export class ToolAuthorization {
     const binding = {
       taskId: context.taskId, callId: context.callId, workspaceId: context.workspace.id,
       environment: context.environment, operation: definition.operation,
+      toolName: definition.name, permissionMode: context.permissionMode, policyReasonCode: decision.reasonCode,
       normalizedTarget: decision.normalizedTarget!,
       commandPrefix: target.type === 'command' ? target.commandPrefix : undefined
     }
@@ -43,7 +44,7 @@ export class ToolAuthorization {
       ...decision, summary: `${trustedSummary}（${decision.reasonCode}）`
     }, {
       scopeOptions: reusableCommand && binding.commandPrefix
-        ? ['once', 'task-prefix'] : websiteApproval && !oneShotBrowserApproval ? ['once', 'site'] : ['once']
+        ? ['once', 'task-prefix'] : websiteApproval && !oneShotBrowserApproval ? ['once', 'site'] : ['once'],
     })
     this.approvals.create(request)
     const controller = new AbortController()

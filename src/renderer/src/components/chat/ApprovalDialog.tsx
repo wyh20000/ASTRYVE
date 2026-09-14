@@ -62,13 +62,20 @@ export function ApprovalDialogView({ request, onClear }: {
           <span className="text-txt-muted">目标</span>
           <code className="min-w-0 break-words rounded-md bg-bg-app px-2 py-1.5 font-mono text-[10px] leading-4 text-txt-primary">{request.target}</code>
         </div>
-        {request.details && <details className="group mt-3 rounded-lg border border-border bg-bg-app">
+        <details className="group mt-3 rounded-lg border border-border bg-bg-app">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-[11px] text-txt-secondary">
             <Icon.ChevronRight size={11} className="transition-transform group-open:rotate-90" />
-            查看完整参数
+            查看可信详情与参数摘要
           </summary>
+          <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-border px-3 py-2 text-[10px] leading-4">
+            <span className="text-txt-muted">工具</span><code className="break-words text-txt-secondary">{request.toolName}</code>
+            <span className="text-txt-muted">调用 ID</span><code className="break-all text-txt-secondary">{request.callId}</code>
+            <span className="text-txt-muted">权限依据</span><code className="break-words text-txt-secondary">{request.permissionBasis}</code>
+          </div>
+          {request.details &&
           <pre className="selectable max-h-44 overflow-auto whitespace-pre-wrap break-words border-t border-border px-3 py-2 font-mono text-[10px] leading-4 text-txt-muted">{request.details}{request.detailsTruncated ? '\n\n[内容过长，界面已截断；审批仍绑定完整参数]' : ''}</pre>
-        </details>}
+          }
+        </details>
         <p className="mt-3 text-[10px] leading-4 text-txt-muted">拒绝后不会执行该操作。批准只对当前显示且经过安全绑定的操作有效。</p>
         {error && <p className="mt-2 text-[11px] text-red-300">{error}</p>}
       </div>

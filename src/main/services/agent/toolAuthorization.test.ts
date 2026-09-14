@@ -97,6 +97,23 @@ describe('tool approval execution gate', () => {
     expect(approvalRequest?.summary).toContain('LONG_RUNNING_COMMAND_REQUIRES_APPROVAL')
   })
 
+  it('binds trusted tool and policy evidence into the approval request', async () => {
+    let approvalRequest: ApprovalRequest | undefined
+    const fixture = setup(async (request) => {
+      approvalRequest = request
+      return 'once'
+    })
+
+    await fixture.registry.execute(fixture.invocation, fixture.context)
+
+    expect(approvalRequest).toMatchObject({
+      toolName: 'workspace.patch',
+      callId: 'call-1',
+      permissionMode: 'ask-every-time',
+      policyReasonCode: 'EXPLICIT_APPROVAL_REQUIRED'
+    })
+  })
+
   it.each(['browser.confirmClick', 'browser.history'])(
     'only offers one-shot approval for %s',
     async (toolName) => {
