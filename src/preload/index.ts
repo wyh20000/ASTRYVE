@@ -163,6 +163,7 @@ const api: AgentApi = {
     setAgentProject: (preferences: AgentProjectPreferences) =>
       ipcRenderer.invoke(IPC.settings.setAgentProject, preferences),
     clearAudit: () => ipcRenderer.invoke(IPC.settings.clearAudit),
+    getAudit: () => ipcRenderer.invoke(IPC.settings.getAudit),
     getBrowserPreferences: () => ipcRenderer.invoke(IPC.settings.getBrowserPreferences),
     setBrowserPreferences: (value: BrowserPreferences) => ipcRenderer.invoke(IPC.settings.setBrowserPreferences, value)
   },

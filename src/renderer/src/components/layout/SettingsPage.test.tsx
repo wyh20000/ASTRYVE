@@ -1,8 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginMarketEntry, PluginMetadata, SkillMetadata } from '@shared/types'
+import type { AuditEvent } from '@shared/agent'
 import {
-  describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
+  AuditRecordList, describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
   listMarketplaceCategories, PluginMarketDetails, PluginSection, SecuritySection, SkillsSection
 } from './SettingsPage'
 import SettingsPage from './SettingsPage'
@@ -218,5 +219,24 @@ describe('Security settings page', () => {
     expect(html).toContain('安全与数据')
     expect(html).toContain('清除审计记录')
     expect(html).not.toContain('agent-audit.json')
+  })
+
+  it('shows recent audit evidence and highlights permission, update, startup and isolation issues', () => {
+    const base: AuditEvent = {
+      id: 'audit-1', timestamp: 1, taskId: 'task-1', workspaceId: 'workspace-1',
+      actor: 'policy', action: 'approval', outcome: 'deny'
+    }
+    const html = renderToStaticMarkup(<AuditRecordList events={[
+      { ...base, reasonCode: 'USER_DENIED', toolName: 'plugin.acme.deploy', pluginId: 'acme', pluginVersion: '1.0.0' },
+      { ...base, id: 'audit-2', action: 'plugin.update', outcome: 'failure', reasonCode: 'PLUGIN_UPDATE_FAILED' },
+      { ...base, id: 'audit-3', action: 'plugin.start', outcome: 'failure', reasonCode: 'PLUGIN_START_FAILED' },
+      { ...base, id: 'audit-4', action: 'plugin.isolation', outcome: 'failure', reasonCode: 'PLUGIN_ISOLATED' }
+    ]} />)
+    expect(html).toContain('权限')
+    expect(html).toContain('更新')
+    expect(html).toContain('启动')
+    expect(html).toContain('隔离')
+    expect(html).toContain('acme@1.0.0')
+    expect(html).not.toContain('workspace-1')
   })
 })

@@ -72,6 +72,7 @@ export const IPC = {
     getAgentProject: 'settings:get-agent-project',
     setAgentProject: 'settings:set-agent-project',
     clearAudit: 'settings:clear-audit',
+    getAudit: 'settings:get-audit',
     getBrowserPreferences: 'settings:get-browser-preferences',
     setBrowserPreferences: 'settings:set-browser-preferences'
   },

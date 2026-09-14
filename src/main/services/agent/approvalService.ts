@@ -26,6 +26,7 @@ interface PrefixApproval {
   environment: ApprovalBinding['environment']
   operation: ApprovalBinding['operation']
   toolName: string
+  plugin?: { id: string; version?: string }
   permissionMode: ApprovalRequest['permissionMode']
   policyReasonCode: string
   commandPrefix: string[]
@@ -129,6 +130,7 @@ export class BoundApprovalService implements ApprovalService {
         environment: stored.request.environment,
         operation: stored.request.operation,
         toolName: stored.request.toolName,
+        plugin: stored.request.plugin ? { ...stored.request.plugin } : undefined,
         permissionMode: stored.request.permissionMode,
         policyReasonCode: stored.request.policyReasonCode,
         commandPrefix: [...stored.request.commandPrefix],
@@ -148,6 +150,7 @@ export class BoundApprovalService implements ApprovalService {
         approval.environment === binding.environment &&
         approval.operation === binding.operation &&
         approval.toolName === binding.toolName &&
+        samePlugin(approval.plugin, binding.plugin) &&
         approval.permissionMode === binding.permissionMode &&
         approval.policyReasonCode === binding.policyReasonCode &&
         approval.normalizedTarget === binding.normalizedTarget &&
@@ -157,7 +160,9 @@ export class BoundApprovalService implements ApprovalService {
       this.writeAudit({
         id: randomUUID(), timestamp: this.now(), taskId: binding.taskId,
         workspaceId: binding.workspaceId, actor: 'policy', action: 'approval', outcome: 'allow',
-        reasonCode: 'TASK_APPROVAL_REUSED', target: `sha256:${hashApprovalBinding(binding)}`
+        reasonCode: 'TASK_APPROVAL_REUSED', target: `sha256:${hashApprovalBinding(binding)}`,
+        toolName: binding.toolName, pluginId: binding.plugin?.id, pluginVersion: binding.plugin?.version,
+        approvalScope: 'task-prefix'
       })
     }
     return approved
@@ -192,7 +197,11 @@ export class BoundApprovalService implements ApprovalService {
       risk: request.risk,
       reasonCode,
       target: `sha256:${request.bindingHash}`,
-      metadata: { requestId: request.id, environment: request.environment, ...(scope ? { scope } : {}) }
+      toolName: request.toolName,
+      pluginId: request.plugin?.id,
+      pluginVersion: request.plugin?.version,
+      approvalScope: scope,
+      metadata: { requestId: request.id, environment: request.environment }
     }))
   }
 }
@@ -216,6 +225,7 @@ export function createApprovalRequest(
     taskId: binding.taskId,
     callId: binding.callId,
     toolName: binding.toolName,
+    plugin: binding.plugin ? { ...binding.plugin } : undefined,
     workspaceId: binding.workspaceId,
     environment: binding.environment,
     operation: binding.operation,
@@ -240,6 +250,7 @@ export function hashApprovalBinding(binding: ApprovalBinding): string {
         taskId: binding.taskId,
         callId: binding.callId,
         toolName: binding.toolName,
+        plugin: binding.plugin ?? null,
         workspaceId: binding.workspaceId,
         environment: binding.environment,
         operation: binding.operation,
@@ -260,8 +271,17 @@ function arraysEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
 }
 
+function samePlugin(
+  left?: { id: string; version?: string },
+  right?: { id: string; version?: string }
+): boolean {
+  return left?.id === right?.id && left?.version === right?.version
+}
+
 function isTrustedEvidence(request: ApprovalRequest): boolean {
   return /^[a-z][a-z0-9.-]{0,127}$/i.test(request.toolName) &&
+    (!request.plugin || (/^[a-z0-9][a-z0-9._-]{1,63}$/.test(request.plugin.id) &&
+      (request.plugin.version === undefined || /^[a-z0-9][a-z0-9.+_-]{0,63}$/i.test(request.plugin.version)))) &&
     PERMISSION_MODES.includes(request.permissionMode) &&
     /^[A-Z][A-Z0-9_]{2,127}$/.test(request.policyReasonCode)
 }

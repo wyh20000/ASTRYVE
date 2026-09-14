@@ -52,6 +52,15 @@ describe('application approval dialog ownership', () => {
     expect(view.details).not.toContain('secret-key')
   })
 
+  it('shows trusted plugin provenance separately from model-controlled details', () => {
+    const view = toApprovalView({
+      ...request,
+      plugin: { id: 'acme.audit-tools', version: '2.4.0' }
+    }, task)
+
+    expect(view.plugin).toEqual({ id: 'acme.audit-tools', version: '2.4.0' })
+  })
+
   it('never sends authentication material from command arguments or summaries to the renderer', () => {
     const secrets = [
       'Basic dXNlcjpwYXNz',

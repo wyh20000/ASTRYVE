@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { AgentSettingsSection } from '../chat/AgentControls'
 import { usePluginStore } from '../../stores/pluginStore'
 import { compareSemver } from '@shared/semver'
+import type { AuditEvent } from '@shared/agent'
 
 type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'security'
 type ExtensionTab = 'plugins' | 'skills'
@@ -446,12 +447,28 @@ function pluginPermissionLabel(permission: PluginPermission): string {
 export function SecuritySection(): JSX.Element {
   const [message, setMessage] = useState('')
   const [clearing, setClearing] = useState(false)
+  const [events, setEvents] = useState<AuditEvent[]>([])
+  const [loadingAudit, setLoadingAudit] = useState(true)
+  const [auditError, setAuditError] = useState('')
+  useEffect(() => {
+    let active = true
+    void window.agent.settings.getAudit().then((result) => {
+      if (!active) return
+      if (result.ok) setEvents(result.data)
+      else setAuditError(result.error.message)
+      setLoadingAudit(false)
+    })
+    return () => { active = false }
+  }, [])
   const clearAudit = async (): Promise<void> => {
     setClearing(true)
     setMessage('')
     const result = await window.agent.settings.clearAudit()
     setClearing(false)
-    setMessage(result.ok ? '审计记录已清除' : result.error.message)
+    if (result.ok) {
+      setEvents([])
+      setMessage('审计记录已清除')
+    } else setMessage(result.error.message)
   }
   return <div>
     <h1 className="selectable text-[18px] font-semibold text-txt-primary">安全与数据</h1>
@@ -467,8 +484,53 @@ export function SecuritySection(): JSX.Element {
         </button>
       </div>
       {message && <p role="status" className="mt-3 text-[11px] text-txt-secondary">{message}</p>}
+      <div className="mt-4 border-t border-border pt-3">
+        <div className="mb-2 text-[11px] font-medium text-txt-secondary">近期记录（最多 100 条）</div>
+        {loadingAudit ? <p className="text-[11px] text-txt-muted">正在读取审计记录…</p>
+          : auditError ? <p role="alert" className="text-[11px] text-red-300">{auditError}</p>
+            : <AuditRecordList events={events} />}
+      </div>
     </Group>
   </div>
+}
+
+export function AuditRecordList({ events }: { events: AuditEvent[] }): JSX.Element {
+  if (!events.length) return <p className="text-[11px] text-txt-muted">暂无审计记录</p>
+  return <ol className="space-y-2">
+    {events.map((event) => {
+      const category = auditCategory(event)
+      return <li key={event.id} className="rounded-lg border border-border bg-bg-app px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+          <span className={`rounded px-1.5 py-0.5 ${category.tone}`}>{category.label}</span>
+          <span className="font-medium text-txt-secondary">{auditOutcomeLabel(event.outcome)}</span>
+          <time className="ml-auto text-txt-muted" dateTime={new Date(event.timestamp).toISOString()}>{new Date(event.timestamp).toLocaleString('zh-CN')}</time>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-txt-muted">
+          <span>{event.reasonCode ?? event.action}</span>
+          {event.pluginId && <span>{event.pluginId}{event.pluginVersion ? `@${event.pluginVersion}` : ''}</span>}
+          {event.toolName && <span>{event.toolName}</span>}
+          {event.approvalScope && <span>范围：{auditScopeLabel(event.approvalScope)}</span>}
+        </div>
+      </li>
+    })}
+  </ol>
+}
+
+function auditCategory(event: AuditEvent): { label: string; tone: string } {
+  const evidence = `${event.action} ${event.reasonCode ?? ''}`.toLowerCase()
+  if (/isolat|quarant/.test(evidence)) return { label: '隔离', tone: 'bg-red-500/15 text-red-300' }
+  if (/updat|rollback|install|uninstall/.test(evidence)) return { label: '更新', tone: 'bg-amber-500/15 text-amber-300' }
+  if (/start|launch/.test(evidence)) return { label: '启动', tone: 'bg-orange-500/15 text-orange-300' }
+  if (/approval|permission|policy|denied/.test(evidence)) return { label: '权限', tone: 'bg-accent-dim/25 text-accent' }
+  return { label: '执行', tone: 'bg-bg-raised text-txt-muted' }
+}
+
+function auditOutcomeLabel(outcome: AuditEvent['outcome']): string {
+  return ({ allow: '允许', ask: '等待审批', deny: '已拒绝', success: '成功', failure: '失败', cancelled: '已取消' } as const)[outcome]
+}
+
+function auditScopeLabel(scope: NonNullable<AuditEvent['approvalScope']>): string {
+  return ({ once: '仅本次', 'task-prefix': '本任务相同命令', site: '此网站' } as const)[scope]
 }
 
 export function SkillsSection(): JSX.Element {

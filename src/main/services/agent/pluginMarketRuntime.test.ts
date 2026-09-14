@@ -6,13 +6,15 @@ import { pathToFileURL } from 'node:url'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ToolExecutionContext } from '../../../shared/agent'
+import type { AuditEvent } from '../../../shared/agent'
 import type { PluginMarketEntry } from '../../../shared/types'
 import { installMarketPlugin } from './pluginLifecycle'
-import { capturePluginTaskTools, initPluginRegistry } from './pluginManager'
+import { capturePluginTaskTools, initPluginRegistry, resetPluginRuntimeForTests } from './pluginManager'
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  resetPluginRuntimeForTests()
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
@@ -80,6 +82,19 @@ describe('market plugin runtime', () => {
       ok: true, value: { value: 'works', taskId: 'task-market-runtime' }
     })
     await snapshot.dispose()
+
+    const events: AuditEvent[] = []
+    const failing = await capturePluginTaskTools(['acme.market-runtime'], () => ({
+      invoke: async () => { throw new Error('PLUGIN_STARTUP_TIMEOUT') },
+      stop: async () => undefined
+    }), (event) => events.push(event))
+    for (let attempt = 0; attempt < 3; attempt += 1) await failing.tools[0].execute({ value: 'fails' }, context)
+    expect(events.filter((event) => event.action === 'plugin.start')).toHaveLength(3)
+    expect(events).toContainEqual(expect.objectContaining({
+      action: 'plugin.isolation', reasonCode: 'PLUGIN_ISOLATED', pluginId: 'acme.market-runtime',
+      pluginVersion: '1.0.0', taskId: context.taskId, workspaceId: context.workspace.id
+    }))
+    await failing.dispose()
   })
 
   it('rejects a package whose manifest requests permissions not shown by the market', async () => {

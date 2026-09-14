@@ -31,7 +31,7 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
     import('electron'), import('../../db'), import('../settings'), import('./workspaceManager')
   ])
   const capabilities = await refreshAgentExecutionCapabilities()
-  const pluginSnapshot = await capturePluginTaskTools(pluginIds)
+  const pluginSnapshot = await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit)
   return launchProjectTask(sessionId, ownerWebContentsId, {
     sessionExists: async (id) => Boolean(await getStore().getSession(id)),
     activeWorkspace: workspaces.getSessionWorkspaceId,
@@ -152,6 +152,11 @@ export function writeAgentAudit(event: import('../../../shared/agent').AuditEven
 export function clearAgentAudit(): void {
   if (!auditJournal) throw new Error('审计日志尚未初始化')
   auditJournal.clear()
+}
+
+export function listAgentAudit(): import('../../../shared/agent').AuditEvent[] {
+  if (!auditJournal) throw new Error('审计日志尚未初始化')
+  return auditJournal.list()
 }
 
 /** Coding tools are opt-in per project. Unavailable Docker preferences keep ordinary chat working. */

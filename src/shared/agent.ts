@@ -161,6 +161,8 @@ export interface NativeFunctionToolDefinition {
 
 export interface ToolDefinition<TArgs = unknown, TResult = unknown> {
   name: string
+  /** Trusted package provenance captured from a validated plugin manifest. */
+  plugin?: { id: string; version?: string }
   operation: OperationKind
   description: string
   parameters: ToolInputSchema
@@ -271,6 +273,7 @@ export interface ApprovalRequest {
   callId: string
   /** Trusted registry name, never supplied by model-generated preview content. */
   toolName: string
+  plugin?: { id: string; version?: string }
   workspaceId: string
   environment: ExecutionEnvironment
   operation: OperationKind
@@ -304,6 +307,7 @@ export interface ApprovalBinding {
   taskId: string
   callId: string
   toolName: string
+  plugin?: { id: string; version?: string }
   workspaceId: string
   environment: ExecutionEnvironment
   operation: OperationKind
@@ -448,5 +452,10 @@ export interface AuditEvent {
   risk?: RiskLevel
   reasonCode?: string
   target?: string
+  /** Explicit allowlisted evidence. Arbitrary metadata is never persisted. */
+  toolName?: string
+  pluginId?: string
+  pluginVersion?: string
+  approvalScope?: ApprovalScope
   metadata?: Record<string, unknown>
 }

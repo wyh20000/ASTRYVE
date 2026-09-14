@@ -64,6 +64,7 @@ export function toApprovalView(request: ApprovalRequest, task: TaskSnapshot): Ap
     id: request.id,
     sessionId: task.sessionId,
     toolName: request.toolName,
+    plugin: request.plugin ? { ...request.plugin } : undefined,
     callId: request.callId,
     permissionBasis: `${request.permissionMode} · ${request.policyReasonCode}`,
     title: operationTitle(request.operation),

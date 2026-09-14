@@ -18,7 +18,7 @@ import {
   refreshAgentExecutionCapabilities,
   validateAgentProjectPreferences
 } from '../services/agent/projectPreferences'
-import { clearAgentAudit } from '../services/agent/taskRuntimeManager'
+import { clearAgentAudit, listAgentAudit } from '../services/agent/taskRuntimeManager'
 
 export function registerSettingsIpc(): void {
   ipcMain.handle(IPC.settings.getTheme, (event) => {
@@ -94,6 +94,14 @@ export function registerSettingsIpc(): void {
       assertTrustedIpcSender(event)
       clearAgentAudit()
       return ok({ cleared: true })
+    } catch (e) {
+      return err('SET_ERR', e instanceof Error ? e.message : String(e))
+    }
+  })
+  ipcMain.handle(IPC.settings.getAudit, (event) => {
+    try {
+      assertTrustedIpcSender(event)
+      return ok(listAgentAudit())
     } catch (e) {
       return err('SET_ERR', e instanceof Error ? e.message : String(e))
     }

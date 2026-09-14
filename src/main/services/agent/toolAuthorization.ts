@@ -28,6 +28,7 @@ export class ToolAuthorization {
       taskId: context.taskId, callId: context.callId, workspaceId: context.workspace.id,
       environment: context.environment, operation: definition.operation,
       toolName: definition.name, permissionMode: context.permissionMode, policyReasonCode: decision.reasonCode,
+      plugin: definition.plugin ? { ...definition.plugin } : undefined,
       normalizedTarget: decision.normalizedTarget!,
       commandPrefix: target.type === 'command' ? target.commandPrefix : undefined
     }

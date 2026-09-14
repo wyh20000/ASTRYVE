@@ -2,6 +2,8 @@ import { join } from 'node:path'
 import { mkdir, readdir } from 'node:fs/promises'
 import type { PluginMetadata } from '../../../shared/types'
 import type { ToolDefinition } from '../../../shared/agent'
+import { randomUUID } from 'node:crypto'
+import type { AuditWriter } from './policyEngine'
 import { getDisabledPluginIds } from '../settings'
 import { PluginRegistry } from './pluginRegistry'
 import { readPluginManifest, type ParsedPluginManifest } from './pluginManifest'
@@ -84,7 +86,8 @@ export type PluginTaskWorkerFactory = (
 /** Captures enabled plugin code and schemas for one task. Later installs/toggles cannot mutate it. */
 export async function capturePluginTaskTools(
   requestedIds?: readonly string[],
-  createWorker: PluginTaskWorkerFactory = (rootPath, manifest) => new LazyPluginWorker(rootPath, manifest)
+  createWorker: PluginTaskWorkerFactory = (rootPath, manifest) => new LazyPluginWorker(rootPath, manifest),
+  writeAudit: AuditWriter = () => undefined
 ): Promise<PluginTaskTools> {
   const root = getInstalledPluginRoot()
   await mkdir(root, { recursive: true })
@@ -116,9 +119,27 @@ export async function capturePluginTaskTools(
     const worker = createWorker(item.rootPath, item.manifest)
     const pluginTools = createPluginTools(item.manifest, worker, {
       succeeded: () => clearPluginFailure(item.manifest.id),
-      failed: () => {
+      failed: (_error, context, reasonCode) => {
+        try {
+          writeAudit({
+            id: randomUUID(), timestamp: Date.now(), taskId: context.taskId,
+            workspaceId: context.workspace.id, actor: 'system',
+            action: reasonCode === 'PLUGIN_START_FAILED' ? 'plugin.start' : 'plugin.execute',
+            outcome: 'failure', risk: 'high', reasonCode,
+            pluginId: item.manifest.id, pluginVersion: item.manifest.version
+          })
+        } catch { /* preserve the plugin failure result */ }
         const wasQuarantined = isPluginQuarantined(item.manifest.id)
         if (recordPluginFailure(item.manifest.id) && !wasQuarantined) {
+          try {
+            writeAudit({
+              id: randomUUID(), timestamp: Date.now(), taskId: context.taskId,
+              workspaceId: context.workspace.id, actor: 'system', action: 'plugin.isolation',
+              outcome: 'failure', risk: 'critical', reasonCode: 'PLUGIN_ISOLATED',
+              pluginId: item.manifest.id,
+              pluginVersion: item.manifest.version
+            })
+          } catch { /* the failing tool remains isolated */ }
           void import('electron').then(({ BrowserWindow }) => {
             for (const window of BrowserWindow.getAllWindows()) {
               if (!window.isDestroyed()) window.webContents.send('plugins:changed')

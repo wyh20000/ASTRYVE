@@ -18,7 +18,10 @@ const PERMISSION_BY_OPERATION: Record<OperationKind, PluginPermission> = {
 export function createPluginTools(
   plugin: ParsedPluginManifest,
   worker: PluginToolWorker,
-  lifecycle: { succeeded?: () => void; failed?: (error: unknown) => void } = {}
+  lifecycle: {
+    succeeded?: () => void
+    failed?: (error: unknown, context: Parameters<ToolDefinition['execute']>[1], reasonCode: string) => void
+  } = {}
 ): ToolDefinition[] {
   return plugin.tools.map((tool) => {
     const needed = PERMISSION_BY_OPERATION[tool.operation]
@@ -29,6 +32,7 @@ export function createPluginTools(
     const parameters = structuredClone(tool.parameters)
     return {
       name: `plugin.${plugin.id}.${tool.name}`,
+      plugin: { id: plugin.id, version: plugin.version },
       operation: tool.operation,
       description: tool.description,
       parameters,
@@ -41,9 +45,10 @@ export function createPluginTools(
           lifecycle.succeeded?.()
           return { ok: true, value }
         } catch (error) {
-          lifecycle.failed?.(error)
+          const code = pluginErrorCode(error)
+          lifecycle.failed?.(error, context, code)
           return { ok: false, error: {
-            code: pluginErrorCode(error),
+            code,
             message: '插件工具执行失败或已停止'
           } }
         }
@@ -72,6 +77,7 @@ function assertOperationTargetSchema(tool: ParsedPluginTool): void {
 
 function pluginErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  if (/PLUGIN_(?:STARTUP|WORKER_START|WORKER_ERROR|ROOT_INVALID|DEFINITION_INVALID)/.test(message)) return 'PLUGIN_START_FAILED'
   if (message.includes('TIMEOUT')) return 'PLUGIN_TIMEOUT'
   if (message.includes('CANCELLED') || message.includes('STOPPED')) return 'PLUGIN_CANCELLED'
   return 'PLUGIN_EXECUTION_FAILED'

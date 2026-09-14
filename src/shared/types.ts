@@ -4,6 +4,7 @@
  */
 import type {
   ActivateWorkspaceInput,
+  AuditEvent,
   ExecutionEnvironment,
   ApprovalScope,
   PermissionMode,
@@ -245,6 +246,7 @@ export interface ApprovalUiRequest {
   id: string
   sessionId: string
   toolName: string
+  plugin?: { id: string; version?: string }
   callId: string
   permissionBasis: string
   title: string
@@ -558,6 +560,7 @@ export interface AgentApi {
       preferences: AgentProjectPreferences
     ) => Promise<IpcResult<AgentProjectSettings>>
     clearAudit: () => Promise<IpcResult<{ cleared: boolean }>>
+    getAudit: () => Promise<IpcResult<AuditEvent[]>>
     getBrowserPreferences: () => Promise<IpcResult<BrowserPreferences>>
     setBrowserPreferences: (value: BrowserPreferences) => Promise<IpcResult<BrowserPreferences>>
   }

@@ -11,6 +11,8 @@ import { installMarketPlugin, listPluginBackups, rollbackPlugin } from '../servi
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { replacePluginMarketOrigin, savePluginMarketOrigin } from '../services/agent/pluginProvenance'
+import { writeAgentAudit } from '../services/agent/taskRuntimeManager'
+import { auditPluginOperation } from '../services/agent/pluginAudit'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
@@ -112,22 +114,32 @@ export function registerPluginsIpc(): void {
     const snapshot = await marketplace.snapshot()
     const entry = snapshot.entries.find((item) => item.sourceId === input.sourceId && item.id === input.id && item.version === input.version)
     if (!entry) throw new Error('市场插件版本不存在，请先同步市场源')
-    const installed = await installMarketPlugin(
-      entry, app.getPath('userData'), getInstalledPluginRoot(), fetch,
-      (id) => setPluginEnabled(id, false)
-    )
-    setPluginEnabled(installed.id, false)
-    notifyPluginsChanged()
-    return listPlugins()
+    const current = (await listPlugins()).find((plugin) => plugin.id === entry.id)
+    return auditPluginOperation(writeAgentAudit, {
+      action: current ? 'plugin.update' : 'plugin.install', pluginId: entry.id, pluginVersion: entry.version
+    }, async () => {
+      const installed = await installMarketPlugin(
+        entry, app.getPath('userData'), getInstalledPluginRoot(), fetch,
+        (id) => setPluginEnabled(id, false)
+      )
+      setPluginEnabled(installed.id, false)
+      notifyPluginsChanged()
+      return listPlugins()
+    })
   }))
   ipcMain.handle(IPC.plugins.uninstall, async (event, input?: PluginUninstallInput) => marketResult(event, async () => {
     if (!input || !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(input.id)) throw new Error('插件标识无效')
-    setPluginEnabled(input.id, false)
-    await stopPluginRuntimes(input.id)
-    await rm(join(getInstalledPluginRoot(), input.id), { recursive: true, force: true })
-    await savePluginMarketOrigin(app.getPath('userData'), input.id)
-    notifyPluginsChanged()
-    return listPlugins()
+    const current = (await listPlugins()).find((plugin) => plugin.id === input.id)
+    return auditPluginOperation(writeAgentAudit, {
+      action: 'plugin.uninstall', pluginId: input.id, pluginVersion: current?.version
+    }, async () => {
+      setPluginEnabled(input.id, false)
+      await stopPluginRuntimes(input.id)
+      await rm(join(getInstalledPluginRoot(), input.id), { recursive: true, force: true })
+      await savePluginMarketOrigin(app.getPath('userData'), input.id)
+      notifyPluginsChanged()
+      return listPlugins()
+    })
   }))
   ipcMain.handle(IPC.plugins.backups, async (event, input?: PluginUninstallInput) => marketResult(event, async () => {
     assertPluginId(input)
@@ -136,11 +148,15 @@ export function registerPluginsIpc(): void {
   ipcMain.handle(IPC.plugins.rollback, async (event, input?: PluginRollbackInput) => marketResult(event, async () => {
     assertPluginId(input)
     if (typeof input.version !== 'string') throw new Error('回滚版本无效')
-    setPluginEnabled(input.id, false)
-    const restored = await rollbackPlugin(input.id, input.version, app.getPath('userData'), getInstalledPluginRoot())
-    setPluginEnabled(restored.id, false)
-    notifyPluginsChanged()
-    return listPlugins()
+    return auditPluginOperation(writeAgentAudit, {
+      action: 'plugin.rollback', pluginId: input.id, pluginVersion: input.version
+    }, async () => {
+      setPluginEnabled(input.id, false)
+      const restored = await rollbackPlugin(input.id, input.version, app.getPath('userData'), getInstalledPluginRoot())
+      setPluginEnabled(restored.id, false)
+      notifyPluginsChanged()
+      return listPlugins()
+    })
   }))
 }
 

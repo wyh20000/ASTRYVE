@@ -24,7 +24,8 @@ const binding: ApprovalBinding = {
   permissionMode: 'ask-every-time',
   policyReasonCode: 'COMMAND_REQUIRES_APPROVAL',
   normalizedTarget: decision.normalizedTarget!,
-  commandPrefix: ['vitest', 'run']
+  commandPrefix: ['vitest', 'run'],
+  plugin: { id: 'acme.audit', version: '2.4.0' }
 }
 
 describe('BoundApprovalService', () => {
@@ -136,7 +137,10 @@ describe('BoundApprovalService', () => {
     service.decide({ requestId: request.id, outcome: 'approved', scope: 'task-prefix', decidedAt: 1_001 })
 
     const approved = events.find((event) => event.reasonCode === 'USER_APPROVED')!
-    expect(approved.metadata?.scope).toBe('task-prefix')
+    expect(approved).toMatchObject({
+      approvalScope: 'task-prefix', toolName: 'process.run',
+      pluginId: 'acme.audit', pluginVersion: '2.4.0'
+    })
     expect(JSON.stringify(approved)).not.toContain('super-secret-token')
     expect(JSON.stringify(approved)).not.toContain('npm publish')
   })

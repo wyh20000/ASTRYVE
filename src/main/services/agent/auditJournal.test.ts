@@ -27,6 +27,35 @@ describe('persistent decision audit', () => {
     expect(JSON.parse(raw)[0].target).toMatch(/^sha256:/)
   })
 
+  it('preserves only allowlisted approval and plugin evidence and lists newest decisions first', () => {
+    const file = path.join(directory, 'audit.json')
+    const journal = new AuditJournal(file)
+    journal.write({
+      ...event,
+      id: 'event-approved',
+      toolName: 'plugin.acme.tools.publish',
+      pluginId: 'acme.tools',
+      pluginVersion: '1.2.3',
+      approvalScope: 'task-prefix',
+      metadata: { password: 'must-not-persist' }
+    })
+    journal.write({ ...event, id: 'event-newest', reasonCode: 'PLUGIN_ISOLATED' })
+
+    expect(journal.list()).toEqual([
+      expect.objectContaining({ id: 'event-newest', reasonCode: 'PLUGIN_ISOLATED' }),
+      expect.objectContaining({
+        id: 'event-approved', toolName: 'plugin.acme.tools.publish', pluginId: 'acme.tools',
+        pluginVersion: '1.2.3', approvalScope: 'task-prefix'
+      })
+    ])
+    expect(JSON.stringify(journal.list())).not.toContain('must-not-persist')
+    const listed = journal.list()
+    listed[0].reasonCode = 'MUTATED'
+    expect(journal.list()[0].reasonCode).toBe('PLUGIN_ISOLATED')
+    expect(journal.list(1).map((entry) => entry.id)).toEqual(['event-newest'])
+    expect(journal.list(0)).toEqual([])
+  })
+
   it('preserves the previous file when replacement fails and removes incomplete temporary writes', () => {
     const file = path.join(directory, 'audit.json')
     const journal = new AuditJournal(file)
@@ -61,6 +90,12 @@ describe('persistent decision audit', () => {
     fs.writeFileSync(file, '{partial')
     expect(() => new AuditJournal(file)).toThrow()
     expect(fs.readFileSync(file, 'utf8')).toBe('{partial')
+  })
+
+  it('rejects timestamps that cannot be rendered as a valid date', () => {
+    const file = path.join(directory, 'audit.json')
+    fs.writeFileSync(file, JSON.stringify([{ ...event, timestamp: Number.MAX_SAFE_INTEGER }]))
+    expect(() => new AuditJournal(file)).toThrow('审计事件无效')
   })
 
   it('lets the user clear the journal and starts a fresh bounded history', () => {

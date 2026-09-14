@@ -69,6 +69,7 @@ export function ApprovalDialogView({ request, onClear }: {
           </summary>
           <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-border px-3 py-2 text-[10px] leading-4">
             <span className="text-txt-muted">工具</span><code className="break-words text-txt-secondary">{request.toolName}</code>
+            {request.plugin && <><span className="text-txt-muted">插件</span><code className="break-words text-txt-secondary">{request.plugin.id}{request.plugin.version ? `@${request.plugin.version}` : ''}</code></>}
             <span className="text-txt-muted">调用 ID</span><code className="break-all text-txt-secondary">{request.callId}</code>
             <span className="text-txt-muted">权限依据</span><code className="break-words text-txt-secondary">{request.permissionBasis}</code>
           </div>
