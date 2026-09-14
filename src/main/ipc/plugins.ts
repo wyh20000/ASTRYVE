@@ -1,14 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { EVENTS, IPC } from '@shared/ipc'
-import type { PluginImportInput, PluginMarketInstallInput, PluginMarketOrigin, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginPreferences, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
+import type { PluginImportInput, PluginMarketInstallInput, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginPreferences, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
 import { getInstalledPluginRoot, listPlugins, recoverPlugin, stopPluginRuntimes } from '../services/agent/pluginManager'
-import { importPluginPackage } from '../services/agent/pluginInstaller'
 import { getPluginPreferences, setPluginEnabled, setPluginPreferences } from '../services/settings'
 import { assertTrustedIpcSender } from './validation'
 import { err, ok } from './result'
 import { PluginMarketplace } from '../services/agent/pluginMarketplace'
-import { installMarketPlugin, listPluginBackups, rollbackPlugin } from '../services/agent/pluginLifecycle'
-import { replacePluginMarketOrigin, savePluginMarketOrigin } from '../services/agent/pluginProvenance'
+import { installLocalPlugin, installMarketPlugin, listPluginBackups, rollbackPlugin } from '../services/agent/pluginLifecycle'
+import { savePluginInstallOrigin } from '../services/agent/pluginProvenance'
 import { writeAgentAudit } from '../services/agent/taskRuntimeManager'
 import { auditPluginOperation } from '../services/agent/pluginAudit'
 import { runSafeAutoUpdates, selectSafeAutoUpdates } from '../services/agent/pluginAutoUpdate'
@@ -44,21 +43,10 @@ export function registerPluginsIpc(): void {
         filters: input.kind === 'zip' ? [{ name: '插件 ZIP', extensions: ['zip'] }] : undefined
       })
       if (selected.canceled || !selected.filePaths[0]) return ok(await listPlugins())
-      let preparedId: string | undefined
-      let previousOrigin: PluginMarketOrigin | undefined
-      let prepared = false
-      let installed: PluginMetadata
-      try {
-        installed = await importPluginPackage(getInstalledPluginRoot(), selected.filePaths[0], { beforeReplace: async (manifest) => {
-          setPluginEnabled(manifest.id, false)
-          previousOrigin = await replacePluginMarketOrigin(app.getPath('userData'), manifest.id)
-          preparedId = manifest.id
-          prepared = true
-        } })
-      } catch (error) {
-        if (prepared && preparedId) await replacePluginMarketOrigin(app.getPath('userData'), preparedId, previousOrigin).catch(() => undefined)
-        throw error
-      }
+      const installed = await installLocalPlugin(
+        selected.filePaths[0], input.kind, app.getPath('userData'), getInstalledPluginRoot(),
+        (id) => setPluginEnabled(id, false)
+      )
       // Local packages may contain executable code. Importing makes the package
       // available for inspection, but activation remains an explicit user choice.
       setPluginEnabled(installed.id, false)
@@ -161,7 +149,7 @@ export function registerPluginsIpc(): void {
       await uninstallPlugin(input.id, input.dataDisposition ?? 'keep', app.getPath('userData'), getInstalledPluginRoot(), {
         stop: stopPluginRuntimes, clearCredentials: clearPluginCredentials
       })
-      await savePluginMarketOrigin(app.getPath('userData'), input.id)
+      await savePluginInstallOrigin(app.getPath('userData'), input.id)
       notifyPluginsChanged()
       return listPlugins()
     })

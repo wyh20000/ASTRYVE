@@ -11,7 +11,7 @@ import { PluginWorkerHost } from './pluginWorker'
 import { createPluginTools, type PluginToolWorker } from './pluginTools'
 import { clearPluginFailure, isPluginQuarantined, recordPluginFailure, recoverPluginHealth, resetPluginHealth } from './pluginHealth'
 import { PluginRuntimeRegistry } from './pluginRuntimeRegistry'
-import { loadPluginMarketOrigins } from './pluginProvenance'
+import { loadPluginInstallOrigins } from './pluginProvenance'
 import { loadPluginDeploymentPolicy, type PluginDeploymentPolicy } from './pluginDeploymentPolicy'
 
 let registry: PluginRegistry | undefined
@@ -34,11 +34,11 @@ export function getInstalledPluginRoot(): string {
 
 export async function listPlugins(): Promise<PluginMetadata[]> {
   if (!registry) throw new Error('Plugin registry not initialized')
-  const origins = pluginDataRoot ? await loadPluginMarketOrigins(pluginDataRoot) : {}
+  const origins = pluginDataRoot ? await loadPluginInstallOrigins(pluginDataRoot) : {}
   const policy = await deploymentPolicy
   return (await registry.list()).map((plugin) => {
     const origin = origins[plugin.id]
-    const metadata = origin && origin.pluginVersion === plugin.version ? { ...plugin, marketOrigin: origin } : plugin
+    const metadata = origin && origin.pluginVersion === plugin.version ? { ...plugin, installOrigin: origin } : plugin
     const managed = policy.managedPluginIds.has(plugin.id)
     return isPluginQuarantined(plugin.id) ? {
       ...metadata, enabled: false, status: 'quarantined' as const,

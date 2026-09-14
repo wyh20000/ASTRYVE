@@ -5,7 +5,7 @@ import { runSafeAutoUpdates, selectSafeAutoUpdates } from './pluginAutoUpdate'
 const installed: PluginMetadata = {
   id: 'acme.tools', name: 'Tools', version: '1.0.0', description: '', source: 'installed', sourceFormat: 'native',
   enabled: true, status: 'ready', permissions: ['workspace.read'], capabilities: [], components: ['tools'], errors: [],
-  marketOrigin: { pluginVersion: '1.0.0', sourceId: 'official', sourceName: 'Official', sourceKind: 'official', verified: true, publisherId: 'publisher:acme' }
+  installOrigin: { pluginVersion: '1.0.0', sourceId: 'official', sourceName: 'Official', sourceKind: 'official', verified: true, publisherId: 'publisher:acme' }
 }
 const entry: PluginMarketEntry = {
   id: 'acme.tools', name: 'Tools', version: '2.0.0', description: '', author: 'Acme', sourceId: 'official',
@@ -40,5 +40,16 @@ describe('safe plugin auto update', () => {
     await expect(runSafeAutoUpdates([entry, second], install)).resolves.toEqual({
       updated: ['beta.tools'], failed: ['acme.tools']
     })
+  })
+
+  it('never selects a locally imported plugin for marketplace auto update', () => {
+    const local = {
+      ...installed,
+      installOrigin: {
+        pluginVersion: '1.0.0', sourceId: 'local:zip', sourceName: '本地 ZIP', sourceKind: 'local' as const, verified: false
+      }
+    }
+
+    expect(selectSafeAutoUpdates([local], [entry])).toEqual([])
   })
 })

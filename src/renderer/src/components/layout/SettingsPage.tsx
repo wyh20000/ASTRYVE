@@ -221,7 +221,7 @@ export function describePluginInstallRisk(
   if (!installed) return { mode: 'install', addedPermissions: entry.permissions, sourceChanged: false, signingChanged: false, publisherUnknown: false, requiresFreshApproval: false }
   if (installed.version === entry.version) return { mode: 'installed', addedPermissions: [], sourceChanged: false, signingChanged: false, publisherUnknown: false, requiresFreshApproval: false }
   if (installed.version && compareSemver(entry.version, installed.version) < 0) return { mode: 'older', addedPermissions: [], sourceChanged: false, signingChanged: false, publisherUnknown: false, requiresFreshApproval: false }
-  const previous = installed.marketOrigin
+  const previous = installed.installOrigin
   const addedPermissions = entry.permissions.filter((permission) => !installed.permissions.includes(permission))
   const sourceChanged = Boolean(previous && previous.sourceId !== entry.sourceId)
   const signingChanged = Boolean(previous && (previous.publisherId ?? '') !== (entry.publisherId ?? ''))
@@ -425,7 +425,7 @@ function PluginRow({ plugin, onToggle, onRecover }: {
         {plugin.version && <span className="text-[9px] text-txt-muted">{plugin.version}</span>}
         {plugin.status === 'invalid' && <span className="text-[9px] text-red-300">清单无效</span>}
         {plugin.status === 'quarantined' && <span className="text-[9px] text-amber-300">已隔离</span>}
-        {plugin.managed && <span className="text-[9px] text-accent">受管</span>}<span className="text-[9px] text-txt-muted">本地</span>
+        {plugin.managed && <span className="text-[9px] text-accent">受管</span>}<span className="text-[9px] text-txt-muted">{plugin.installOrigin?.sourceName ?? '来源未知'}</span>
       </div>
       <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-txt-muted">{plugin.errors[0] ?? plugin.description}</p>
       {!!badges.length && <div className="mt-1 flex flex-wrap gap-1.5">{badges.map((badge) =>

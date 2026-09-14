@@ -7,8 +7,8 @@ export function selectSafeAutoUpdates(
 ): PluginMarketEntry[] {
   const candidates = new Map<string, PluginMarketEntry>()
   for (const plugin of installed) {
-    const origin = plugin.marketOrigin
-    if (!plugin.version || plugin.status !== 'ready' || !origin?.publisherId) continue
+    const origin = plugin.installOrigin
+    if (!plugin.version || plugin.status !== 'ready' || origin?.sourceKind === 'local' || !origin?.publisherId) continue
     for (const entry of entries) {
       if (entry.id !== plugin.id || entry.sourceId !== origin.sourceId || entry.publisherId !== origin.publisherId ||
           entry.installable === false || compareSemver(entry.version, plugin.version) <= 0 ||

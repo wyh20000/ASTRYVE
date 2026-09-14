@@ -325,11 +325,12 @@ export type PluginPermission =
 
 export type PluginComponent = 'skills' | 'hooks' | 'mcp' | 'tools'
 export type PluginStatus = 'ready' | 'invalid' | 'quarantined'
-export interface PluginMarketOrigin {
-  pluginVersion: string
+export type PluginInstallSourceKind = PluginMarketSourceKind | 'local'
+export interface PluginInstallOrigin {
+  pluginVersion?: string
   sourceId: string
   sourceName: string
-  sourceKind: PluginMarketSourceKind
+  sourceKind: PluginInstallSourceKind
   verified: boolean
   publisherId?: string
 }
@@ -348,7 +349,7 @@ export interface PluginMetadata {
   capabilities: string[]
   components: PluginComponent[]
   errors: string[]
-  marketOrigin?: PluginMarketOrigin
+  installOrigin?: PluginInstallOrigin
   /** Read-only application deployment policy; managed plugins remain disableable. */
   managed?: boolean
 }

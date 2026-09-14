@@ -1,17 +1,46 @@
 import { createHash, randomUUID, verify } from 'node:crypto'
 import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import type { PluginBackup, PluginMarketEntry, PluginMetadata } from '../../../shared/types'
+import type { PluginBackup, PluginImportKind, PluginInstallOrigin, PluginMarketEntry, PluginMetadata } from '../../../shared/types'
 import { importPluginPackage, type PluginImportExpectations } from './pluginInstaller'
 import { readPluginManifest } from './pluginManifest'
 import {
-  backupPluginMarketOrigin, marketOriginFromEntry, readPluginBackupOrigin, replacePluginMarketOrigin
+  backupPluginInstallOrigin, createLocalInstallOrigin, installOriginFromMarketEntry, readPluginBackupOrigin, replacePluginInstallOrigin
 } from './pluginProvenance'
 import { compareSemver } from '../../../shared/semver'
 
 const MAX_DOWNLOAD = 25 * 1024 * 1024
 const MAX_FILE = 5 * 1024 * 1024
 const MAX_FILES = 1_000
+
+export async function installLocalPlugin(
+  source: string,
+  kind: PluginImportKind,
+  dataRoot: string,
+  installedRoot: string,
+  prepareActivation?: (id: string) => void
+): Promise<PluginMetadata> {
+  let installOrigin: PluginInstallOrigin | undefined
+  let previousOrigin: PluginInstallOrigin | undefined
+  let preparedId: string | undefined
+  let prepared = false
+  try {
+    const installed = await importPluginPackage(installedRoot, source, { beforeReplace: async (manifest) => {
+      prepareActivation?.(manifest.id)
+      installOrigin = createLocalInstallOrigin(manifest.version, kind)
+      previousOrigin = await replacePluginInstallOrigin(dataRoot, manifest.id, installOrigin)
+      preparedId = manifest.id
+      prepared = true
+    } })
+    if (!installOrigin) throw new Error('本地插件来源记录创建失败')
+    return { ...installed, installOrigin }
+  } catch (error) {
+    if (prepared && preparedId) {
+      await replacePluginInstallOrigin(dataRoot, preparedId, previousOrigin).catch(() => undefined)
+    }
+    throw error
+  }
+}
 
 export async function installMarketPlugin(
   entry: PluginMarketEntry,
@@ -122,7 +151,7 @@ export async function backupInstalledPlugin(id: string, dataRoot: string, instal
   await rm(destination, { recursive: true, force: true })
   await mkdir(join(destination, '..'), { recursive: true })
   await cp(current, destination, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true })
-  await backupPluginMarketOrigin(dataRoot, id, manifest.version)
+  await backupPluginInstallOrigin(dataRoot, id, manifest.version)
 }
 
 export async function listPluginBackups(id: string, dataRoot: string): Promise<PluginBackup[]> {
@@ -141,17 +170,17 @@ export async function rollbackPlugin(id: string, version: string, dataRoot: stri
   const source = join(dataRoot, 'plugin-history', id, version)
   const manifest = await readPluginManifest(source)
   if (manifest.id !== id || manifest.version !== version) throw new Error('回滚包身份无效')
-  const marketOrigin = await readPluginBackupOrigin(dataRoot, id, version)
+  const installOrigin = await readPluginBackupOrigin(dataRoot, id, version)
   let previousOrigin
   let prepared = false
   try {
     const restored = await importPluginPackage(installedRoot, source, { beforeReplace: async () => {
-      previousOrigin = await replacePluginMarketOrigin(dataRoot, id, marketOrigin)
+      previousOrigin = await replacePluginInstallOrigin(dataRoot, id, installOrigin)
       prepared = true
     } })
-    return marketOrigin ? { ...restored, marketOrigin } : restored
+    return installOrigin ? { ...restored, installOrigin } : restored
   } catch (error) {
-    if (prepared) await replacePluginMarketOrigin(dataRoot, id, previousOrigin).catch(() => undefined)
+    if (prepared) await replacePluginInstallOrigin(dataRoot, id, previousOrigin).catch(() => undefined)
     throw error
   }
 }
@@ -195,7 +224,7 @@ async function importMarketPackage(
   expectations: PluginImportExpectations,
   prepareActivation?: (id: string) => void
 ): Promise<PluginMetadata> {
-  const marketOrigin = marketOriginFromEntry(entry)
+  const installOrigin = installOriginFromMarketEntry(entry)
   let previousOrigin
   let prepared = false
   try {
@@ -203,13 +232,13 @@ async function importMarketPackage(
       ...expectations,
       beforeReplace: async () => {
         prepareActivation?.(entry.id)
-        previousOrigin = await replacePluginMarketOrigin(dataRoot, entry.id, marketOrigin)
+        previousOrigin = await replacePluginInstallOrigin(dataRoot, entry.id, installOrigin)
         prepared = true
       }
     })
-    return { ...installed, marketOrigin }
+    return { ...installed, installOrigin }
   } catch (error) {
-    if (prepared) await replacePluginMarketOrigin(dataRoot, entry.id, previousOrigin).catch(() => undefined)
+    if (prepared) await replacePluginInstallOrigin(dataRoot, entry.id, previousOrigin).catch(() => undefined)
     throw error
   }
 }

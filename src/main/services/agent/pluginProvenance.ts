@@ -1,12 +1,12 @@
 import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { PluginMarketEntry, PluginMarketOrigin } from '../../../shared/types'
+import type { PluginImportKind, PluginInstallOrigin, PluginMarketEntry } from '../../../shared/types'
 
 const ORIGINS_FILE = 'plugin-origins.json'
 const originMutationQueues = new Map<string, Promise<unknown>>()
 
-export function marketOriginFromEntry(entry: PluginMarketEntry): PluginMarketOrigin {
+export function installOriginFromMarketEntry(entry: PluginMarketEntry): PluginInstallOrigin {
   return {
     pluginVersion: entry.version,
     sourceId: entry.sourceId,
@@ -17,7 +17,17 @@ export function marketOriginFromEntry(entry: PluginMarketEntry): PluginMarketOri
   }
 }
 
-export async function loadPluginMarketOrigins(dataRoot: string): Promise<Record<string, PluginMarketOrigin>> {
+export function createLocalInstallOrigin(pluginVersion: string | undefined, kind: PluginImportKind): PluginInstallOrigin {
+  return {
+    pluginVersion,
+    sourceId: `local:${kind}`,
+    sourceName: kind === 'zip' ? '本地 ZIP' : '本地文件夹',
+    sourceKind: 'local',
+    verified: false
+  }
+}
+
+export async function loadPluginInstallOrigins(dataRoot: string): Promise<Record<string, PluginInstallOrigin>> {
   try {
     const value = JSON.parse(await readFile(join(dataRoot, ORIGINS_FILE), 'utf8')) as unknown
     if (!record(value) || value.schemaVersion !== 1 || !record(value.origins)) return {}
@@ -28,13 +38,13 @@ export async function loadPluginMarketOrigins(dataRoot: string): Promise<Record<
   } catch { return {} }
 }
 
-export async function savePluginMarketOrigin(dataRoot: string, id: string, origin?: PluginMarketOrigin): Promise<void> {
-  await replacePluginMarketOrigin(dataRoot, id, origin)
+export async function savePluginInstallOrigin(dataRoot: string, id: string, origin?: PluginInstallOrigin): Promise<void> {
+  await replacePluginInstallOrigin(dataRoot, id, origin)
 }
 
-export async function replacePluginMarketOrigin(dataRoot: string, id: string, origin?: PluginMarketOrigin): Promise<PluginMarketOrigin | undefined> {
+export async function replacePluginInstallOrigin(dataRoot: string, id: string, origin?: PluginInstallOrigin): Promise<PluginInstallOrigin | undefined> {
   return serializeOriginMutation(dataRoot, async () => {
-    const origins = await loadPluginMarketOrigins(dataRoot)
+    const origins = await loadPluginInstallOrigins(dataRoot)
     const previous = origins[id]
     if (origin) origins[id] = origin
     else delete origins[id]
@@ -43,20 +53,20 @@ export async function replacePluginMarketOrigin(dataRoot: string, id: string, or
   })
 }
 
-export async function backupPluginMarketOrigin(dataRoot: string, id: string, version: string): Promise<void> {
-  const origin = (await loadPluginMarketOrigins(dataRoot))[id]
+export async function backupPluginInstallOrigin(dataRoot: string, id: string, version: string): Promise<void> {
+  const origin = (await loadPluginInstallOrigins(dataRoot))[id]
   const path = join(dataRoot, 'plugin-history', id, `${version}.origin.json`)
   if (!origin) { await rm(path, { force: true }); return }
   await writeAtomic(path, JSON.stringify(origin))
 }
 
-export async function restorePluginMarketOrigin(dataRoot: string, id: string, version: string): Promise<PluginMarketOrigin | undefined> {
+export async function restorePluginInstallOrigin(dataRoot: string, id: string, version: string): Promise<PluginInstallOrigin | undefined> {
   const origin = await readPluginBackupOrigin(dataRoot, id, version)
-  await savePluginMarketOrigin(dataRoot, id, origin)
+  await savePluginInstallOrigin(dataRoot, id, origin)
   return origin
 }
 
-export async function readPluginBackupOrigin(dataRoot: string, id: string, version: string): Promise<PluginMarketOrigin | undefined> {
+export async function readPluginBackupOrigin(dataRoot: string, id: string, version: string): Promise<PluginInstallOrigin | undefined> {
   try { return parseOrigin(JSON.parse(await readFile(join(dataRoot, 'plugin-history', id, `${version}.origin.json`), 'utf8')) as unknown) }
   catch { return undefined }
 }
@@ -68,14 +78,15 @@ function publisherIdFromEntry(entry: PluginMarketEntry): string | undefined {
   return `ed25519:${createHash('sha256').update(der).digest('hex')}`
 }
 
-function parseOrigin(value: unknown): PluginMarketOrigin | undefined {
-  if (!record(value) || typeof value.pluginVersion !== 'string' || typeof value.sourceId !== 'string' || typeof value.sourceName !== 'string' ||
-      !['official', 'community', 'github'].includes(String(value.sourceKind)) || typeof value.verified !== 'boolean' ||
+function parseOrigin(value: unknown): PluginInstallOrigin | undefined {
+  if (!record(value) || (value.pluginVersion !== undefined && typeof value.pluginVersion !== 'string') ||
+      typeof value.sourceId !== 'string' || typeof value.sourceName !== 'string' ||
+      !['official', 'community', 'github', 'local'].includes(String(value.sourceKind)) || typeof value.verified !== 'boolean' ||
       (value.publisherId !== undefined && typeof value.publisherId !== 'string')) return undefined
   return {
-    pluginVersion: value.pluginVersion.slice(0, 64),
+    pluginVersion: typeof value.pluginVersion === 'string' ? value.pluginVersion.slice(0, 64) : undefined,
     sourceId: value.sourceId.slice(0, 200), sourceName: value.sourceName.slice(0, 100),
-    sourceKind: value.sourceKind as PluginMarketOrigin['sourceKind'], verified: value.sourceKind === 'official' && value.verified,
+    sourceKind: value.sourceKind as PluginInstallOrigin['sourceKind'], verified: value.sourceKind === 'official' && value.verified,
     publisherId: typeof value.publisherId === 'string' ? value.publisherId.slice(0, 200) : undefined
   }
 }

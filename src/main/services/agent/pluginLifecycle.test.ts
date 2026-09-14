@@ -1,11 +1,12 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { PluginMarketEntry } from '../../../shared/types'
-import { installMarketPlugin, verifyPluginArchive, verifyPluginSignature } from './pluginLifecycle'
+import { installLocalPlugin, installMarketPlugin, verifyPluginArchive, verifyPluginSignature } from './pluginLifecycle'
 import { initPluginRegistry, listPlugins } from './pluginManager'
+import { loadPluginInstallOrigins, savePluginInstallOrigin } from './pluginProvenance'
 
 describe('plugin lifecycle verification', () => {
   it('accepts the exact SHA-256 and rejects tampered packages', () => {
@@ -54,11 +55,57 @@ describe('plugin lifecycle verification', () => {
     const result = await installMarketPlugin(entry, root, installed, fetcher)
     expect(result).toMatchObject({
       id: 'docs-helper', version: '1.2.3', sourceFormat: 'codex',
-      marketOrigin: { sourceId: 'official', sourceKind: 'official', verified: true, publisherId: 'github:openai/plugins' }
+      installOrigin: { sourceId: 'official', sourceKind: 'official', verified: true, publisherId: 'github:openai/plugins' }
     })
     expect(await readFile(join(installed, 'docs-helper', 'skills', 'docs', 'SKILL.md'), 'utf8')).toContain('Use official docs')
     await writeFile(join(root, 'plugin-policy.json'), JSON.stringify({ schemaVersion: 1, managedPlugins: ['docs-helper'] }))
     initPluginRegistry(root, root)
-    await expect(listPlugins()).resolves.toEqual([expect.objectContaining({ marketOrigin: result.marketOrigin, managed: true })])
+    await expect(listPlugins()).resolves.toEqual([expect.objectContaining({ installOrigin: result.installOrigin, managed: true })])
+  })
+
+  it('persists a sanitized local source through import and plugin listing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-plugin-install-'))
+    const source = join(root, 'private-source')
+    const installed = join(root, 'plugins')
+    await mkdir(join(source, 'skills'), { recursive: true })
+    await writeFile(join(source, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'local.tools', name: 'Local Tools', version: '1.0.0',
+      description: 'Local plugin', skills: './skills'
+    }))
+    await writeFile(join(source, 'skills', 'SKILL.md'), '# Local')
+
+    const result = await installLocalPlugin(source, 'directory', root, installed)
+
+    expect(result.installOrigin).toEqual({
+      pluginVersion: '1.0.0', sourceId: 'local:directory', sourceName: '本地文件夹', sourceKind: 'local', verified: false
+    })
+    const persisted = JSON.parse(await readFile(join(root, 'plugin-origins.json'), 'utf8')) as {
+      origins: Record<string, unknown>
+    }
+    expect(persisted.origins['local.tools']).toEqual(result.installOrigin)
+    initPluginRegistry(root, root)
+    await expect(listPlugins()).resolves.toEqual([expect.objectContaining({ installOrigin: result.installOrigin })])
+  })
+
+  it('restores the previous source record when a local replacement fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-plugin-origin-rollback-'))
+    const source = join(root, 'source')
+    const installed = join(root, 'plugins')
+    await mkdir(join(source, 'skills'), { recursive: true })
+    await mkdir(installed)
+    await writeFile(join(source, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'local.tools', name: 'Local Tools', version: '2.0.0',
+      description: 'Local plugin', skills: './skills'
+    }))
+    await writeFile(join(source, 'skills', 'SKILL.md'), '# Local')
+    await writeFile(join(installed, 'local.tools'), 'occupied')
+    const previous = {
+      pluginVersion: '1.0.0', sourceId: 'community', sourceName: 'Community',
+      sourceKind: 'community' as const, verified: false, publisherId: 'publisher:acme'
+    }
+    await savePluginInstallOrigin(root, 'local.tools', previous)
+
+    await expect(installLocalPlugin(source, 'directory', root, installed)).rejects.toThrow('目标目录无效')
+    expect(await loadPluginInstallOrigins(root)).toEqual({ 'local.tools': previous })
   })
 })

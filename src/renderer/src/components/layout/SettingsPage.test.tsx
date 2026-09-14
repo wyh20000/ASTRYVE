@@ -126,13 +126,19 @@ describe('Extensions settings page', () => {
     pluginState.items = [{
       id: 'acme.browser', name: 'Acme Browser', version: '1.2.3', description: '审查当前浏览器页面',
       author: 'Acme', source: 'installed', sourceFormat: 'native', enabled: true, status: 'ready',
-      permissions: ['browser.read'], capabilities: ['Read'], components: ['tools'], errors: []
+      permissions: ['browser.read'], capabilities: ['Read'], components: ['tools'], errors: [],
+      installOrigin: {
+        pluginVersion: '1.2.3', sourceId: 'community-tools', sourceName: 'Community Tools',
+        sourceKind: 'community', verified: false
+      }
     }]
     const html = renderToStaticMarkup(<PluginSection />)
     expect(html).toContain('Acme Browser')
     expect(html).toContain('审查当前浏览器页面')
     expect(html).toContain('1.2.3')
     expect(html).toContain('浏览器读取')
+    expect(html).toContain('Community Tools')
+    expect(html).not.toContain('>本地<')
     expect(html).toContain('aria-label="禁用 Acme Browser"')
     expect(html).not.toContain('尚未安装插件')
     expect(filterPlugins(pluginState.items, 'browser')).toHaveLength(1)
@@ -189,7 +195,7 @@ describe('Extensions settings page', () => {
       id: marketEntry.id, name: marketEntry.name, version: '1.0.0', description: marketEntry.description,
       source: 'installed', sourceFormat: 'native', enabled: false, status: 'ready',
       permissions: ['browser.read'], capabilities: ['Inspect'], components: ['tools'], errors: [],
-      marketOrigin: { pluginVersion: '1.0.0', sourceId: 'legacy-source', sourceName: 'Legacy', sourceKind: 'community', verified: false, publisherId: 'key-v1' }
+      installOrigin: { pluginVersion: '1.0.0', sourceId: 'legacy-source', sourceName: 'Legacy', sourceKind: 'community', verified: false, publisherId: 'key-v1' }
     }
     const rewrittenRelease: PluginMarketEntry = { ...marketEntry, version: '1.0.0', permissions: ['browser.read'] }
     const risk = describePluginInstallRisk(marketEntry, installed, [rewrittenRelease, marketEntry])
@@ -205,7 +211,7 @@ describe('Extensions settings page', () => {
       id: marketEntry.id, name: marketEntry.name, version: '1.0.0', description: marketEntry.description,
       source: 'installed', sourceFormat: 'native', enabled: false, status: 'ready',
       permissions: ['browser.read'], capabilities: ['Inspect'], components: ['tools'], errors: [],
-      marketOrigin: { pluginVersion: '1.0.0', sourceId: marketEntry.sourceId, sourceName: marketEntry.sourceName, sourceKind: 'official', verified: true, publisherId: 'key-v1' }
+      installOrigin: { pluginVersion: '1.0.0', sourceId: marketEntry.sourceId, sourceName: marketEntry.sourceName, sourceKind: 'official', verified: true, publisherId: 'key-v1' }
     }
     const html = renderToStaticMarkup(<PluginMarketDetails entry={marketEntry} installed={installed}
       releases={[{ ...marketEntry, version: '1.0.0', permissions: ['browser.read'], signingKeyId: 'acme-key-v1' }, marketEntry]}
