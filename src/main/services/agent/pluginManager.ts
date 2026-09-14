@@ -12,16 +12,19 @@ import { createPluginTools, type PluginToolWorker } from './pluginTools'
 import { clearPluginFailure, isPluginQuarantined, recordPluginFailure, recoverPluginHealth, resetPluginHealth } from './pluginHealth'
 import { PluginRuntimeRegistry } from './pluginRuntimeRegistry'
 import { loadPluginMarketOrigins } from './pluginProvenance'
+import { loadPluginDeploymentPolicy, type PluginDeploymentPolicy } from './pluginDeploymentPolicy'
 
 let registry: PluginRegistry | undefined
 let installedRoot: string | undefined
 let pluginDataRoot: string | undefined
 const activeRuntimes = new PluginRuntimeRegistry()
+let deploymentPolicy: Promise<PluginDeploymentPolicy> = Promise.resolve({ managedPluginIds: new Set() })
 
-export function initPluginRegistry(userDataPath: string): void {
+export function initPluginRegistry(userDataPath: string, deploymentRoot = process.resourcesPath): void {
   pluginDataRoot = userDataPath
   installedRoot = join(userDataPath, 'plugins')
   registry = new PluginRegistry(installedRoot, getDisabledPluginIds)
+  deploymentPolicy = loadPluginDeploymentPolicy(deploymentRoot)
 }
 
 export function getInstalledPluginRoot(): string {
@@ -32,13 +35,16 @@ export function getInstalledPluginRoot(): string {
 export async function listPlugins(): Promise<PluginMetadata[]> {
   if (!registry) throw new Error('Plugin registry not initialized')
   const origins = pluginDataRoot ? await loadPluginMarketOrigins(pluginDataRoot) : {}
+  const policy = await deploymentPolicy
   return (await registry.list()).map((plugin) => {
     const origin = origins[plugin.id]
     const metadata = origin && origin.pluginVersion === plugin.version ? { ...plugin, marketOrigin: origin } : plugin
+    const managed = policy.managedPluginIds.has(plugin.id)
     return isPluginQuarantined(plugin.id) ? {
       ...metadata, enabled: false, status: 'quarantined' as const,
-      errors: ['插件连续启动或执行失败，已自动隔离；重新启动应用后可重试']
-    } : metadata
+      errors: ['插件连续启动或执行失败，已自动隔离；重新启动应用后可重试'],
+      ...(managed ? { managed: true } : {})
+    } : managed ? { ...metadata, managed: true } : metadata
   })
 }
 

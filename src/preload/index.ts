@@ -96,7 +96,9 @@ const api: AgentApi = {
     installMarket: (input: PluginMarketInstallInput) => ipcRenderer.invoke(IPC.plugins.installMarket, input),
     uninstall: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.uninstall, input),
     backups: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.backups, input),
-    rollback: (input: PluginRollbackInput) => ipcRenderer.invoke(IPC.plugins.rollback, input)
+    rollback: (input: PluginRollbackInput) => ipcRenderer.invoke(IPC.plugins.rollback, input),
+    getPreferences: () => ipcRenderer.invoke(IPC.plugins.getPreferences),
+    setPreferences: (input) => ipcRenderer.invoke(IPC.plugins.setPreferences, input)
   },
   terminal: {
     open: (sessionId: string) => ipcRenderer.invoke(IPC.terminal.open, sessionId),

@@ -1,21 +1,30 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { EVENTS, IPC } from '@shared/ipc'
-import type { PluginImportInput, PluginMarketInstallInput, PluginMarketOrigin, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
+import type { PluginImportInput, PluginMarketInstallInput, PluginMarketOrigin, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginPreferences, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
 import { getInstalledPluginRoot, listPlugins, recoverPlugin, stopPluginRuntimes } from '../services/agent/pluginManager'
 import { importPluginPackage } from '../services/agent/pluginInstaller'
-import { setPluginEnabled } from '../services/settings'
+import { getPluginPreferences, setPluginEnabled, setPluginPreferences } from '../services/settings'
 import { assertTrustedIpcSender } from './validation'
 import { err, ok } from './result'
 import { PluginMarketplace } from '../services/agent/pluginMarketplace'
 import { installMarketPlugin, listPluginBackups, rollbackPlugin } from '../services/agent/pluginLifecycle'
-import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { replacePluginMarketOrigin, savePluginMarketOrigin } from '../services/agent/pluginProvenance'
 import { writeAgentAudit } from '../services/agent/taskRuntimeManager'
 import { auditPluginOperation } from '../services/agent/pluginAudit'
+import { runSafeAutoUpdates, selectSafeAutoUpdates } from '../services/agent/pluginAutoUpdate'
+import { assertPluginUninstallAllowed } from '../services/agent/pluginDeploymentPolicy'
+import { uninstallPlugin } from '../services/agent/pluginUninstall'
+import { clearPluginCredentials } from '../services/agent/pluginCredentials'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
+  let autoUpdateRun: Promise<void> | undefined
+  const scheduleAutoUpdate = (): void => {
+    if (!getPluginPreferences().autoUpdate || autoUpdateRun) return
+    autoUpdateRun = runAutomaticUpdates(marketplace).finally(() => { autoUpdateRun = undefined })
+    void autoUpdateRun.catch((error) => console.warn('[plugins] automatic update failed:', error))
+  }
+  scheduleAutoUpdate()
   ipcMain.handle(IPC.plugins.list, async (event) => {
     try {
       assertTrustedIpcSender(event)
@@ -91,6 +100,20 @@ export function registerPluginsIpc(): void {
     }
   })
 
+  ipcMain.handle(IPC.plugins.getPreferences, (event) => {
+    try { assertTrustedIpcSender(event); return ok(getPluginPreferences()) }
+    catch (error) { return err('PLUGIN_SET_ERR', error instanceof Error ? error.message : '插件设置读取失败') }
+  })
+  ipcMain.handle(IPC.plugins.setPreferences, (event, input?: PluginPreferences) => {
+    try {
+      assertTrustedIpcSender(event)
+      if (!input || typeof input.autoUpdate !== 'boolean') return err('INVALID_INPUT', '插件设置无效')
+      const saved = setPluginPreferences(input)
+      if (saved.autoUpdate) scheduleAutoUpdate()
+      return ok(saved)
+    } catch (error) { return err('PLUGIN_SET_ERR', error instanceof Error ? error.message : '插件设置保存失败') }
+  })
+
   ipcMain.handle(IPC.plugins.marketplace, async (event) => marketResult(event, () => marketplace.snapshot()))
   ipcMain.handle(IPC.plugins.addSource, async (event, input?: PluginMarketSourceInput) => marketResult(event, async () => {
     if (!input || typeof input.name !== 'string' || typeof input.url !== 'string') throw new Error('市场源参数无效')
@@ -130,12 +153,14 @@ export function registerPluginsIpc(): void {
   ipcMain.handle(IPC.plugins.uninstall, async (event, input?: PluginUninstallInput) => marketResult(event, async () => {
     if (!input || !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(input.id)) throw new Error('插件标识无效')
     const current = (await listPlugins()).find((plugin) => plugin.id === input.id)
+    assertPluginUninstallAllowed(new Set(current?.managed ? [input.id] : []), input.id)
     return auditPluginOperation(writeAgentAudit, {
       action: 'plugin.uninstall', pluginId: input.id, pluginVersion: current?.version
     }, async () => {
       setPluginEnabled(input.id, false)
-      await stopPluginRuntimes(input.id)
-      await rm(join(getInstalledPluginRoot(), input.id), { recursive: true, force: true })
+      await uninstallPlugin(input.id, input.dataDisposition ?? 'keep', app.getPath('userData'), getInstalledPluginRoot(), {
+        stop: stopPluginRuntimes, clearCredentials: clearPluginCredentials
+      })
       await savePluginMarketOrigin(app.getPath('userData'), input.id)
       notifyPluginsChanged()
       return listPlugins()
@@ -158,6 +183,28 @@ export function registerPluginsIpc(): void {
       return listPlugins()
     })
   }))
+}
+
+async function runAutomaticUpdates(marketplace: PluginMarketplace): Promise<void> {
+  const [snapshot, installed] = await Promise.all([marketplace.snapshot(), listPlugins()])
+  const candidates = selectSafeAutoUpdates(installed, snapshot.entries)
+  const byId = new Map(installed.map((plugin) => [plugin.id, plugin]))
+  const result = await runSafeAutoUpdates(candidates, async (entry) => {
+    const previous = byId.get(entry.id)
+    const wasEnabled = previous?.enabled === true
+    try {
+      await auditPluginOperation(writeAgentAudit, {
+        action: 'plugin.update', pluginId: entry.id, pluginVersion: entry.version
+      }, async () => {
+        await stopPluginRuntimes(entry.id)
+        await installMarketPlugin(entry, app.getPath('userData'), getInstalledPluginRoot(), fetch, (id) => setPluginEnabled(id, false))
+      })
+    } finally {
+      if (wasEnabled) setPluginEnabled(entry.id, true)
+    }
+  })
+  if (result.updated.length) notifyPluginsChanged()
+  if (result.failed.length) console.warn('[plugins] safe automatic updates failed:', result.failed.join(', '))
 }
 
 async function marketResult(event: Electron.IpcMainInvokeEvent, action: () => Promise<unknown>) {

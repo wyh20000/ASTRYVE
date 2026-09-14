@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -57,7 +57,8 @@ describe('plugin lifecycle verification', () => {
       marketOrigin: { sourceId: 'official', sourceKind: 'official', verified: true, publisherId: 'github:openai/plugins' }
     })
     expect(await readFile(join(installed, 'docs-helper', 'skills', 'docs', 'SKILL.md'), 'utf8')).toContain('Use official docs')
-    initPluginRegistry(root)
-    await expect(listPlugins()).resolves.toEqual([expect.objectContaining({ marketOrigin: result.marketOrigin })])
+    await writeFile(join(root, 'plugin-policy.json'), JSON.stringify({ schemaVersion: 1, managedPlugins: ['docs-helper'] }))
+    initPluginRegistry(root, root)
+    await expect(listPlugins()).resolves.toEqual([expect.objectContaining({ marketOrigin: result.marketOrigin, managed: true })])
   })
 })

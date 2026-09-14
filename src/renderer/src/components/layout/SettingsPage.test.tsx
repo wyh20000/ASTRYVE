@@ -4,7 +4,7 @@ import type { PluginMarketEntry, PluginMetadata, SkillMetadata } from '@shared/t
 import type { AuditEvent } from '@shared/agent'
 import {
   AuditRecordList, describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
-  listMarketplaceCategories, PluginMarketDetails, PluginSection, SecuritySection, SkillsSection
+  listMarketplaceCategories, PluginMarketDetails, PluginSection, PluginUninstallChoices, SecuritySection, SkillsSection
 } from './SettingsPage'
 import SettingsPage from './SettingsPage'
 
@@ -17,7 +17,8 @@ const pluginState = vi.hoisted(() => ({
   loading: false, mutating: false, error: undefined as string | undefined,
   load: vi.fn(), importLocal: vi.fn(), setEnabled: vi.fn(), recover: vi.fn(), loadMarketplace: vi.fn(),
   addSource: vi.fn(), setSourceEnabled: vi.fn(), removeSource: vi.fn(), syncSource: vi.fn(),
-  installMarket: vi.fn(), uninstall: vi.fn(), loadBackups: vi.fn(), rollback: vi.fn()
+  installMarket: vi.fn(), uninstall: vi.fn(), loadBackups: vi.fn(), rollback: vi.fn(),
+  preferences: { autoUpdate: false }, setAutoUpdate: vi.fn(), loadPreferences: vi.fn()
 }))
 
 const marketEntry: PluginMarketEntry = {
@@ -57,6 +58,7 @@ beforeEach(() => {
   pluginState.loading = false
   pluginState.mutating = false
   pluginState.error = undefined
+  pluginState.preferences = { autoUpdate: false }
 })
 
 describe('Settings navigation', () => {
@@ -135,6 +137,28 @@ describe('Extensions settings page', () => {
     expect(html).not.toContain('尚未安装插件')
     expect(filterPlugins(pluginState.items, 'browser')).toHaveLength(1)
     expect(filterPlugins(pluginState.items, 'missing')).toHaveLength(0)
+  })
+
+  it('shows the safe auto-update preference and keeps managed plugins disableable but not uninstallable', () => {
+    pluginState.preferences = { autoUpdate: true }
+    pluginState.items = [{
+      id: 'managed.tools', name: 'Managed Tools', version: '1.0.0', description: 'Managed',
+      source: 'installed', sourceFormat: 'native', enabled: true, status: 'ready', managed: true,
+      permissions: [], capabilities: [], components: ['tools'], errors: []
+    }]
+    const html = renderToStaticMarkup(<PluginSection />)
+    expect(html).toContain('自动安装安全更新')
+    expect(html).toContain('checked=""')
+    expect(html).toContain('受管')
+    expect(html).toContain('aria-label="禁用 Managed Tools"')
+    expect(html).not.toContain('title="卸载"')
+  })
+
+  it('offers explicit keep-data and clear-data uninstall choices', () => {
+    const html = renderToStaticMarkup(<PluginUninstallChoices onChoose={vi.fn()} onCancel={vi.fn()} />)
+    expect(html).toContain('卸载并保留数据')
+    expect(html).toContain('卸载并清除数据')
+    expect(html).toContain('审计记录会保留')
   })
 
   it('shows invalid manifests as disabled diagnostic rows', () => {

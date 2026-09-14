@@ -52,7 +52,8 @@ export const IPC = {
     setSourceEnabled: 'plugins:set-source-enabled',
     removeSource: 'plugins:remove-source',
     syncSource: 'plugins:sync-source', installMarket: 'plugins:install-market', uninstall: 'plugins:uninstall',
-    backups: 'plugins:backups', rollback: 'plugins:rollback'
+    backups: 'plugins:backups', rollback: 'plugins:rollback',
+    getPreferences: 'plugins:get-preferences', setPreferences: 'plugins:set-preferences'
   },
   terminal: {
     open: 'terminal:open',

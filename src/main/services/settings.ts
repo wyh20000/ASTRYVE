@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
-import type { AgentProjectPreferences, PersistedTheme, DbConfig, BrowserPreferences } from '@shared/types'
+import type { AgentProjectPreferences, PersistedTheme, DbConfig, BrowserPreferences, PluginPreferences } from '@shared/types'
 import {
   EXECUTION_ENVIRONMENTS,
   PERMISSION_MODES,
@@ -16,6 +16,7 @@ interface SettingsFile {
   disabledSkills?: string[]
   disabledPlugins?: string[]
   browser?: BrowserPreferences
+  plugins?: PluginPreferences
 }
 
 const DEFAULTS: { theme: PersistedTheme; db: DbConfig } = {
@@ -31,6 +32,7 @@ let data: {
   disabledSkills: string[]
   disabledPlugins: string[]
   browser: BrowserPreferences
+  plugins: PluginPreferences
 } = {
   theme: { ...DEFAULTS.theme, overrides: { ...DEFAULTS.theme.overrides } },
   db: { ...DEFAULTS.db },
@@ -38,7 +40,8 @@ let data: {
   agentProjects: {},
   disabledSkills: [],
   disabledPlugins: [],
-  browser: { allowAllSites: false, allowedOrigins: [], blockedOrigins: [] }
+  browser: { allowAllSites: false, allowedOrigins: [], blockedOrigins: [] },
+  plugins: { autoUpdate: false }
 }
 
 function file(): string {
@@ -73,6 +76,7 @@ export function initSettings(): void {
         ).slice(0, 500)
       }
       if (raw.browser) data.browser = sanitizeBrowserPreferences(raw.browser)
+      if (raw.plugins && typeof raw.plugins === 'object') data.plugins = { autoUpdate: raw.plugins.autoUpdate === true }
     }
   } catch (e) {
     console.warn('[settings] load failed:', e)
@@ -174,6 +178,14 @@ export function setPluginEnabled(id: string, enabled: boolean): void {
   }
   data.disabledPlugins = [...disabled]
   try { persist(true) } catch (error) { data.disabledPlugins = previous; throw error }
+}
+
+export function getPluginPreferences(): PluginPreferences { return { ...data.plugins } }
+export function setPluginPreferences(value: PluginPreferences): PluginPreferences {
+  const previous = data.plugins
+  data.plugins = { autoUpdate: value?.autoUpdate === true }
+  try { persist(true) } catch (error) { data.plugins = previous; throw error }
+  return getPluginPreferences()
 }
 
 export function getBrowserPreferences(): BrowserPreferences { return { ...data.browser, allowedOrigins: [...data.browser.allowedOrigins], blockedOrigins: [...data.browser.blockedOrigins] } }

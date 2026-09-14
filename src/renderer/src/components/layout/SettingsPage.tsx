@@ -113,7 +113,10 @@ export function PluginSection(): JSX.Element {
   const importLocal = usePluginStore((state) => state.importLocal)
   const setEnabled = usePluginStore((state) => state.setEnabled)
   const recover = usePluginStore((state) => state.recover)
-  useEffect(() => { void load(); if (loadMarketplace) void loadMarketplace() }, [load, loadMarketplace])
+  const preferences = usePluginStore((state) => state.preferences)
+  const loadPreferences = usePluginStore((state) => state.loadPreferences)
+  const setAutoUpdate = usePluginStore((state) => state.setAutoUpdate)
+  useEffect(() => { void load(); void loadPreferences(); if (loadMarketplace) void loadMarketplace() }, [load, loadMarketplace, loadPreferences])
   const filtered = filterPlugins(items, query)
   return <div>
     <div className="flex flex-wrap items-start gap-3">
@@ -149,9 +152,13 @@ export function PluginSection(): JSX.Element {
     </div>
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-950/30 px-3 py-2 text-[11px] text-red-300">{error}</p>}
     {view === 'installed' && <section className="mt-7">
-      <div className="flex items-center gap-2 border-b border-border pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
         <h2 className="text-[13px] font-semibold text-txt-primary">已安装</h2>
         <span className="text-[10px] tabular-nums text-txt-muted">{items.length}</span>
+        <label title="仅限同一来源和发布者、没有新增权限的更高版本；应用启动时检查" className="ml-auto flex cursor-pointer items-center gap-2 text-[10px] text-txt-muted">
+          <input type="checkbox" checked={preferences.autoUpdate} onChange={(event) => void setAutoUpdate(event.target.checked)} />
+          自动安装安全更新
+        </label>
       </div>
       {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin}
         onToggle={() => void setEnabled(plugin.id, !plugin.enabled)}
@@ -417,7 +424,8 @@ function PluginRow({ plugin, onToggle, onRecover }: {
         <strong className="truncate text-[12px] font-medium text-txt-primary">{plugin.name}</strong>
         {plugin.version && <span className="text-[9px] text-txt-muted">{plugin.version}</span>}
         {plugin.status === 'invalid' && <span className="text-[9px] text-red-300">清单无效</span>}
-        {plugin.status === 'quarantined' && <span className="text-[9px] text-amber-300">已隔离</span>}<span className="text-[9px] text-txt-muted">本地</span>
+        {plugin.status === 'quarantined' && <span className="text-[9px] text-amber-300">已隔离</span>}
+        {plugin.managed && <span className="text-[9px] text-accent">受管</span>}<span className="text-[9px] text-txt-muted">本地</span>
       </div>
       <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-txt-muted">{plugin.errors[0] ?? plugin.description}</p>
       {!!badges.length && <div className="mt-1 flex flex-wrap gap-1.5">{badges.map((badge) =>
@@ -431,10 +439,22 @@ function PluginRow({ plugin, onToggle, onRecover }: {
       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${plugin.enabled ? 'text-txt-secondary' : 'text-txt-muted'} disabled:opacity-40`}>
       {plugin.enabled ? <Icon.Check size={14} /> : <span className="h-3 w-3 rounded-full border border-border-strong" />}
     </button>}
-    {!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
-      : <span className="flex shrink-0 items-center gap-1 text-[10px]"><button className="text-red-300" onClick={() => void uninstall(plugin.id)}>确认</button><button className="text-txt-muted" onClick={() => setConfirmRemove(false)}>取消</button></span>}
+    {!plugin.managed && (!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
+      : <PluginUninstallChoices onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />)}
     <button type="button" title="历史版本" className="btn-icon shrink-0 text-txt-muted" onClick={() => void showBackups()}><Icon.ChevronDown size={12} /></button>
   </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}</article>
+}
+
+export function PluginUninstallChoices({ onChoose, onCancel }: {
+  onChoose: (dataDisposition: 'keep' | 'clear') => void
+  onCancel: () => void
+}): JSX.Element {
+  return <span className="flex max-w-[260px] shrink-0 flex-wrap justify-end gap-x-2 gap-y-1 text-[9px]">
+    <span className="w-full text-right text-txt-muted">审计记录会保留</span>
+    <button type="button" className="text-txt-secondary" onClick={() => onChoose('keep')}>卸载并保留数据</button>
+    <button type="button" className="text-red-300" onClick={() => onChoose('clear')}>卸载并清除数据</button>
+    <button type="button" className="text-txt-muted" onClick={onCancel}>取消</button>
+  </span>
 }
 
 function pluginPermissionLabel(permission: PluginPermission): string {

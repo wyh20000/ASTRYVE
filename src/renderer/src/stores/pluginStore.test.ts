@@ -10,7 +10,7 @@ const plugin: PluginMetadata = {
 
 describe('pluginStore', () => {
   beforeEach(() => {
-    usePluginStore.setState({ items: [], marketEntries: [], marketSources: [], loading: false, mutating: false, error: undefined })
+    usePluginStore.setState({ items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, loading: false, mutating: false, error: undefined })
   })
 
   it('loads only plugin metadata returned by the trusted preload API', async () => {
@@ -76,5 +76,18 @@ describe('pluginStore', () => {
     await expect(usePluginStore.getState().installMarket('official', plugin.id, plugin.version!)).resolves.toBe(true)
     expect(installMarket).toHaveBeenCalledWith({ sourceId: 'official', id: plugin.id, version: plugin.version })
     expect(usePluginStore.getState()).toMatchObject({ items: [installed], mutating: false, error: undefined })
+  })
+
+  it('loads and saves the safe automatic update preference through the trusted API', async () => {
+    const getPreferences = vi.fn().mockResolvedValue({ ok: true, data: { autoUpdate: true } })
+    const setPreferences = vi.fn().mockResolvedValue({ ok: true, data: { autoUpdate: false } })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, value: { agent: { plugins: { getPreferences, setPreferences } } }
+    })
+    await usePluginStore.getState().loadPreferences()
+    expect(usePluginStore.getState().preferences).toEqual({ autoUpdate: true })
+    await usePluginStore.getState().setAutoUpdate(false)
+    expect(setPreferences).toHaveBeenCalledWith({ autoUpdate: false })
+    expect(usePluginStore.getState().preferences).toEqual({ autoUpdate: false })
   })
 })

@@ -28,6 +28,8 @@ export interface AgentProjectPreferences {
   dockerImageId?: string
 }
 
+export interface PluginPreferences { autoUpdate: boolean }
+
 export interface AgentExecutionCapabilities {
   dockerAvailable: boolean
   dockerReason?: string
@@ -347,6 +349,8 @@ export interface PluginMetadata {
   components: PluginComponent[]
   errors: string[]
   marketOrigin?: PluginMarketOrigin
+  /** Read-only application deployment policy; managed plugins remain disableable. */
+  managed?: boolean
 }
 
 export interface PluginToggleInput { id: string; enabled: boolean }
@@ -410,7 +414,7 @@ export interface PluginMarketSourceInput { name: string; url: string; signingKey
 export interface PluginMarketSourceIdInput { id: string }
 export interface PluginMarketSourceToggleInput { id: string; enabled: boolean }
 export interface PluginMarketInstallInput { sourceId: string; id: string; version: string }
-export interface PluginUninstallInput { id: string }
+export interface PluginUninstallInput { id: string; dataDisposition?: 'keep' | 'clear' }
 export interface PluginBackup { pluginId: string; version: string; createdAt: number }
 export interface PluginRollbackInput { id: string; version: string }
 export interface BrowserPreferences { allowAllSites: boolean; allowedOrigins: string[]; blockedOrigins: string[] }
@@ -551,6 +555,8 @@ export interface AgentApi {
     uninstall: (input: PluginUninstallInput) => Promise<IpcResult<PluginMetadata[]>>
     backups: (input: PluginUninstallInput) => Promise<IpcResult<PluginBackup[]>>
     rollback: (input: PluginRollbackInput) => Promise<IpcResult<PluginMetadata[]>>
+    getPreferences: () => Promise<IpcResult<PluginPreferences>>
+    setPreferences: (input: PluginPreferences) => Promise<IpcResult<PluginPreferences>>
   }
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>

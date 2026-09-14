@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PluginBackup, PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMetadata } from '@shared/types'
+import type { PluginBackup, PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMetadata, PluginPreferences } from '@shared/types'
 
 interface PluginState {
   items: PluginMetadata[]
@@ -8,6 +8,7 @@ interface PluginState {
   error?: string
   marketEntries: PluginMarketEntry[]
   marketSources: PluginMarketSource[]
+  preferences: PluginPreferences
   load: () => Promise<void>
   importLocal: (kind: PluginImportKind) => Promise<boolean>
   setEnabled: (id: string, enabled: boolean) => Promise<void>
@@ -18,13 +19,15 @@ interface PluginState {
   removeSource: (id: string) => Promise<void>
   syncSource: (id: string) => Promise<void>
   installMarket: (sourceId: string, id: string, version: string) => Promise<boolean>
-  uninstall: (id: string) => Promise<void>
+  uninstall: (id: string, dataDisposition?: 'keep' | 'clear') => Promise<void>
   loadBackups: (id: string) => Promise<PluginBackup[]>
   rollback: (id: string, version: string) => Promise<boolean>
+  loadPreferences: () => Promise<void>
+  setAutoUpdate: (enabled: boolean) => Promise<void>
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
-  items: [], marketEntries: [], marketSources: [], loading: false, mutating: false,
+  items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, loading: false, mutating: false,
   load: async () => {
     set({ loading: true, error: undefined })
     const result = await window.agent.plugins.list()
@@ -81,8 +84,8 @@ export const usePluginStore = create<PluginState>((set) => ({
     if (result.ok) { set({ items: result.data, mutating: false }); return true }
     set({ error: result.error.message, mutating: false }); return false
   },
-  uninstall: async (id) => {
-    const result = await window.agent.plugins.uninstall({ id })
+  uninstall: async (id, dataDisposition = 'keep') => {
+    const result = await window.agent.plugins.uninstall({ id, dataDisposition })
     if (result.ok) set({ items: result.data, error: undefined })
     else set({ error: result.error.message })
   },
@@ -97,5 +100,15 @@ export const usePluginStore = create<PluginState>((set) => ({
     const result = await window.agent.plugins.rollback({ id, version })
     if (result.ok) { set({ items: result.data, mutating: false }); return true }
     set({ error: result.error.message, mutating: false }); return false
+  },
+  loadPreferences: async () => {
+    const result = await window.agent.plugins.getPreferences()
+    if (result.ok) set({ preferences: result.data })
+    else set({ error: result.error.message })
+  },
+  setAutoUpdate: async (enabled) => {
+    const result = await window.agent.plugins.setPreferences({ autoUpdate: enabled })
+    if (result.ok) set({ preferences: result.data, error: undefined })
+    else set({ error: result.error.message })
   }
 }))

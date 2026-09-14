@@ -63,6 +63,17 @@ describe('project settings persistence', () => {
     expect(reloaded.getDisabledPluginIds()).toEqual(new Set(['acme.browser']))
   })
 
+  it('persists the safe automatic plugin update preference with a default-off policy', async () => {
+    state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-plugin-update-settings-'))
+    vi.resetModules()
+    const settings = await import('./settings')
+    expect(settings.getPluginPreferences()).toEqual({ autoUpdate: false })
+    settings.setPluginPreferences({ autoUpdate: true })
+    vi.resetModules()
+    const reloaded = await import('./settings'); reloaded.initSettings()
+    expect(reloaded.getPluginPreferences()).toEqual({ autoUpdate: true })
+  })
+
   it('fails closed instead of silently enabling a plugin when the disabled list is full', async () => {
     state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-plugin-settings-cap-'))
     vi.resetModules()
