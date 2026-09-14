@@ -3,6 +3,19 @@ import { describe, expect, it } from 'vitest'
 import { Blocks } from './Blocks'
 
 describe('Blocks', () => {
+  it('隐藏内部 Skill 元数据但继续渲染回答内容', () => {
+    const html = renderToStaticMarkup(<Blocks status="done" blocks={[
+      {
+        kind: 'skills', trigger: '/frontend-app-builder',
+        skills: [{ name: 'frontend-app-builder', displayName: 'Frontend App Builder', source: 'plugin', version: '0.1.2' }]
+      },
+      { kind: 'text', content: '分析完成' }
+    ]} />)
+    expect(html).toContain('分析完成')
+    expect(html).not.toContain('本轮已加载')
+    expect(html).not.toContain('frontend-app-builder')
+  })
+
   it('渲染可点击的引用来源区块', () => {
     const html = renderToStaticMarkup(
       <Blocks
