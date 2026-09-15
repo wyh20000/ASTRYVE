@@ -44,7 +44,7 @@ describe('plugin MCP task tools', () => {
     }
     const captured = await captureTaskPluginCapabilities({
       tools: [localTool], pluginIds: ['acme.tools'],
-      pluginVersions: { 'acme.tools': '1.2.3' }, dispose: localDispose
+      pluginVersions: { 'acme.tools': '1.2.3' }, observe: vi.fn(), dispose: localDispose
     }, manager)
     await captured.tools[1].execute({ query: 'x' }, context())
 

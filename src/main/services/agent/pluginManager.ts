@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { mkdir, readdir } from 'node:fs/promises'
 import type { PluginMetadata } from '../../../shared/types'
-import type { ToolDefinition } from '../../../shared/agent'
+import type { TaskEvent, ToolDefinition } from '../../../shared/agent'
 import { randomUUID } from 'node:crypto'
 import type { AuditWriter } from './policyEngine'
 import { getDisabledPluginIds } from '../settings'
@@ -13,6 +13,7 @@ import { clearPluginFailure, isPluginQuarantined, recordPluginFailure, recoverPl
 import { PluginRuntimeRegistry } from './pluginRuntimeRegistry'
 import { loadPluginInstallOrigins } from './pluginProvenance'
 import { loadPluginDeploymentPolicy, type PluginDeploymentPolicy } from './pluginDeploymentPolicy'
+import { PluginHookController, type PluginHookRegistration } from './pluginHooks'
 
 let registry: PluginRegistry | undefined
 let installedRoot: string | undefined
@@ -77,6 +78,7 @@ export interface PluginTaskTools {
   tools: ToolDefinition<any, any>[]
   pluginIds: string[]
   pluginVersions: Record<string, string | undefined>
+  observe: (event: TaskEvent) => void
   dispose: () => Promise<void>
 }
 
@@ -106,7 +108,7 @@ export async function capturePluginTaskTools(
     try {
       const rootPath = join(root, entry.name)
       const manifest = await readPluginManifest(rootPath)
-      if ((!manifest.tools.length && !manifest.mcpPath) || disabled.has(manifest.id) || isPluginQuarantined(manifest.id) || (requested && !requested.has(manifest.id))) continue
+      if ((!manifest.tools.length && !manifest.hooks.length && !manifest.mcpPath) || disabled.has(manifest.id) || isPluginQuarantined(manifest.id) || (requested && !requested.has(manifest.id))) continue
       packages.push({ rootPath, manifest })
     } catch {
       // Invalid packages remain visible in settings but never enter a task tool snapshot.
@@ -120,12 +122,13 @@ export async function capturePluginTaskTools(
   packages.sort((a, b) => a.manifest.id.localeCompare(b.manifest.id))
   const workers: Array<{ worker: PluginTaskWorker; unregister: () => void }> = []
   const tools: ToolDefinition<any, any>[] = []
+  const hookRegistrations: PluginHookRegistration[] = []
   const versions: Record<string, string | undefined> = {}
   for (const item of packages) {
     versions[item.manifest.id] = item.manifest.version
-    if (!item.manifest.tools.length) continue
+    if (!item.manifest.tools.length && !item.manifest.hooks.length) continue
     const worker = createWorker(item.rootPath, item.manifest)
-    const pluginTools = createPluginTools(item.manifest, worker, {
+    const pluginTools = item.manifest.tools.length ? createPluginTools(item.manifest, worker, {
       succeeded: () => clearPluginFailure(item.manifest.id),
       failed: (_error, context, reasonCode) => {
         try {
@@ -155,15 +158,30 @@ export async function capturePluginTaskTools(
           }).catch(() => undefined)
         }
       }
-    })
+    }) : []
     workers.push({ worker, unregister: activeRuntimes.add(item.manifest.id, worker) })
     tools.push(...pluginTools)
+    const toolNames = new Set(item.manifest.tools.map((tool) => tool.name))
+    item.manifest.hooks.forEach((hook, index) => {
+      let name = `hook_${index}`
+      while (toolNames.has(name)) name = `hook_${name}`
+      toolNames.add(name)
+      hookRegistrations.push({
+        pluginId: item.manifest.id, version: item.manifest.version, ...hook, name, worker
+      })
+    })
   }
+  const hookController = new PluginHookController(hookRegistrations, {
+    succeeded: (registration) => clearPluginFailure(registration.pluginId),
+    failed: (failure) => recordHookFailure(failure, writeAudit)
+  })
   return {
     tools,
     pluginIds: packages.map((item) => item.manifest.id),
     pluginVersions: versions,
+    observe: (event) => hookController.observe(event),
     dispose: async () => {
+      await hookController.drain()
       await Promise.all(workers.map(async ({ worker, unregister }) => {
         unregister()
         await worker.stop('task_finished')
@@ -194,7 +212,7 @@ class LazyPluginWorker implements PluginToolWorker {
     this.startPromise ??= this.host.start({
       pluginId: this.manifest.id,
       rootPath: this.rootPath,
-      tools: this.manifest.tools.map((tool) => ({ name: tool.name, entryPath: tool.entry }))
+      tools: workerDefinitions(this.manifest)
     })
     await this.startPromise
     return this.host.invoke(toolName, args, context, signal)
@@ -203,5 +221,45 @@ class LazyPluginWorker implements PluginToolWorker {
   async stop(reason = 'task_finished'): Promise<void> {
     if (!this.startPromise) return
     await this.host.stop(reason)
+  }
+}
+
+function workerDefinitions(manifest: ParsedPluginManifest): Array<{ name: string; entryPath: string }> {
+  const definitions = manifest.tools.map((tool) => ({ name: tool.name, entryPath: tool.entry }))
+  const names = new Set(definitions.map((item) => item.name))
+  manifest.hooks.forEach((hook, index) => {
+    let name = `hook_${index}`
+    while (names.has(name)) name = `hook_${name}`
+    names.add(name)
+    definitions.push({ name, entryPath: hook.entry })
+  })
+  return definitions
+}
+
+function recordHookFailure(
+  failure: { pluginId: string; version?: string; event: string; reasonCode: string; taskId: string; workspaceId: string },
+  writeAudit: AuditWriter
+): void {
+  try {
+    writeAudit({
+      id: randomUUID(), timestamp: Date.now(), taskId: failure.taskId, workspaceId: failure.workspaceId,
+      actor: 'system', action: 'plugin.hook', outcome: 'failure', risk: 'low', reasonCode: failure.reasonCode,
+      target: failure.event, pluginId: failure.pluginId, pluginVersion: failure.version
+    })
+  } catch { /* hook execution is observational */ }
+  const wasQuarantined = isPluginQuarantined(failure.pluginId)
+  if (recordPluginFailure(failure.pluginId) && !wasQuarantined) {
+    try {
+      writeAudit({
+        id: randomUUID(), timestamp: Date.now(), taskId: failure.taskId, workspaceId: failure.workspaceId,
+        actor: 'system', action: 'plugin.isolation', outcome: 'failure', risk: 'critical',
+        reasonCode: 'PLUGIN_ISOLATED', pluginId: failure.pluginId, pluginVersion: failure.version
+      })
+    } catch { /* isolation remains effective */ }
+    void import('electron').then(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('plugins:changed')
+      }
+    }).catch(() => undefined)
   }
 }

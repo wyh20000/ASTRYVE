@@ -42,6 +42,7 @@ interface RuntimeTask {
   controller: AbortController
   registry: ToolRegistry
   dispose?: () => void | Promise<void>
+  observe?: (event: TaskEvent) => void
   taskTimeoutMs: number
   toolTimeoutMs: number
   dockerImageId?: string
@@ -72,6 +73,7 @@ export interface CreateTaskInput {
   pluginIds?: string[]
   pluginVersions?: Record<string, string | undefined>
   dispose?: () => void | Promise<void>
+  observe?: (event: TaskEvent) => void
 }
 
 export interface TaskRuntimeOptions {
@@ -181,6 +183,7 @@ export class TaskRuntime {
       controller: new AbortController(),
       registry: this.registry.createScope(input.toolDefinitions),
       dispose: input.dispose,
+      observe: input.observe,
       taskTimeoutMs,
       toolTimeoutMs,
       dockerImageId: input.dockerImageId,
@@ -510,6 +513,11 @@ export class TaskRuntime {
   }
 
   private publish(event: TaskEvent): void {
+    try {
+      this.tasks.get(event.taskId)?.observe?.(structuredClone(event))
+    } catch {
+      // Task-owned observers such as plugin hooks are observational and isolated.
+    }
     for (const listener of this.listeners) {
       try {
         listener(event)

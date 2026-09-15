@@ -20,8 +20,17 @@ export interface ParsedPluginTool {
   parameters: ToolInputSchema
 }
 
+export type PluginHookEvent = 'task.created' | 'task.status-changed' | 'tool.completed'
+export interface ParsedPluginHook {
+  event: PluginHookEvent
+  entry: string
+  priority: number
+  timeoutMs: number
+}
+
 export interface ParsedPluginManifest extends Omit<PluginMetadata, 'enabled' | 'status' | 'source' | 'errors'> {
   tools: ParsedPluginTool[]
+  hooks: ParsedPluginHook[]
   skillsPath?: string
   mcpPath?: string
 }
@@ -58,8 +67,9 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   const capabilities = stringArray(interfaceValue?.capabilities, '插件能力', 32, 64).sort()
   const components: PluginComponent[] = []
   const tools: ParsedPluginTool[] = []
+  const hooks = parseHooks(value.hooks)
   if (typeof value.skills === 'string') components.push('skills')
-  if (isRecord(value.hooks) && Object.keys(value.hooks).length) components.push('hooks')
+  if (hooks.length) components.push('hooks')
   if (value.mcp !== undefined || value.mcpServers !== undefined) components.push('mcp')
   if (Array.isArray(value.tools) && value.tools.length) components.push('tools')
   if (!components.length) throw new Error('插件未声明任何可用组件')
@@ -98,10 +108,33 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
     }
   }
   return {
-    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools,
+    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks,
     skillsPath: typeof value.skills === 'string' ? value.skills : undefined,
     mcpPath
   }
+}
+
+function parseHooks(value: unknown): ParsedPluginHook[] {
+  if (value === undefined) return []
+  if (!isRecord(value)) throw new Error('Hooks 声明无效')
+  const allowed = new Set<PluginHookEvent>(['task.created', 'task.status-changed', 'tool.completed'])
+  const hooks: ParsedPluginHook[] = []
+  for (const [event, declarations] of Object.entries(value)) {
+    if (!allowed.has(event as PluginHookEvent)) throw new Error('Hook 事件无效')
+    if (!Array.isArray(declarations) || !declarations.length || declarations.length > 16) throw new Error('Hook 声明无效')
+    for (const declaration of declarations) {
+      if (!isRecord(declaration) || typeof declaration.entry !== 'string') throw new Error('Hook 声明无效')
+      if (Object.keys(declaration).some((key) => !['entry', 'priority', 'timeoutMs'].includes(key))) throw new Error('Hook 声明包含不支持字段')
+      assertRelativePluginPath(declaration.entry)
+      const priority = declaration.priority ?? 0
+      const timeoutMs = declaration.timeoutMs ?? 1000
+      if (!Number.isSafeInteger(priority) || Number(priority) < -100 || Number(priority) > 100) throw new Error('Hook 优先级无效')
+      if (!Number.isSafeInteger(timeoutMs) || Number(timeoutMs) < 50 || Number(timeoutMs) > 5000) throw new Error('Hook 超时无效')
+      hooks.push({ event: event as PluginHookEvent, entry: declaration.entry, priority: Number(priority), timeoutMs: Number(timeoutMs) })
+      if (hooks.length > 32) throw new Error('Hook 数量超过限制')
+    }
+  }
+  return hooks
 }
 
 function parseToolSchema(value: unknown): ToolInputSchema {

@@ -52,6 +52,7 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
       toolDefinitions: pluginSnapshot.tools,
       pluginIds: pluginSnapshot.pluginIds,
       pluginVersions: pluginSnapshot.pluginVersions,
+      observe: pluginSnapshot.observe,
       dispose: pluginSnapshot.dispose
     })
     })

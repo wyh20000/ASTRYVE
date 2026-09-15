@@ -48,14 +48,13 @@ describe('plugin marketplace', () => {
   it.each([
     { components: ['mcp'] }, { components: ['hooks'] }, { components: ['tools', 'hooks'] }
   ] as Array<{ components: Array<'mcp' | 'hooks' | 'tools'> }>)(
-    'keeps unsupported community component set $components visible but non-installable',
+    'allows implemented community component set $components to be installed',
     ({ components }) => {
       const source = { id: 'community', name: 'Community', kind: 'community' as const, url: 'https://example.com/index.json', enabled: true, verified: false }
       const raw = { ...index.plugins[0], components: [...components] }
       const parsed = parseMarketplaceIndex({ ...index, plugins: [raw] }, source)
       expect(parsed[0].components).toEqual(expect.arrayContaining(components))
-      expect(parsed[0]).toMatchObject({ installable: false })
-      expect(parsed[0].unavailableReason).toContain('Skills 或工具')
+      expect(parsed[0]).toMatchObject({ installable: true, unavailableReason: undefined })
     }
   )
 

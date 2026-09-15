@@ -207,7 +207,7 @@ export function parseMarketplaceIndex(value: unknown, source: PluginMarketSource
       dataTargets: raw.dataTargets === undefined ? undefined : strings(raw.dataTargets, '数据目标', 32, 100),
       installable: supportsCurrentRuntime(components),
       unavailableReason: supportsCurrentRuntime(components) ? undefined : components?.length
-        ? '当前仅支持由 Skills 或工具组成的插件'
+        ? '插件包含当前不支持的组件'
         : '市场索引缺少组件声明，请联系来源维护者更新索引',
       changelog: optionalText(raw.changelog, 4000), minAppVersion: optionalText(raw.minAppVersion, 64),
       platforms: strings(raw.platforms, '支持平台', 10, 30),
@@ -341,7 +341,8 @@ function signingKeyFingerprint(publicKey: string): string {
   return `ed25519:${createHash('sha256').update(der).digest('hex')}`
 }
 function supportsCurrentRuntime(components: readonly PluginComponent[] | undefined): boolean {
-  return Boolean(components?.length && components.every((component) => component === 'skills' || component === 'tools'))
+  return Boolean(components?.length && components.every((component) =>
+    component === 'skills' || component === 'tools' || component === 'mcp' || component === 'hooks'))
 }
 function normalizeCodexPluginPath(value: string, id: string): string | undefined {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')

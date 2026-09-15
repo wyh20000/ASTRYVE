@@ -19,6 +19,48 @@ afterEach(async () => {
 })
 
 describe('market plugin runtime', () => {
+  it('captures a hook-only plugin and observes the task lifecycle without adding tools', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'ai-agent-hook-only-runtime-'))
+    tempDirs.push(dataRoot)
+    const pluginRoot = join(dataRoot, 'plugins', 'acme.hook-only')
+    await mkdir(join(pluginRoot, 'hooks'), { recursive: true })
+    await writeFile(join(pluginRoot, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'acme.hook-only', name: 'Hook Only', version: '1.0.0', description: 'Hooks',
+      hooks: { 'task.created': [{ entry: './hooks/created.mjs', priority: 5, timeoutMs: 500 }] }
+    }))
+    await writeFile(join(pluginRoot, 'hooks', 'created.mjs'), 'export default async () => undefined')
+    initPluginRegistry(dataRoot)
+    const invocations: Array<{ name: string; args: unknown }> = []
+    const snapshot = await capturePluginTaskTools(['acme.hook-only'], () => ({
+      invoke: async (name, args) => { invocations.push({ name, args }) },
+      stop: async () => undefined
+    }))
+
+    expect(snapshot.pluginIds).toEqual(['acme.hook-only'])
+    expect(snapshot.tools).toEqual([])
+    snapshot.observe({
+      taskId: 'task-hook', sessionId: 'session-hook', sequence: 1, type: 'task.created', timestamp: 1,
+      payload: { id: 'task-hook', workspaceId: 'workspace-hook', rootPath: 'D:\\private' }
+    })
+    await snapshot.dispose()
+
+    expect(invocations).toEqual([{ name: 'hook_0', args: { type: 'task.created', timestamp: 1, payload: {} } }])
+
+    const audits: AuditEvent[] = []
+    const failing = await capturePluginTaskTools(['acme.hook-only'], () => ({
+      invoke: async () => { throw new Error('hook failed') }, stop: async () => undefined
+    }), (audit) => audits.push(audit))
+    for (let index = 0; index < 3; index += 1) failing.observe({
+      taskId: `task-failure-${index}`, sessionId: 'session-hook', sequence: 1,
+      type: 'task.created', timestamp: index + 2, payload: { workspaceId: 'workspace-hook' }
+    })
+    await failing.dispose()
+    expect(audits.filter((audit) => audit.action === 'plugin.hook')).toHaveLength(3)
+    expect(audits).toContainEqual(expect.objectContaining({
+      action: 'plugin.isolation', pluginId: 'acme.hook-only', reasonCode: 'PLUGIN_ISOLATED'
+    }))
+  })
+
   it('captures an MCP-only plugin without creating a local worker', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'ai-agent-mcp-only-runtime-'))
     tempDirs.push(dataRoot)

@@ -457,6 +457,22 @@ describe('TaskRuntime', () => {
     expect(runtime.completeTask(task.id)).toBe(true)
   })
 
+  it('delivers task-owned observer events without allowing observer failures to affect execution', async () => {
+    const { runtime } = createRuntime()
+    const observed: string[] = []
+    const task = createAndStart(runtime, {
+      observe: (event) => {
+        observed.push(event.type)
+        if (event.type === 'tool.completed') throw new Error('isolated hook observer')
+      }
+    })
+    await expect(runtime.submitNativeToolCall(task.id, nativeCall())).resolves.toEqual({ ok: true, value: 'ok' })
+    expect(runtime.completeTask(task.id)).toBe(true)
+    expect(observed).toEqual([
+      'task.created', 'task.status-changed', 'tool.requested', 'tool.completed', 'task.status-changed'
+    ])
+  })
+
   it('batches streamed output, chunks it, and keeps event sequences monotonic', async () => {
     vi.useFakeTimers()
     const { runtime } = createRuntime(undefined, {

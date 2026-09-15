@@ -67,6 +67,41 @@ describe('readPluginManifest', () => {
     await expect(readPluginManifest(root)).resolves.toMatchObject({ tools: [{ name: 'inspect', operation: 'fs.read' }] })
   })
 
+  it('normalizes only allowlisted lifecycle hooks with bounded priority and timeout', async () => {
+    const root = await fixture({
+      schemaVersion: 1, id: 'acme.hooks', name: 'Acme Hooks', version: '1.0.0', description: 'Hooks',
+      hooks: {
+        'task.created': [
+          { entry: './hooks/prepare.mjs', priority: 20, timeoutMs: 750 },
+          { entry: './hooks/observe.mjs' }
+        ],
+        'tool.completed': [{ entry: './hooks/tool.mjs', priority: -10, timeoutMs: 1500 }]
+      }
+    })
+    await expect(readPluginManifest(root)).resolves.toMatchObject({
+      components: ['hooks'], hooks: [
+        { event: 'task.created', entry: './hooks/prepare.mjs', priority: 20, timeoutMs: 750 },
+        { event: 'task.created', entry: './hooks/observe.mjs', priority: 0, timeoutMs: 1000 },
+        { event: 'tool.completed', entry: './hooks/tool.mjs', priority: -10, timeoutMs: 1500 }
+      ]
+    })
+  })
+
+  it('rejects unknown hook events, traversal, and unbounded hook settings', async () => {
+    const unknown = await fixture({ schemaVersion: 1, id: 'bad.hook', name: 'Bad', description: 'Bad', hooks: {
+      'approval.required': [{ entry: './hooks/approval.mjs' }]
+    } })
+    await expect(readPluginManifest(unknown)).rejects.toThrow('Hook 事件无效')
+    const traversal = await fixture({ schemaVersion: 1, id: 'bad.path', name: 'Bad', description: 'Bad', hooks: {
+      'task.created': [{ entry: '../outside.mjs' }]
+    } })
+    await expect(readPluginManifest(traversal)).rejects.toThrow('插件路径必须位于插件目录内')
+    const timeout = await fixture({ schemaVersion: 1, id: 'bad.timeout', name: 'Bad', description: 'Bad', hooks: {
+      'task.created': [{ entry: './hook.mjs', timeoutMs: 6000 }]
+    } })
+    await expect(readPluginManifest(timeout)).rejects.toThrow('Hook 超时无效')
+  })
+
   it('rejects unsupported executable aliases, duplicate tools and componentless packages', async () => {
     const alias = await fixture({ schemaVersion: 1, id: 'alias', name: 'Alias', version: '1.0.0', description: 'Alias', skills: './skills', main: './index.js' })
     await expect(readPluginManifest(alias)).rejects.toThrow('不受支持的可执行入口')

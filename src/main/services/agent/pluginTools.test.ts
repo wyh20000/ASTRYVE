@@ -11,6 +11,7 @@ const plugin: ParsedPluginManifest = {
   permissions: ['workspace.read'],
   capabilities: [],
   components: ['tools'],
+  hooks: [],
   tools: [{
     name: 'inspect_dom',
     description: 'Inspect a saved DOM document',

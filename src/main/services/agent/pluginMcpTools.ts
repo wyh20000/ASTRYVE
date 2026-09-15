@@ -39,6 +39,7 @@ export async function captureTaskPluginCapabilities(
     tools: [...local.tools, ...external.tools],
     pluginIds: [...local.pluginIds],
     pluginVersions: { ...local.pluginVersions },
+    observe: local.observe,
     dispose: async () => {
       const results = await Promise.allSettled([local.dispose(), external.dispose()])
       const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')

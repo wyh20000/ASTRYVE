@@ -17,7 +17,7 @@ export class PluginRegistry {
       .map(async (entry): Promise<PluginMetadata> => {
         try {
           const parsed = await readPluginManifest(join(this.root, entry.name))
-          const { tools: _tools, skillsPath: _skillsPath, ...metadata } = parsed
+          const { tools: _tools, hooks: _hooks, skillsPath: _skillsPath, ...metadata } = parsed
           return { ...metadata, source: 'installed', enabled: !disabled.has(parsed.id), status: 'ready', errors: [] }
         } catch (error) {
           const id = safeFolderId(entry.name)
