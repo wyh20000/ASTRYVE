@@ -351,6 +351,42 @@ export interface PluginMcpBinding {
   serverId: string
   connectionId: string
 }
+export interface PluginMcpConnectionSummary {
+  id: string
+  serverOrigin: string
+  auth: PluginMcpAuthKind
+  state: PluginMcpConnectionState
+  accountLabel?: string
+  lastConnectedAt?: number
+  errorCode?: string
+}
+export interface PluginMcpServerView {
+  id: string
+  serverOrigin: string
+  auth: PluginMcpAuthKind
+  state: PluginMcpConnectionState
+  connectionId?: string
+  accountLabel?: string
+  lastConnectedAt?: number
+  errorCode?: string
+  compatibleConnections: PluginMcpConnectionSummary[]
+}
+export interface PluginMcpPluginView {
+  pluginId: string
+  pluginName: string
+  enabled: boolean
+  restricted: boolean
+  servers: PluginMcpServerView[]
+}
+export interface PluginMcpConnectInput {
+  pluginId: string
+  serverId: string
+  connectionId?: string
+  credential?: string
+  accountLabel?: string
+}
+export interface PluginMcpTargetInput { pluginId: string; serverId: string }
+export interface PluginMcpDisconnectInput { connectionId: string }
 export type PluginInstallSourceKind = PluginMarketSourceKind | 'local'
 export interface PluginInstallOrigin {
   pluginVersion?: string
@@ -584,6 +620,11 @@ export interface AgentApi {
     rollback: (input: PluginRollbackInput) => Promise<IpcResult<PluginMetadata[]>>
     getPreferences: () => Promise<IpcResult<PluginPreferences>>
     setPreferences: (input: PluginPreferences) => Promise<IpcResult<PluginPreferences>>
+    listConnections: () => Promise<IpcResult<PluginMcpPluginView[]>>
+    connectMcp: (input: PluginMcpConnectInput) => Promise<IpcResult<PluginMcpPluginView[]>>
+    reauthorizeMcp: (input: PluginMcpConnectInput) => Promise<IpcResult<PluginMcpPluginView[]>>
+    retryMcp: (input: PluginMcpTargetInput) => Promise<IpcResult<PluginMcpPluginView[]>>
+    disconnectMcp: (input: PluginMcpDisconnectInput) => Promise<IpcResult<PluginMcpPluginView[]>>
   }
   settings: {
     getTheme: () => Promise<IpcResult<PersistedTheme>>

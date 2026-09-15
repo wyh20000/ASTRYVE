@@ -1,10 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PluginMarketEntry, PluginMetadata, SkillMetadata } from '@shared/types'
+import type { PluginMarketEntry, PluginMetadata, PluginMcpPluginView, SkillMetadata } from '@shared/types'
 import type { AuditEvent } from '@shared/agent'
 import {
   AuditRecordList, describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
-  listMarketplaceCategories, PluginMarketDetails, PluginSection, PluginUninstallChoices, SecuritySection, SkillsSection
+  listMarketplaceCategories, PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SecuritySection, SkillsSection
 } from './SettingsPage'
 import SettingsPage from './SettingsPage'
 
@@ -18,7 +18,9 @@ const pluginState = vi.hoisted(() => ({
   load: vi.fn(), importLocal: vi.fn(), setEnabled: vi.fn(), recover: vi.fn(), loadMarketplace: vi.fn(),
   addSource: vi.fn(), setSourceEnabled: vi.fn(), removeSource: vi.fn(), syncSource: vi.fn(),
   installMarket: vi.fn(), uninstall: vi.fn(), loadBackups: vi.fn(), rollback: vi.fn(),
-  preferences: { autoUpdate: false }, setAutoUpdate: vi.fn(), loadPreferences: vi.fn()
+  preferences: { autoUpdate: false }, setAutoUpdate: vi.fn(), loadPreferences: vi.fn(),
+  connections: [] as PluginMcpPluginView[], mutatingConnection: false, loadConnections: vi.fn(),
+  connectMcp: vi.fn(), reauthorizeMcp: vi.fn(), retryMcp: vi.fn(), disconnectMcp: vi.fn()
 }))
 
 const marketEntry: PluginMarketEntry = {
@@ -59,6 +61,8 @@ beforeEach(() => {
   pluginState.mutating = false
   pluginState.error = undefined
   pluginState.preferences = { autoUpdate: false }
+  pluginState.connections = []
+  pluginState.mutatingConnection = false
 })
 
 describe('Settings navigation', () => {
@@ -178,6 +182,49 @@ describe('Extensions settings page', () => {
     expect(html).toContain('disabled=""')
   })
 
+  it('renders pending, connected, failed, and restricted MCP actions without exposing credentials', () => {
+    const base = {
+      id: 'api', serverOrigin: 'https://api.example.com', auth: 'api-key' as const,
+      compatibleConnections: []
+    }
+    const pending = renderToStaticMarkup(<PluginConnectionPanel pluginId="acme.remote"
+      server={{ ...base, state: 'pending' }} mutating={false} onConnect={vi.fn()} onReauthorize={vi.fn()}
+      onRetry={vi.fn()} onDisconnect={vi.fn()} />)
+    expect(pending).toContain('type="password"')
+    expect(pending).toContain('连接账号')
+    expect(pending).toContain('value=""')
+    expect(pending).not.toContain('secret')
+
+    const authorizationPending = renderToStaticMarkup(<PluginConnectionPanel pluginId="acme.remote"
+      server={{ ...base, state: 'pending', connectionId: '11111111-1111-4111-8111-111111111111', errorCode: 'MCP_UNAUTHORIZED' }}
+      mutating={false} onConnect={vi.fn()} onReauthorize={vi.fn()} onRetry={vi.fn()} onDisconnect={vi.fn()} />)
+    expect(authorizationPending).toContain('需要重新授权')
+    expect(authorizationPending).toContain('新的 API Key')
+    expect(authorizationPending).not.toContain('绑定已有连接')
+
+    const connected = renderToStaticMarkup(<PluginConnectionPanel pluginId="acme.remote"
+      server={{ ...base, state: 'connected', connectionId: '11111111-1111-4111-8111-111111111111', accountLabel: 'work' }}
+      mutating={false} onConnect={vi.fn()} onReauthorize={vi.fn()} onRetry={vi.fn()} onDisconnect={vi.fn()} />)
+    expect(connected).toContain('已连接')
+    expect(connected).toContain('重新授权')
+    expect(connected).toContain('断开')
+    expect(connected).toContain('work')
+
+    const failed = renderToStaticMarkup(<PluginConnectionPanel pluginId="acme.remote"
+      server={{ ...base, state: 'failed', connectionId: '11111111-1111-4111-8111-111111111111', errorCode: 'MCP_CONNECT_FAILED' }}
+      mutating={false} onConnect={vi.fn()} onReauthorize={vi.fn()} onRetry={vi.fn()} onDisconnect={vi.fn()} />)
+    expect(failed).toContain('连接失败')
+    expect(failed).toContain('重试')
+    expect(failed).toContain('断开')
+
+    const restricted = renderToStaticMarkup(<PluginConnectionPanel pluginId="acme.remote"
+      server={{ ...base, state: 'restricted', connectionId: '11111111-1111-4111-8111-111111111111' }} mutating={false} onConnect={vi.fn()} onReauthorize={vi.fn()}
+      onRetry={vi.fn()} onDisconnect={vi.fn()} />)
+    expect(restricted).toContain('启用插件并授予联网权限后才能连接')
+    expect(restricted).not.toContain('连接账号')
+    expect(restricted).toContain('断开')
+  })
+
   it('filters the market by discovery scope, category and searchable capability metadata', () => {
     const community = {
       ...marketEntry, id: 'community.writer', name: 'Writer', sourceId: 'community', sourceName: 'Community Hub',
@@ -260,12 +307,14 @@ describe('Security settings page', () => {
       { ...base, reasonCode: 'USER_DENIED', toolName: 'plugin.acme.deploy', pluginId: 'acme', pluginVersion: '1.0.0' },
       { ...base, id: 'audit-2', action: 'plugin.update', outcome: 'failure', reasonCode: 'PLUGIN_UPDATE_FAILED' },
       { ...base, id: 'audit-3', action: 'plugin.start', outcome: 'failure', reasonCode: 'PLUGIN_START_FAILED' },
-      { ...base, id: 'audit-4', action: 'plugin.isolation', outcome: 'failure', reasonCode: 'PLUGIN_ISOLATED' }
+      { ...base, id: 'audit-4', action: 'plugin.isolation', outcome: 'failure', reasonCode: 'PLUGIN_ISOLATED' },
+      { ...base, id: 'audit-5', action: 'plugin.connection.connect', outcome: 'success', pluginId: 'remote' }
     ]} />)
     expect(html).toContain('权限')
     expect(html).toContain('更新')
     expect(html).toContain('启动')
     expect(html).toContain('隔离')
+    expect(html).toContain('连接')
     expect(html).toContain('acme@1.0.0')
     expect(html).not.toContain('workspace-1')
   })

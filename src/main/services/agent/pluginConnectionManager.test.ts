@@ -125,4 +125,29 @@ describe('plugin connection manager', () => {
     expect(await store.listBindings()).toEqual([])
     expect(client.close).toHaveBeenCalled()
   })
+
+  it('revokes existing task leases when a connection is retried or reauthorized', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'plugin-manager-restart-'))
+    const store = new PluginConnectionStore(root)
+    const connection = await store.saveConnection({
+      serverOrigin: 'https://api.example.com', serverUrl: declaration.url, auth: 'none', state: 'connected'
+    })
+    await store.bindPlugin({ pluginId: 'one.plugin', serverId: 'api', connectionId: connection.id })
+    const clients = [fakeClient(), fakeClient()]
+    let next = 0
+    const manager = new PluginConnectionManager({
+      store, resolveDeclaration: async () => declaration, createClient: () => clients[next++]
+    })
+    const oldLease = await manager.acquireLease({
+      pluginId: 'one.plugin', serverId: 'api', connectionId: connection.id, taskId: 'old-task'
+    })
+
+    await manager.connectBinding({
+      pluginId: 'one.plugin', serverId: 'api', connectionId: connection.id, restart: true
+    })
+
+    await expect(oldLease.listTools(new AbortController().signal)).rejects.toThrow('租约')
+    expect(clients[0].close).toHaveBeenCalled()
+    expect(clients[1].connect).toHaveBeenCalled()
+  })
 })

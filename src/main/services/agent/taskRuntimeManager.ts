@@ -153,6 +153,11 @@ export function getToolRegistry(): ToolRegistry {
   return registry
 }
 
+export function getPluginConnectionManager(): PluginConnectionManager {
+  if (!pluginConnectionManager) throw new Error('插件连接服务尚未初始化')
+  return pluginConnectionManager
+}
+
 export function getPatchWorkspaceService(): PatchWorkspaceService {
   if (!patchWorkspace) throw new Error('Patch workspace service not initialized')
   return patchWorkspace

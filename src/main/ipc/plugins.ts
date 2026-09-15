@@ -1,6 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { createHash, randomUUID } from 'node:crypto'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { EVENTS, IPC } from '@shared/ipc'
-import type { PluginImportInput, PluginMarketInstallInput, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginPreferences, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput } from '@shared/types'
+import type { PluginImportInput, PluginMarketInstallInput, PluginMarketSourceIdInput, PluginMarketSourceInput, PluginMarketSourceToggleInput, PluginMetadata, PluginPreferences, PluginRecoverInput, PluginRollbackInput, PluginToggleInput, PluginUninstallInput, PluginMcpConnectInput, PluginMcpTargetInput, PluginMcpDisconnectInput } from '@shared/types'
 import { getInstalledPluginRoot, listPlugins, recoverPlugin, stopPluginRuntimes } from '../services/agent/pluginManager'
 import { getPluginPreferences, setPluginEnabled, setPluginPreferences } from '../services/settings'
 import { assertTrustedIpcSender } from './validation'
@@ -14,9 +15,21 @@ import { runSafeAutoUpdates, selectSafeAutoUpdates } from '../services/agent/plu
 import { assertPluginUninstallAllowed } from '../services/agent/pluginDeploymentPolicy'
 import { uninstallPlugin } from '../services/agent/pluginUninstall'
 import { removePluginConnectionData } from '../services/agent/pluginCredentials'
+import { createInstalledPluginConnectionService } from '../services/agent/pluginMcpRuntime'
+import { getPluginConnectionManager } from '../services/agent/taskRuntimeManager'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
+  const connectionService = createInstalledPluginConnectionService(
+    app.getPath('userData'), getPluginConnectionManager(), (url) => shell.openExternal(url),
+    (connectionEvent) => writeAgentAudit({
+      id: randomUUID(), timestamp: Date.now(), taskId: 'plugin-connections', workspaceId: 'none', actor: 'user',
+      action: connectionEvent.action, outcome: connectionEvent.outcome, pluginId: connectionEvent.pluginId,
+      target: connectionEvent.connectionId
+        ? `sha256:${createHash('sha256').update(connectionEvent.connectionId).digest('hex')}`
+        : undefined
+    })
+  )
   let autoUpdateRun: Promise<void> | undefined
   const scheduleAutoUpdate = (): void => {
     if (!getPluginPreferences().autoUpdate || autoUpdateRun) return
@@ -172,6 +185,23 @@ export function registerPluginsIpc(): void {
       return listPlugins()
     })
   }))
+  ipcMain.handle(IPC.plugins.listConnections, async (event) => connectionResult(event, () => connectionService.list()))
+  ipcMain.handle(IPC.plugins.connectMcp, async (event, input?: PluginMcpConnectInput) => connectionResult(event, () => {
+    assertConnectInput(input)
+    return notifyAfter(connectionService.connect(input))
+  }))
+  ipcMain.handle(IPC.plugins.reauthorizeMcp, async (event, input?: PluginMcpConnectInput) => connectionResult(event, () => {
+    assertConnectInput(input)
+    return notifyAfter(connectionService.reauthorize(input))
+  }))
+  ipcMain.handle(IPC.plugins.retryMcp, async (event, input?: PluginMcpTargetInput) => connectionResult(event, () => {
+    assertMcpTarget(input)
+    return notifyAfter(connectionService.retry(input))
+  }))
+  ipcMain.handle(IPC.plugins.disconnectMcp, async (event, input?: PluginMcpDisconnectInput) => connectionResult(event, () => {
+    if (!input || typeof input.connectionId !== 'string') throw new Error('MCP 连接标识无效')
+    return notifyAfter(connectionService.disconnect(input))
+  }))
 }
 
 async function runAutomaticUpdates(marketplace: PluginMarketplace): Promise<void> {
@@ -200,6 +230,19 @@ async function marketResult(event: Electron.IpcMainInvokeEvent, action: () => Pr
   try { assertTrustedIpcSender(event); return ok(await action()) }
   catch (error) { return err('PLUGIN_MARKET_ERR', error instanceof Error ? error.message : '插件市场操作失败') }
 }
+async function connectionResult(event: Electron.IpcMainInvokeEvent, action: () => Promise<unknown>) {
+  try { assertTrustedIpcSender(event); return ok(await action()) }
+  catch (error) { return err('PLUGIN_MCP_ERR', error instanceof Error ? error.message : '插件连接操作失败') }
+}
+function assertMcpTarget(input?: PluginMcpTargetInput): asserts input is PluginMcpTargetInput {
+  if (!input || typeof input.pluginId !== 'string' || typeof input.serverId !== 'string') throw new Error('MCP 连接参数无效')
+}
+function assertConnectInput(input?: PluginMcpConnectInput): asserts input is PluginMcpConnectInput {
+  assertMcpTarget(input)
+  if (input.connectionId !== undefined && typeof input.connectionId !== 'string') throw new Error('MCP 连接标识无效')
+  if (input.credential !== undefined && typeof input.credential !== 'string') throw new Error('MCP 凭据无效')
+  if (input.accountLabel !== undefined && typeof input.accountLabel !== 'string') throw new Error('账号标签无效')
+}
 function assertSourceId(input?: PluginMarketSourceIdInput): asserts input is PluginMarketSourceIdInput {
   if (!input || typeof input.id !== 'string' || !/^source-[a-f0-9-]{36}$/.test(input.id)) throw new Error('市场源标识无效')
 }
@@ -209,6 +252,12 @@ function assertSourceToggle(input?: PluginMarketSourceToggleInput): asserts inpu
 }
 function assertPluginId(input?: { id: string }): asserts input is { id: string } {
   if (!input || typeof input.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(input.id)) throw new Error('插件标识无效')
+}
+
+async function notifyAfter<T>(operation: Promise<T>): Promise<T> {
+  const result = await operation
+  notifyPluginsChanged()
+  return result
 }
 
 function notifyPluginsChanged(): void {

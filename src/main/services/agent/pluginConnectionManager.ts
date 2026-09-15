@@ -128,14 +128,30 @@ export class PluginConnectionManager {
     for (const lease of this.leases.values()) if (lease.taskId === taskId) this.revokeLease(lease)
   }
 
+  async connectBinding(input: {
+    pluginId: string
+    serverId: string
+    connectionId: string
+    restart: boolean
+  }): Promise<void> {
+    const binding = await this.options.store.findBinding(input.pluginId, input.serverId)
+    if (!binding || binding.connectionId !== input.connectionId) throw new Error('MCP 连接未显式绑定到此插件')
+    const connection = await this.options.store.getConnection(input.connectionId)
+    if (!connection) throw new Error('MCP 连接不存在')
+    const declaration = await this.options.resolveDeclaration(input.pluginId, input.serverId)
+    if (!declaration || declaration.url !== connection.serverUrl || declaration.auth !== connection.auth) {
+      throw new Error('MCP 声明与连接不匹配')
+    }
+    if (input.restart) {
+      for (const lease of this.leases.values()) if (lease.connectionId === input.connectionId) this.revokeLease(lease)
+      await this.closeClient(input.connectionId)
+    }
+    await this.getOrConnect(input.connectionId, declaration)
+  }
+
   async disconnect(connectionId: string): Promise<void> {
     for (const lease of this.leases.values()) if (lease.connectionId === connectionId) this.revokeLease(lease)
-    const entry = this.clients.get(connectionId)
-    if (entry) {
-      entry.controller.abort()
-      this.clients.delete(connectionId)
-      await entry.client.close()
-    }
+    await this.closeClient(connectionId)
     await this.options.vault?.deleteConnection(connectionId)
     await this.options.store.removeConnection(connectionId)
   }
@@ -177,6 +193,14 @@ export class PluginConnectionManager {
     })()
     this.connecting.set(connectionId, created)
     return created
+  }
+
+  private async closeClient(connectionId: string): Promise<void> {
+    const entry = this.clients.get(connectionId)
+    if (!entry) return
+    entry.controller.abort()
+    this.clients.delete(connectionId)
+    await entry.client.close()
   }
 
   private async withLease<T>(

@@ -3,7 +3,7 @@ import { useUiStore } from '../../stores/uiStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { useModelStore } from '../../stores/modelStore'
 import { THEMES, getTheme, normalizeHex, type ThemePreset } from '../../theme/theme'
-import type { ModelProvider, ModelConfig, ModelPreset, PluginMarketEntry, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
+import type { ModelProvider, ModelConfig, ModelPreset, PluginMarketEntry, PluginMcpConnectInput, PluginMcpServerView, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
 import { Icon } from '../ui/icons'
 import { useSkillStore } from '../../stores/skillStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -116,7 +116,8 @@ export function PluginSection(): JSX.Element {
   const preferences = usePluginStore((state) => state.preferences)
   const loadPreferences = usePluginStore((state) => state.loadPreferences)
   const setAutoUpdate = usePluginStore((state) => state.setAutoUpdate)
-  useEffect(() => { void load(); void loadPreferences(); if (loadMarketplace) void loadMarketplace() }, [load, loadMarketplace, loadPreferences])
+  const loadConnections = usePluginStore((state) => state.loadConnections)
+  useEffect(() => { void load(); void loadPreferences(); void loadConnections(); if (loadMarketplace) void loadMarketplace() }, [load, loadConnections, loadMarketplace, loadPreferences])
   const filtered = filterPlugins(items, query)
   return <div>
     <div className="flex flex-wrap items-start gap-3">
@@ -412,6 +413,12 @@ function PluginRow({ plugin, onToggle, onRecover }: {
   const uninstall = usePluginStore((state) => state.uninstall)
   const loadBackups = usePluginStore((state) => state.loadBackups)
   const rollback = usePluginStore((state) => state.rollback)
+  const connection = usePluginStore((state) => state.connections.find((item) => item.pluginId === plugin.id))
+  const mutatingConnection = usePluginStore((state) => state.mutatingConnection)
+  const connectMcp = usePluginStore((state) => state.connectMcp)
+  const reauthorizeMcp = usePluginStore((state) => state.reauthorizeMcp)
+  const retryMcp = usePluginStore((state) => state.retryMcp)
+  const disconnectMcp = usePluginStore((state) => state.disconnectMcp)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
   const showBackups = async (): Promise<void> => setBackups(await loadBackups(plugin.id))
@@ -442,7 +449,81 @@ function PluginRow({ plugin, onToggle, onRecover }: {
     {!plugin.managed && (!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
       : <PluginUninstallChoices onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />)}
     <button type="button" title="历史版本" className="btn-icon shrink-0 text-txt-muted" onClick={() => void showBackups()}><Icon.ChevronDown size={12} /></button>
-  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}</article>
+  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}
+    {!!connection?.servers.length && <div className="ml-12 mt-2 space-y-2">{connection.servers.map((server) =>
+      <PluginConnectionPanel key={server.id} pluginId={plugin.id} server={server} mutating={mutatingConnection}
+        onConnect={connectMcp} onReauthorize={reauthorizeMcp} onRetry={retryMcp} onDisconnect={disconnectMcp} />)}</div>}
+  </article>
+}
+
+export function PluginConnectionPanel({ pluginId, server, mutating, onConnect, onReauthorize, onRetry, onDisconnect }: {
+  pluginId: string
+  server: PluginMcpServerView
+  mutating: boolean
+  onConnect: (input: PluginMcpConnectInput) => Promise<boolean> | void
+  onReauthorize: (input: PluginMcpConnectInput) => Promise<boolean> | void
+  onRetry: (input: { pluginId: string; serverId: string }) => Promise<boolean> | void
+  onDisconnect: (input: { connectionId: string }) => Promise<boolean> | void
+}): JSX.Element {
+  const [credential, setCredential] = useState('')
+  const [accountLabel, setAccountLabel] = useState('')
+  const [existingId, setExistingId] = useState('')
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const target = { pluginId, serverId: server.id }
+  const submit = async (reauthorize = false): Promise<void> => {
+    const action = reauthorize ? onReauthorize : onConnect
+    const ok = await action({
+      ...target,
+      ...(existingId && !reauthorize ? { connectionId: existingId } : {}),
+      ...(credential ? { credential } : {}),
+      ...(accountLabel.trim() ? { accountLabel: accountLabel.trim() } : {})
+    })
+    if (ok !== false) { setCredential(''); setAccountLabel(''); setExistingId('') }
+  }
+  const status = mcpStateLabel(server.state)
+  return <section className="rounded-lg border border-border bg-bg-raised px-3 py-2.5 text-[10px]">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className={`h-1.5 w-1.5 rounded-full ${server.state === 'connected' ? 'bg-emerald-400' : server.state === 'failed' ? 'bg-red-400' : server.state === 'restricted' ? 'bg-amber-400' : 'bg-txt-muted'}`} />
+      <span className="font-medium text-txt-secondary">{server.serverOrigin}</span>
+      <span className="text-txt-muted">{mcpAuthLabel(server.auth)}</span>
+      <span className="ml-auto text-txt-muted">{status}</span>
+    </div>
+    {server.accountLabel && <p className="mt-1 text-txt-muted">账号：{server.accountLabel}</p>}
+    {server.state === 'restricted' && <p className="mt-2 text-amber-300">启用插件并授予联网权限后才能连接</p>}
+    {server.state === 'failed' && <div className="mt-2 flex items-center justify-between gap-3"><span className="text-red-300">连接失败{server.errorCode ? `（${mcpErrorLabel(server.errorCode)}）` : ''}</span>
+      <button type="button" disabled={mutating} className="text-txt-secondary disabled:opacity-50" onClick={() => void onRetry(target)}>重试</button></div>}
+    {server.state === 'pending' && !server.connectionId && <div className="mt-2 grid gap-2">
+      {!!server.compatibleConnections.length && <select aria-label="绑定已有连接" className="input h-8" value={existingId} onChange={(event) => setExistingId(event.target.value)}>
+        <option value="">创建新连接</option>{server.compatibleConnections.map((item) => <option key={item.id} value={item.id}>{item.accountLabel ?? item.serverOrigin}</option>)}
+      </select>}
+      {!existingId && server.auth === 'api-key' && <input type="password" aria-label="API Key" autoComplete="off" className="input h-8" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="API Key" />}
+      {!existingId && <input aria-label="账号标签（可选）" className="input h-8" value={accountLabel} onChange={(event) => setAccountLabel(event.target.value)} placeholder="账号标签（可选）" />}
+      <button type="button" disabled={mutating || (!existingId && server.auth === 'api-key' && !credential)} className="btn justify-self-start bg-accent px-3 text-white disabled:opacity-50" onClick={() => void submit()}>{mutating ? '连接中…' : server.auth === 'oauth2' ? '在浏览器中授权' : existingId ? '绑定连接' : '连接账号'}</button>
+    </div>}
+    {server.state === 'pending' && server.connectionId && <div className="mt-2 grid gap-2">
+      <p className="text-amber-300">需要重新授权</p>
+      {server.auth === 'api-key' && <input type="password" aria-label="新的 API Key" autoComplete="off" className="input h-8" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="新的 API Key" />}
+      <button type="button" disabled={mutating || (server.auth === 'api-key' && !credential)} className="btn justify-self-start px-3 disabled:opacity-50" onClick={() => void submit(true)}>{server.auth === 'oauth2' ? '在浏览器中重新授权' : '重新授权'}</button>
+    </div>}
+    {server.state === 'connected' && server.auth !== 'none' && <div className="mt-2 flex flex-wrap justify-end gap-3">
+      <details className="text-right"><summary className="cursor-pointer list-none text-txt-secondary [&::-webkit-details-marker]:hidden">重新授权</summary>
+        <div className="mt-2 flex flex-wrap justify-end gap-2">{server.auth === 'api-key' && <input type="password" aria-label="新的 API Key" autoComplete="off" className="input h-8 w-52" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="新的 API Key" />}
+          <button type="button" disabled={mutating || (server.auth === 'api-key' && !credential)} className="btn px-3 disabled:opacity-50" onClick={() => void submit(true)}>{server.auth === 'oauth2' ? '在浏览器中重新授权' : '确认重新授权'}</button></div></details></div>}
+    {server.connectionId && <div className="mt-2 flex flex-wrap justify-end gap-3">
+      {!confirmDisconnect ? <button type="button" className="text-red-300" onClick={() => setConfirmDisconnect(true)}>断开</button>
+        : <span className="flex items-center gap-2"><span className="text-txt-muted">将同时断开共享此账号的插件</span><button type="button" disabled={mutating || !server.connectionId} className="text-red-300" onClick={() => server.connectionId && void onDisconnect({ connectionId: server.connectionId })}>确认断开</button><button type="button" className="text-txt-muted" onClick={() => setConfirmDisconnect(false)}>取消</button></span>}
+    </div>}
+  </section>
+}
+
+function mcpStateLabel(state: PluginMcpServerView['state']): string {
+  return ({ pending: '待连接', connected: '已连接', failed: '连接失败', restricted: '权限受限' })[state]
+}
+function mcpAuthLabel(auth: PluginMcpServerView['auth']): string {
+  return auth === 'api-key' ? 'API Key' : auth === 'oauth2' ? 'OAuth' : '无需登录'
+}
+function mcpErrorLabel(code: string): string {
+  return ({ MCP_UNAUTHORIZED: '需要重新授权', MCP_FORBIDDEN: '账号权限不足', MCP_NETWORK_BLOCKED: '网络目标受限', MCP_CONNECT_FAILED: '服务暂不可用' } as Record<string, string>)[code] ?? '请稍后重试'
 }
 
 export function PluginUninstallChoices({ onChoose, onCancel }: {
@@ -539,6 +620,7 @@ export function AuditRecordList({ events }: { events: AuditEvent[] }): JSX.Eleme
 function auditCategory(event: AuditEvent): { label: string; tone: string } {
   const evidence = `${event.action} ${event.reasonCode ?? ''}`.toLowerCase()
   if (/isolat|quarant/.test(evidence)) return { label: '隔离', tone: 'bg-red-500/15 text-red-300' }
+  if (/connection|connect|oauth/.test(evidence)) return { label: '连接', tone: 'bg-cyan-500/15 text-cyan-300' }
   if (/updat|rollback|install|uninstall/.test(evidence)) return { label: '更新', tone: 'bg-amber-500/15 text-amber-300' }
   if (/start|launch/.test(evidence)) return { label: '启动', tone: 'bg-orange-500/15 text-orange-300' }
   if (/approval|permission|policy|denied/.test(evidence)) return { label: '权限', tone: 'bg-accent-dim/25 text-accent' }

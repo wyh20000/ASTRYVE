@@ -61,6 +61,7 @@ function AppShell(): JSX.Element {
 
   useEffect(() => window.agent.onPluginsChanged(() => {
     void usePluginStore.getState().load()
+    void usePluginStore.getState().loadConnections()
     if (Object.values(useChatStore.getState().sending).some(Boolean)) {
       void messageApi.open({
         key: 'plugins-changed-active-task', type: 'warning', duration: 5,

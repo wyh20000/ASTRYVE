@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PluginMetadata } from '@shared/types'
+import type { PluginMcpPluginView, PluginMetadata } from '@shared/types'
 import { usePluginStore } from './pluginStore'
 
 const plugin: PluginMetadata = {
@@ -89,5 +89,45 @@ describe('pluginStore', () => {
     await usePluginStore.getState().setAutoUpdate(false)
     expect(setPreferences).toHaveBeenCalledWith({ autoUpdate: false })
     expect(usePluginStore.getState().preferences).toEqual({ autoUpdate: false })
+  })
+
+  it('loads sanitized MCP connection state and submits credentials only to the trusted API', async () => {
+    const connections: PluginMcpPluginView[] = [{
+      pluginId: plugin.id, pluginName: plugin.name, enabled: true, restricted: false,
+      servers: [{ id: 'api', serverOrigin: 'https://api.example.com', auth: 'api-key', state: 'pending', compatibleConnections: [] }]
+    }]
+    const listConnections = vi.fn().mockResolvedValue({ ok: true, data: connections })
+    const connectMcp = vi.fn().mockResolvedValue({ ok: true, data: [{
+      ...connections[0], servers: [{ ...connections[0].servers[0], state: 'connected', connectionId: '11111111-1111-4111-8111-111111111111' }]
+    }] })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, value: { agent: { plugins: { listConnections, connectMcp } } }
+    })
+
+    await usePluginStore.getState().loadConnections()
+    expect(usePluginStore.getState().connections).toEqual(connections)
+    await expect(usePluginStore.getState().connectMcp({
+      pluginId: plugin.id, serverId: 'api', credential: 'one-time-secret'
+    })).resolves.toBe(true)
+    expect(connectMcp).toHaveBeenCalledWith({
+      pluginId: plugin.id, serverId: 'api', credential: 'one-time-secret'
+    })
+    expect(JSON.stringify(usePluginStore.getState())).not.toContain('one-time-secret')
+    expect(usePluginStore.getState().connections[0].servers[0].state).toBe('connected')
+  })
+
+  it('releases MCP busy state and preserves current connection data when retry fails', async () => {
+    const current: PluginMcpPluginView[] = [{
+      pluginId: plugin.id, pluginName: plugin.name, enabled: true, restricted: false,
+      servers: [{ id: 'api', serverOrigin: 'https://api.example.com', auth: 'api-key', state: 'failed', compatibleConnections: [] }]
+    }]
+    const retryMcp = vi.fn().mockResolvedValue({ ok: false, error: { code: 'MCP_CONNECT_ERR', message: '连接失败' } })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, value: { agent: { plugins: { retryMcp } } }
+    })
+    usePluginStore.setState({ connections: current })
+
+    await expect(usePluginStore.getState().retryMcp({ pluginId: plugin.id, serverId: 'api' })).resolves.toBe(false)
+    expect(usePluginStore.getState()).toMatchObject({ connections: current, mutatingConnection: false, error: '连接失败' })
   })
 })

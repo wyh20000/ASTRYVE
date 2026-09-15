@@ -1,5 +1,8 @@
 import { create } from 'zustand'
-import type { PluginBackup, PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMetadata, PluginPreferences } from '@shared/types'
+import type {
+  PluginBackup, PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMcpConnectInput,
+  PluginMcpDisconnectInput, PluginMcpPluginView, PluginMcpTargetInput, PluginMetadata, PluginPreferences
+} from '@shared/types'
 
 interface PluginState {
   items: PluginMetadata[]
@@ -9,6 +12,8 @@ interface PluginState {
   marketEntries: PluginMarketEntry[]
   marketSources: PluginMarketSource[]
   preferences: PluginPreferences
+  connections: PluginMcpPluginView[]
+  mutatingConnection: boolean
   load: () => Promise<void>
   importLocal: (kind: PluginImportKind) => Promise<boolean>
   setEnabled: (id: string, enabled: boolean) => Promise<void>
@@ -24,10 +29,16 @@ interface PluginState {
   rollback: (id: string, version: string) => Promise<boolean>
   loadPreferences: () => Promise<void>
   setAutoUpdate: (enabled: boolean) => Promise<void>
+  loadConnections: () => Promise<void>
+  connectMcp: (input: PluginMcpConnectInput) => Promise<boolean>
+  reauthorizeMcp: (input: PluginMcpConnectInput) => Promise<boolean>
+  retryMcp: (input: PluginMcpTargetInput) => Promise<boolean>
+  disconnectMcp: (input: PluginMcpDisconnectInput) => Promise<boolean>
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
-  items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, loading: false, mutating: false,
+  items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, connections: [],
+  loading: false, mutating: false, mutatingConnection: false,
   load: async () => {
     set({ loading: true, error: undefined })
     const result = await window.agent.plugins.list()
@@ -110,5 +121,25 @@ export const usePluginStore = create<PluginState>((set) => ({
     const result = await window.agent.plugins.setPreferences({ autoUpdate: enabled })
     if (result.ok) set({ preferences: result.data, error: undefined })
     else set({ error: result.error.message })
-  }
+  },
+  loadConnections: async () => {
+    const result = await window.agent.plugins.listConnections()
+    if (result.ok) set({ connections: result.data, error: undefined })
+    else set({ error: result.error.message })
+  },
+  connectMcp: (input) => mutateMcp(set, () => window.agent.plugins.connectMcp(input)),
+  reauthorizeMcp: (input) => mutateMcp(set, () => window.agent.plugins.reauthorizeMcp(input)),
+  retryMcp: (input) => mutateMcp(set, () => window.agent.plugins.retryMcp(input)),
+  disconnectMcp: (input) => mutateMcp(set, () => window.agent.plugins.disconnectMcp(input))
 }))
+
+async function mutateMcp(
+  set: (value: Partial<PluginState>) => void,
+  action: () => Promise<import('@shared/types').IpcResult<PluginMcpPluginView[]>>
+): Promise<boolean> {
+  set({ mutatingConnection: true, error: undefined })
+  const result = await action()
+  if (result.ok) { set({ connections: result.data, mutatingConnection: false }); return true }
+  set({ error: result.error.message, mutatingConnection: false })
+  return false
+}

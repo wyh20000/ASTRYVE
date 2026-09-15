@@ -28,6 +28,9 @@ import type {
   PluginMarketInstallInput,
   PluginUninstallInput,
   PluginRollbackInput,
+  PluginMcpConnectInput,
+  PluginMcpTargetInput,
+  PluginMcpDisconnectInput,
   UserInputRequest,
   UserInputResponse,
   ApprovalUiRequest,
@@ -98,7 +101,12 @@ const api: AgentApi = {
     backups: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.backups, input),
     rollback: (input: PluginRollbackInput) => ipcRenderer.invoke(IPC.plugins.rollback, input),
     getPreferences: () => ipcRenderer.invoke(IPC.plugins.getPreferences),
-    setPreferences: (input) => ipcRenderer.invoke(IPC.plugins.setPreferences, input)
+    setPreferences: (input) => ipcRenderer.invoke(IPC.plugins.setPreferences, input),
+    listConnections: () => ipcRenderer.invoke(IPC.plugins.listConnections),
+    connectMcp: (input: PluginMcpConnectInput) => ipcRenderer.invoke(IPC.plugins.connectMcp, input),
+    reauthorizeMcp: (input: PluginMcpConnectInput) => ipcRenderer.invoke(IPC.plugins.reauthorizeMcp, input),
+    retryMcp: (input: PluginMcpTargetInput) => ipcRenderer.invoke(IPC.plugins.retryMcp, input),
+    disconnectMcp: (input: PluginMcpDisconnectInput) => ipcRenderer.invoke(IPC.plugins.disconnectMcp, input)
   },
   terminal: {
     open: (sessionId: string) => ipcRenderer.invoke(IPC.terminal.open, sessionId),
