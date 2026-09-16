@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
-import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd'
+import { App as AntdApp } from 'antd'
+import { XProvider } from '@ant-design/x'
+import zhCN from '@ant-design/x/es/locale/zh_CN'
 import Sidebar from './components/layout/Sidebar'
 import ChatPanel from './components/layout/ChatPanel'
 import StatusBar from './components/layout/StatusBar'
@@ -10,8 +12,8 @@ import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useUiStore } from './stores/uiStore'
 import { useModelStore } from './stores/modelStore'
-import { useThemeStore } from './stores/themeStore'
-import { getTheme } from './theme/theme'
+import { useResolvedTheme, useThemeStore } from './stores/themeStore'
+import { toAntdTheme } from './theme/antdTheme'
 import { useWorkspaceStore } from './stores/workspaceStore'
 import WorkspacePanel from './components/layout/WorkspacePanel'
 import ApprovalDialog from './components/chat/ApprovalDialog'
@@ -121,23 +123,26 @@ function AppShell(): JSX.Element {
 }
 
 export default function App(): JSX.Element {
-  const presetId = useThemeStore((state) => state.presetId)
-  const light = getTheme(presetId).light
+  // 主题令牌由 themeStore 统一解析；系统主题变化会更新 resolved 并触发重渲染。
+  const theme = useResolvedTheme()
+  const mode = useThemeStore((state) => state.mode)
+
+  /*
+   * 根节点使用 XProvider 而不是 antd 的 ConfigProvider。
+   *
+   * 依据（docs/13-组件API参考.md）：@ant-design/x 的 XProvider 内部渲染
+   * antd 的 ConfigProvider，并把它自己的组件级配置（bubble / conversations /
+   * sender …）与 antd 配置合并到同一个 Provider 中，因此**只有一个主题源**，
+   * 不会出现 antd 与 X 两套主题相互漂移的问题（设计文档 7.1 的要求）。
+   *
+   * 不要把 toAntdTheme 的结果断言成别的类型：它已标注为 ThemeConfig，
+   * 任何字段写错都会在 typecheck 阶段报错。
+   */
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: light ? antdTheme.defaultAlgorithm : antdTheme.darkAlgorithm,
-        token: {
-          colorPrimary: 'var(--accent)',
-          colorBgElevated: 'var(--bg-raised)',
-          colorText: 'var(--text-primary)',
-          colorBorder: 'var(--border)'
-        }
-      }}
-    >
+    <XProvider theme={toAntdTheme(theme, mode)} locale={zhCN}>
       <AntdApp message={{ top: 48, maxCount: 3 }}>
         <AppShell />
       </AntdApp>
-    </ConfigProvider>
+    </XProvider>
   )
 }

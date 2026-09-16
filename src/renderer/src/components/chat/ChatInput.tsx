@@ -313,7 +313,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
         <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
           {selectedPlugins.length > 0 && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
             {selectedPlugins.map((plugin) => <span key={plugin.id}
-              className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-accent/30 bg-accent-dim/15 px-2 py-1 text-[10px] text-txt-secondary">
+              className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-accent/30 bg-accent-dim/15 px-2 py-1 text-[14px] text-txt-secondary">
               <Icon.Brain size={11} className="shrink-0 text-accent" />
               <span className="truncate">{plugin.name}</span>
               <button type="button" aria-label={`移除插件 ${plugin.name}`} onClick={() => removePlugin(plugin.id)}
@@ -329,10 +329,10 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
                   aria-live="polite"
                 >
                   <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent" />
-                  <span className="min-w-0 truncate text-[12px] text-txt-secondary" title={file.name}>
+                  <span className="min-w-0 truncate text-[14px] text-txt-secondary" title={file.name}>
                     {file.name}
                   </span>
-                  <span className="shrink-0 text-[10px] text-txt-muted">
+                  <span className="shrink-0 text-[14px] text-txt-muted">
                     {file.kind === 'image' ? '压缩中' : '读取中'}
                   </span>
                 </div>
@@ -358,10 +358,10 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
                   className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
                 >
                   <Icon.File size={14} className="shrink-0 text-accent" />
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-txt-secondary" title={a.name}>
+                  <span className="min-w-0 flex-1 truncate text-[14px] text-txt-secondary" title={a.name}>
                     {a.name}
                   </span>
-                  <span className="shrink-0 text-[10px] text-txt-muted">{formatBytes(a.meta?.sizeBytes as number | undefined)}</span>
+                  <span className="shrink-0 text-[14px] text-txt-muted">{formatBytes(a.meta?.sizeBytes as number | undefined)}</span>
                   <button
                     className="shrink-0 text-txt-muted hover:text-txt-primary"
                     title="移除"
@@ -390,13 +390,13 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             onPaste={onPaste}
             disabled={Boolean(inputRequest)}
             placeholder={inputRequest ? '请先回答上方问题…' : '向 AI Agent 发送消息...'}
-            className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-relaxed text-txt-primary outline-none placeholder:text-txt-muted"
+            className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[14px] leading-[22px] text-txt-primary outline-none placeholder:text-txt-muted"
             style={{ height: 'auto' }}
           />
           {slashMenuOpen && (
             <div ref={slashMenuRef} role="listbox" aria-label="Skill 快捷指令"
               className="absolute bottom-[48px] left-2 right-2 z-40 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
-              <div className="border-b border-border px-3 py-2 text-[11px] text-txt-muted">快捷指令 · 选择 Skill</div>
+              <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">快捷指令 · 选择 Skill</div>
               {slashSkills.map((skill, index) => (
                 <button key={skill.id} type="button" role="option" aria-selected={index === slashIndex}
                   className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === slashIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
@@ -404,8 +404,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
                   onClick={() => chooseSlashSkill(index)}>
                   <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] font-medium text-txt-primary">/{skill.name}</span>
-                    <span className="block truncate text-[10px] text-txt-muted">{skill.displayName} · {skill.description}</span>
+                    <span className="block text-[14px] font-medium text-txt-primary">/{skill.name}</span>
+                    <span className="block truncate text-[14px] text-txt-muted">{skill.displayName} · {skill.description}</span>
                   </span>
                 </button>
               ))}
@@ -414,7 +414,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
           {pluginMenuOpen && (
             <div ref={pluginMenuRef} role="listbox" aria-label="插件快捷选择"
               className="absolute bottom-[48px] left-2 right-2 z-40 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
-              <div className="border-b border-border px-3 py-2 text-[11px] text-txt-muted">@ 插件 · 仅本次任务使用</div>
+              <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">@ 插件 · 仅本次任务使用</div>
               {mentionPlugins.map((plugin, index) => (
                 <button key={plugin.id} type="button" role="option" aria-selected={index === pluginIndex}
                   className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === pluginIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
@@ -422,8 +422,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
                   onClick={() => choosePlugin(index)}>
                   <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] font-medium text-txt-primary">@{plugin.id}</span>
-                    <span className="block truncate text-[10px] text-txt-muted">{plugin.name}{plugin.version ? ` · ${plugin.version}` : ''} · {plugin.description}</span>
+                    <span className="block text-[14px] font-medium text-txt-primary">@{plugin.id}</span>
+                    <span className="block truncate text-[14px] text-txt-muted">{plugin.name}{plugin.version ? ` · ${plugin.version}` : ''} · {plugin.description}</span>
                   </span>
                 </button>
               ))}
@@ -459,7 +459,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             </div>
           </div>
         </div>
-        <div className="mt-2 text-center text-[11px] text-txt-muted">
+        <div className="mt-2 text-center text-[14px] text-txt-muted">
           AI 生成的内容可能不准确，请注意甄别
         </div>
       </div>
@@ -507,32 +507,32 @@ export function UserInputCard({ request, onResolved }: { request: UserInputReque
   return <div className="mb-2 overflow-hidden rounded-xl border border-accent/45 bg-bg-raised shadow-xl">
     <div className="flex items-center gap-2 border-b border-border px-3 py-2">
       <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-dim/30 text-accent"><Icon.Brain size={12} /></span>
-      <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-txt-primary">{question.header || 'AI 需要你的选择'}</span>
-      <span className="text-[10px] text-txt-muted">{index + 1}/{request.questions.length}</span>
+      <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-txt-primary">{question.header || 'AI 需要你的选择'}</span>
+      <span className="text-[14px] text-txt-muted">{index + 1}/{request.questions.length}</span>
     </div>
     <div className="px-3 py-2.5">
-      <p className="mb-2 text-[12px] leading-5 text-txt-primary">{question.question}</p>
+      <p className="mb-2 text-[14px] leading-[22px] text-txt-primary">{question.question}</p>
       {question.options?.length ? <div className="mb-2 grid gap-1.5 sm:grid-cols-2">
         {question.options.map((option, optionIndex) => <button key={option.label} type="button" onClick={() => setAnswer(option.label)}
           className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${answer === option.label
             ? 'border-accent bg-accent-dim/20 text-txt-primary' : 'border-border bg-bg-panel text-txt-secondary hover:border-border-strong'}`}>
-          <span className="flex items-center gap-1.5 text-[11px] font-medium">
+          <span className="flex items-center gap-1.5 text-[14px] font-medium">
             <span>{String.fromCharCode(65 + optionIndex)}. {option.label}</span>
-            {option.recommended && <span className="rounded bg-accent-dim/30 px-1.5 py-0.5 text-[9px] font-medium text-accent">推荐</span>}
+            {option.recommended && <span className="rounded bg-accent-dim/30 px-2 py-0.5 text-[14px] font-medium text-accent">推荐</span>}
           </span>
-          {option.description && <span className="mt-0.5 block text-[10px] leading-4 text-txt-muted">{option.description}</span>}
+          {option.description && <span className="mt-0.5 block text-[14px] leading-[20px] text-txt-muted">{option.description}</span>}
         </button>)}
       </div> : null}
       <textarea rows={2} value={answer} onChange={(event) => setAnswer(event.target.value)}
         placeholder={question.options?.length ? '也可以填写自定义回答…' : '填写回答…'}
-        className="block max-h-24 w-full resize-none rounded-lg border border-border bg-bg-app px-2.5 py-2 text-[11px] leading-4 text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent" />
+        className="block max-h-24 w-full resize-none rounded-lg border border-border bg-bg-app px-2.5 py-2 text-[14px] leading-[20px] text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent" />
       <div className="mt-2 flex items-center gap-2">
-        {error && <span className="min-w-0 flex-1 truncate text-[10px] text-red-300">{error}</span>}
-        {!error && <span className="flex-1 text-[10px] text-txt-muted">回答会传回当前任务，AI 将继续执行</span>}
+        {error && <span className="min-w-0 flex-1 truncate text-[14px] text-red-300">{error}</span>}
+        {!error && <span className="flex-1 text-[14px] text-txt-muted">回答会传回当前任务，AI 将继续执行</span>}
         {index > 0 && <button type="button" disabled={submitting} onClick={() => setIndex((current) => current - 1)}
-          className="rounded-md px-2.5 py-1.5 text-[11px] text-txt-secondary hover:bg-bg-active">上一个</button>}
+          className="rounded-md px-2.5 py-1.5 text-[14px] text-txt-secondary hover:bg-bg-active">上一个</button>}
         <button type="button" disabled={!answer.trim() || submitting} onClick={() => void submit()}
-          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-white disabled:opacity-40">
+          className="rounded-md bg-accent px-3 py-1.5 text-[14px] font-medium text-accent-contrast-text disabled:opacity-40">
           {submitting ? '提交中…' : isLast ? '提交并继续' : '下一个'}
         </button>
       </div>
@@ -573,7 +573,7 @@ function ModelSelector(): JSX.Element {
 
   if (!config || !active) {
     return (
-      <button onClick={() => openSettings()} className="text-[12px] text-txt-muted hover:text-txt-secondary">
+      <button onClick={() => openSettings()} className="text-[14px] text-txt-muted hover:text-txt-secondary">
         配置模型
       </button>
     )
@@ -583,19 +583,19 @@ function ModelSelector(): JSX.Element {
     <div className="relative shrink-0">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-txt-secondary hover:bg-bg-raised"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[14px] text-txt-secondary hover:bg-bg-raised"
       >
-        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[9px] font-semibold text-white">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast-text">
           {active.name.slice(0, 1).toUpperCase()}
         </span>
         <span className="max-w-[150px] truncate" title={`${active.name} · ${active.model}`}>{active.name}</span>
-        <span className="rounded bg-bg-active px-1 text-[10px] text-txt-muted">{EFFORT_LABEL[effort]}</span>
+        <span className="rounded bg-bg-active px-1.5 text-[14px] text-txt-muted">{EFFORT_LABEL[effort]}</span>
         <Icon.ChevronDown size={13} className={open ? 'rotate-180' : ''} />
       </button>
 
       {open && (
         <div className="absolute bottom-full left-0 z-30 mb-1 w-[250px] overflow-hidden rounded-md border border-border bg-bg-raised shadow-xl">
-          <div className="border-b border-border px-3 py-1.5 text-[11px] text-txt-muted">模型</div>
+          <div className="border-b border-border px-3 py-1.5 text-[14px] text-txt-muted">模型</div>
           {config.presets.map((p) => (
             <button
               key={p.id}
@@ -603,12 +603,12 @@ function ModelSelector(): JSX.Element {
                 void activate(p.id)
                 setOpen(false)
               }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-bg-active ${
+              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] hover:bg-bg-active ${
                 p.id === config.activePresetId ? 'text-txt-primary' : 'text-txt-secondary'
               }`}
             >
               <span className="flex-1 truncate">{p.name}</span>
-              <span className="max-w-[90px] truncate text-[11px] text-txt-muted">{p.model}</span>
+              <span className="max-w-[90px] truncate text-[14px] text-txt-muted">{p.model}</span>
               {p.id === config.activePresetId && <Icon.Check size={13} className="text-accent" />}
             </button>
           ))}
@@ -617,12 +617,12 @@ function ModelSelector(): JSX.Element {
               setOpen(false)
               openSettings()
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-accent hover:bg-bg-active"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] text-accent hover:bg-bg-active"
           >
             <Icon.Settings size={14} />
             配置 / 管理模型
           </button>
-          <div className="border-b border-border px-3 py-1.5 text-[11px] text-txt-muted">推理等级</div>
+          <div className="border-b border-border px-3 py-1.5 text-[14px] text-txt-muted">推理等级</div>
           <div className="flex gap-1 px-2 py-1.5">
             {EFFORTS.map((r) => (
               <button
@@ -631,7 +631,7 @@ function ModelSelector(): JSX.Element {
                   void setReasoning(r)
                   setOpen(false)
                 }}
-                className={`flex-1 rounded-md px-2 py-1 text-[12px] ${
+                className={`flex-1 rounded-md px-2 py-1 text-[14px] ${
                   effort === r ? 'bg-accent text-white' : 'bg-bg-panel text-txt-secondary hover:bg-bg-active'
                 }`}
               >

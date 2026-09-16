@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC } from '@shared/ipc'
 import { ok, err } from './result'
+import { FIRST_PAINT_BACKGROUND, FIRST_PAINT_SYMBOL } from '@shared/themePaint'
 import { assertTrustedIpcSender } from './validation'
 
 export function registerWindowIpc(): void {
@@ -15,7 +16,11 @@ export function registerWindowIpc(): void {
       }
       const win = BrowserWindow.fromWebContents(event.sender)
       if (win && process.platform === 'win32') {
-        win.setTitleBarOverlay({ color: opts?.color ?? '#0a0e17', symbolColor: opts?.symbolColor ?? '#a7b0c0', height: 32 })
+        win.setTitleBarOverlay({
+          color: opts?.color ?? FIRST_PAINT_BACKGROUND,
+          symbolColor: opts?.symbolColor ?? FIRST_PAINT_SYMBOL,
+          height: 32
+        })
       }
       return ok(true)
     } catch (e) {

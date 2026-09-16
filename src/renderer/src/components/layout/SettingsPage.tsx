@@ -2,7 +2,20 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUiStore } from '../../stores/uiStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { useModelStore } from '../../stores/modelStore'
-import { THEMES, getTheme, normalizeHex, type ThemePreset } from '../../theme/theme'
+import { normalizeHexColor, type ThemeMode } from '@shared/themePreferences'
+import { resolveTheme } from '../../theme/tokens'
+import {
+  Button,
+  FormSection,
+  IconButton,
+  SearchInput,
+  SegmentedControl,
+  SettingRow,
+  TagChip,
+  TextInput,
+  ThemeModeCards,
+  ToggleSwitch
+} from '../ui'
 import type { ModelProvider, ModelConfig, ModelPreset, PluginMarketEntry, PluginMcpConnectInput, PluginMcpServerView, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
 import { Icon } from '../ui/icons'
 import { useSkillStore } from '../../stores/skillStore'
@@ -43,10 +56,12 @@ export default function SettingsPage(): JSX.Element {
           <span className="text-[14px] font-semibold text-txt-primary">设置</span>
         </div>
         <div className="px-3 pb-2">
-          <div className="relative">
-            <Icon.Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-txt-muted" />
-            <input placeholder="搜索设置项..." className="input h-7 pl-7 text-[12px]" />
-          </div>
+          <SearchInput
+            aria-label="搜索设置项"
+            value=""
+            onChange={() => undefined}
+            placeholder="搜索设置项..."
+          />
         </div>
         <nav className="flex-1 space-y-1 px-2">
           <NavItem active={section === 'theme'} icon={<Icon.Settings size={14} />} label="主题设置" onClick={() => setSection('theme')} />
@@ -95,7 +110,7 @@ function ExtensionTabButton({ active, controls, onClick, children }: {
     aria-selected={active}
     aria-controls={controls}
     tabIndex={active ? 0 : -1}
-    className={`rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${active ? 'bg-bg-active text-txt-primary' : 'text-txt-muted hover:bg-bg-raised hover:text-txt-secondary'}`}
+    className={`rounded-lg px-3 py-1.5 text-[14px] font-medium transition-colors ${active ? 'bg-bg-active text-txt-primary' : 'text-txt-muted hover:bg-bg-raised hover:text-txt-secondary'}`}
     onClick={onClick}
   >{children}</button>
 }
@@ -122,41 +137,55 @@ export function PluginSection(): JSX.Element {
   return <div>
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
-        <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">插件</h1>
-        <p className="mt-1 text-[12px] text-txt-muted">在你常用的工具中与 AI Agent 协作</p>
+        <h1 className="selectable text-[20px] font-semibold text-txt-primary">插件</h1>
+        <p className="mt-1 text-[14px] text-txt-muted">在你常用的工具中与 AI Agent 协作</p>
       </div>
       <details className="group relative shrink-0">
-        <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[12px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
-          {mutating ? '处理中…' : '添加'} <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md border border-border bg-bg-raised px-3 py-1.5 text-[14px] text-txt-secondary transition-colors hover:bg-bg-active focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+          {mutating ? '处理中…' : '添加'}
+          <Icon.ChevronDown size={14} className="transition-transform group-open:rotate-180" />
         </summary>
-        <div className="absolute right-0 top-full z-20 mt-1.5 w-[min(240px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
-          <button type="button" disabled={mutating} onClick={() => void importLocal('directory')}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
-            <Icon.Folder size={14} className="text-txt-muted" /> 导入文件夹
-          </button>
-          <button type="button" disabled={mutating} onClick={() => void importLocal('zip')}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
-            <Icon.File size={14} className="text-txt-muted" /> 导入 ZIP
-          </button>
+        <div className="absolute right-0 top-full z-20 mt-1.5 w-[min(240px,calc(100vw-2rem))] rounded-lg border border-border bg-bg-panel p-2 shadow-overlay">
+          <Button
+            block
+            variant="text"
+            disabled={mutating}
+            icon={<Icon.Folder size={14} />}
+            onClick={() => void importLocal('directory')}
+          >
+            导入文件夹
+          </Button>
+          <Button
+            block
+            variant="text"
+            disabled={mutating}
+            icon={<Icon.File size={14} />}
+            onClick={() => void importLocal('zip')}
+          >
+            导入 ZIP
+          </Button>
         </div>
       </details>
     </div>
     <div role="tablist" aria-label="插件页面" className="mt-6 flex gap-6 border-b border-border">
       {([['installed', '已安装'], ['market', '插件市场'], ['sources', '市场源'], ['developer', '开发者']] as const).map(([id, label]) =>
         <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}
-          className={`-mb-px border-b-2 pb-2.5 text-[12px] ${view === id ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`}>{label}</button>)}
+          className={`-mb-px border-b-2 pb-2.5 text-[14px] transition-colors ${view === id ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`}>{label}</button>)}
     </div>
-    <div className="relative mt-6">
-      <Icon.Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
-      <input aria-label="搜索插件" className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[12px]"
-        value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索插件" />
+    <div className="mt-6">
+      <SearchInput
+        aria-label="搜索插件"
+        value={query}
+        onChange={setQuery}
+        placeholder="搜索插件"
+      />
     </div>
-    {error && <p role="alert" className="mt-3 rounded-lg bg-red-950/30 px-3 py-2 text-[11px] text-red-300">{error}</p>}
+    {error && <p role="alert" className="mt-3 rounded-lg bg-red-950/30 px-3 py-2 text-[14px] text-red-300">{error}</p>}
     {view === 'installed' && <section className="mt-7">
       <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
-        <h2 className="text-[13px] font-semibold text-txt-primary">已安装</h2>
-        <span className="text-[10px] tabular-nums text-txt-muted">{items.length}</span>
-        <label title="仅限同一来源和发布者、没有新增权限的更高版本；应用启动时检查" className="ml-auto flex cursor-pointer items-center gap-2 text-[10px] text-txt-muted">
+        <h2 className="text-[14px] font-semibold text-txt-primary">已安装</h2>
+        <span className="text-[14px] tabular-nums text-txt-muted">{items.length}</span>
+        <label title="仅限同一来源和发布者、没有新增权限的更高版本；应用启动时检查" className="ml-auto flex cursor-pointer items-center gap-2 text-[14px] text-txt-muted">
           <input type="checkbox" checked={preferences.autoUpdate} onChange={(event) => void setAutoUpdate(event.target.checked)} />
           自动安装安全更新
         </label>
@@ -168,8 +197,8 @@ export function PluginSection(): JSX.Element {
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-raised text-txt-muted">
           <Icon.FileDir size={18} />
         </span>
-        <h3 className="mt-4 text-[13px] font-medium text-txt-primary">{items.length ? '没有找到匹配的插件' : '尚未安装插件'}</h3>
-        <p className="mt-1 max-w-[360px] text-[11px] leading-5 text-txt-muted">
+        <h3 className="mt-4 text-[14px] font-medium text-txt-primary">{items.length ? '没有找到匹配的插件' : '尚未安装插件'}</h3>
+        <p className="mt-1 max-w-[360px] text-[14px] leading-5 text-txt-muted">
           {items.length ? '请尝试其他关键词。' : '点击“添加”可安全导入文件夹或 ZIP；导入后默认禁用。'}
         </p>
       </div>}
@@ -177,8 +206,8 @@ export function PluginSection(): JSX.Element {
     {view === 'market' && <PluginMarketView entries={marketEntries} installed={items} query={query} />}
     {view === 'sources' && <PluginSourcesView />}
     {view === 'developer' && <section className="mt-7 rounded-xl border border-border bg-bg-panel p-5">
-      <h2 className="text-[13px] font-semibold">开发者</h2>
-      <p className="mt-2 text-[11px] leading-5 text-txt-muted">使用 plugin.json 声明工具、权限和入口。开发包仍需经过相同的路径、大小、schema 与权限校验；本地导入不会自动启用。</p>
+      <h2 className="text-[14px] font-semibold">开发者</h2>
+      <p className="mt-2 text-[14px] leading-5 text-txt-muted">使用 plugin.json 声明工具、权限和入口。开发包仍需经过相同的路径、大小、schema 与权限校验；本地导入不会自动启用。</p>
     </section>}
   </div>
 }
@@ -247,27 +276,23 @@ function PluginMarketView({ entries, installed, query }: { entries: PluginMarket
   const install = usePluginStore((state) => state.installMarket)
   const mutating = usePluginStore((state) => state.mutating)
   const [scope, setScope] = useState<MarketScope>('recommended')
-  const [category, setCategory] = useState('all')
   const [pending, setPending] = useState<PluginMarketEntry>()
   const opener = useRef<HTMLElement | null>(null)
-  const categories = listMarketplaceCategories(entries)
-  const visible = latestMarketplaceEntries(filterMarketplaceEntries(entries, { scope, category, query }))
+  // 分类筛选 UI 已移除，固定用 'all'；搜索仍覆盖 categories（见 filterMarketplaceEntries）
+  const visible = latestMarketplaceEntries(filterMarketplaceEntries(entries, { scope, category: 'all', query }))
   const openDetails = (entry: PluginMarketEntry, element: HTMLElement): void => { opener.current = element; setPending(entry) }
   const closeDetails = (): void => { setPending(undefined); queueMicrotask(() => opener.current?.focus()) }
   return <section className="mt-7">
     <div className="flex flex-wrap gap-2" role="group" aria-label="市场范围">
       {([['recommended', '推荐'], ['official', '官方'], ['community', '社区'], ['all', '全部']] as const).map(([id, label]) =>
-        <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[10px] ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted'}`}>{label}</button>)}
+        <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[14px] ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted'}`}>{label}</button>)}
     </div>
-    {!!categories.length && <div className="mt-3 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="插件分类">
-      {['all', ...categories].map((item) => <button key={item} type="button" aria-pressed={category === item} onClick={() => setCategory(item)} className={`shrink-0 text-[10px] ${category === item ? 'text-txt-primary' : 'text-txt-muted'}`}>{item === 'all' ? '全部分类' : item}</button>)}
-    </div>}
     <div className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">{visible.map((entry) => <article key={`${entry.sourceId}:${entry.id}:${entry.version}`} className="border-b border-border py-4">
       <div className="flex items-start gap-3"><SkillGlyph /><div className="min-w-0 flex-1">
-        <button type="button" className="block w-full text-left" onClick={(event) => openDetails(entry, event.currentTarget)} aria-label={`查看 ${entry.name} 详情`}><div className="flex flex-wrap items-center gap-1.5"><strong className="text-[12px]">{entry.name}</strong><span className="text-[9px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[9px] text-accent">已验证</span>}</div>
-        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-txt-muted">{entry.description}</p>
-        <p className="mt-1 text-[9px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p></button>
-        {entry.installable === false && <p className="mt-1 text-[9px] text-amber-300">{entry.unavailableReason}</p>}
+        <button type="button" className="block w-full text-left" onClick={(event) => openDetails(entry, event.currentTarget)} aria-label={`查看 ${entry.name} 详情`}><div className="flex flex-wrap items-center gap-1.5"><strong className="text-[14px]">{entry.name}</strong><span className="text-[14px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[14px] text-accent">已验证</span>}</div>
+        <p className="mt-1 line-clamp-2 text-[14px] leading-4 text-txt-muted">{entry.description}</p>
+        <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p></button>
+        {entry.installable === false && <p className="mt-1 text-[14px] text-amber-300">{entry.unavailableReason}</p>}
       </div><MarketActionButton entry={entry} installed={installed.find((item) => item.id === entry.id)} releases={entries} mutating={mutating} onOpen={openDetails} /></div>
     </article>)}</div>
     {!visible.length && <EmptySkills label={entries.length ? '没有符合当前筛选条件的插件' : '正在同步 Codex 官方市场；也可以在“市场源”添加其他来源'} />}
@@ -283,7 +308,7 @@ function MarketActionButton({ entry, installed, releases, mutating, onOpen }: {
   const risk = describePluginInstallRisk(entry, installed, releases)
   const label = entry.installable === false ? '待支持' : risk.mode === 'installed' ? '已安装' : risk.mode === 'older' ? '版本较旧' : risk.mode === 'update' ? '更新' : '安装'
   return <button type="button" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'installed' || risk.mode === 'older' || mutating}
-    onClick={(event) => onOpen(entry, event.currentTarget)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[10px] text-txt-secondary disabled:text-txt-muted">{label}</button>
+    onClick={(event) => onOpen(entry, event.currentTarget)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[14px] text-txt-secondary disabled:text-txt-muted">{label}</button>
 }
 
 interface DialogFocusEvent { key: string; shiftKey: boolean; target: unknown; preventDefault: () => void }
@@ -315,10 +340,10 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
       onKeyDown={(event) => { if (event.key === 'Escape') onClose(); else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot) }} onMouseDown={(event) => event.stopPropagation()}
       className="h-full w-full max-w-[560px] overflow-y-auto border-l border-border bg-bg-panel p-5 shadow-2xl sm:p-7">
       <div className="flex items-start gap-4"><SkillGlyph /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
-        <p className="mt-1 text-[10px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.version}</p></div>
+        <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.version}</p></div>
         <button type="button" autoFocus aria-label="关闭插件详情" onClick={onClose} className="btn-icon text-lg text-txt-muted">×</button></div>
-      <p className="mt-5 text-[12px] leading-6 text-txt-secondary">{entry.description}</p>
-      <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[11px] sm:grid-cols-2">
+      <p className="mt-5 text-[14px] leading-6 text-txt-secondary">{entry.description}</p>
+      <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
         <DetailField label="来源">{sourceKindLabel(entry.sourceKind)}{entry.verified ? ' · 已验证' : ' · 未验证'}</DetailField>
         <DetailField label="兼容性">{compatibilityLabel(entry)}</DetailField>
         <DetailField label="组件">{(entry.components ?? []).map((item) => componentLabels[item] ?? item).join('、') || '未声明'}</DetailField>
@@ -326,9 +351,9 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
         <DetailField label="权限">{entry.permissions.map(pluginPermissionLabel).join('、') || '无额外权限'}</DetailField>
         <DetailField label="数据目标（市场声明）">{entry.dataTargets?.join('、') || inferDataTargets(entry.permissions)}</DetailField>
       </div>
-      {!!entry.categories.length && <div className="mt-4 flex flex-wrap gap-2">{entry.categories.map((item) => <span key={item} className="rounded-full bg-bg-active px-2 py-1 text-[9px] text-txt-muted">{item}</span>)}</div>}
-      {entry.changelog && <section className="mt-6"><h3 className="text-[12px] font-semibold">更新记录</h3><p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-txt-muted">{entry.changelog}</p></section>}
-      {risk.mode === 'update' && <section className={`mt-6 rounded-xl border p-4 text-[11px] ${risk.requiresFreshApproval ? 'border-amber-500/40 bg-amber-950/20' : 'border-border'}`}>
+      {!!entry.categories.length && <div className="mt-4 flex flex-wrap gap-2">{entry.categories.map((item) => <span key={item} className="rounded-full bg-bg-active px-2 py-1 text-[14px] text-txt-muted">{item}</span>)}</div>}
+      {entry.changelog && <section className="mt-6"><h3 className="text-[14px] font-semibold">更新记录</h3><p className="mt-2 whitespace-pre-wrap text-[14px] leading-5 text-txt-muted">{entry.changelog}</p></section>}
+      {risk.mode === 'update' && <section className={`mt-6 rounded-xl border p-4 text-[14px] ${risk.requiresFreshApproval ? 'border-amber-500/40 bg-amber-950/20' : 'border-border'}`}>
         <h3 className="font-semibold text-txt-primary">从 {installed?.version ?? '未知版本'} 更新</h3>
         {risk.addedPermissions.length > 0 && <p className="mt-2 text-amber-300">新增权限：{risk.addedPermissions.map(pluginPermissionLabel).join('、')}</p>}
         {risk.sourceChanged && <p className="mt-2 text-amber-300">插件来源已变化</p>}
@@ -336,17 +361,17 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
         {risk.publisherUnknown && <p className="mt-2 text-amber-300">无法确认已安装版本的发布者签名</p>}
         {!risk.requiresFreshApproval && <p className="mt-2 text-txt-muted">未发现新增权限或发布者变化。</p>}
       </section>}
-      {entry.sha256 && <p className="mt-5 break-all font-mono text-[9px] text-txt-muted">SHA-256 {entry.sha256}</p>}
-      {entry.repository && <p className="mt-2 break-all font-mono text-[9px] text-txt-muted">固定版本 {entry.repository.ref.slice(0, 12)}</p>}
-      <p className="mt-5 text-[10px] leading-5 text-txt-muted">安装或更新会校验内容，完成后插件保持禁用，需由你检查后启用。</p>
-      <div className="sticky bottom-0 mt-7 flex justify-end gap-2 border-t border-border bg-bg-panel py-4"><button type="button" className="btn px-3 text-[11px]" onClick={onClose}>取消</button>
-        <button type="button" disabled={mutating || entry.installable === false || risk.mode === 'installed' || risk.mode === 'older'} className="btn bg-accent px-3 text-[11px] text-white disabled:opacity-50" onClick={onConfirm}>{mutating ? '处理中…' : action}</button></div>
+      {entry.sha256 && <p className="mt-5 break-all font-mono text-[14px] text-txt-muted">SHA-256 {entry.sha256}</p>}
+      {entry.repository && <p className="mt-2 break-all font-mono text-[14px] text-txt-muted">固定版本 {entry.repository.ref.slice(0, 12)}</p>}
+      <p className="mt-5 text-[14px] leading-5 text-txt-muted">安装或更新会校验内容，完成后插件保持禁用，需由你检查后启用。</p>
+      <div className="sticky bottom-0 mt-7 flex justify-end gap-2 border-t border-border bg-bg-panel py-4"><button type="button" className="btn px-3 text-[14px]" onClick={onClose}>取消</button>
+        <button type="button" disabled={mutating || entry.installable === false || risk.mode === 'installed' || risk.mode === 'older'} className="btn bg-accent px-3 text-[14px] text-white disabled:opacity-50" onClick={onConfirm}>{mutating ? '处理中…' : action}</button></div>
     </aside>
   </div>
 }
 
 function DetailField({ label, children }: { label: string; children: ReactNode }): JSX.Element {
-  return <div><div className="text-[9px] text-txt-muted">{label}</div><div className="mt-1 text-txt-secondary">{children}</div></div>
+  return <div><div className="text-[14px] text-txt-muted">{label}</div><div className="mt-1 text-txt-secondary">{children}</div></div>
 }
 
 function sourceKindLabel(kind: PluginMarketEntry['sourceKind']): string {
@@ -383,18 +408,18 @@ function PluginSourcesView(): JSX.Element {
       <div className="flex flex-col gap-2 sm:flex-row">
         <input aria-label="市场源名称" className="input h-9 sm:w-40" value={name} onChange={(event) => setName(event.target.value)} placeholder="市场源名称" />
         <input aria-label="市场源地址" className="input h-9 min-w-0 flex-1" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…/index.json" />
-        <button className="btn bg-bg-raised px-3 text-[11px]" disabled={!name.trim() || !url.trim() || Boolean(keyId.trim()) !== Boolean(publicKey.trim())} onClick={() => void addSource(name, url, keyId.trim() || undefined, publicKey.trim() || undefined).then((ok) => { if (ok) { setName(''); setUrl(''); setKeyId(''); setPublicKey('') } })}>添加</button>
+        <button className="btn bg-bg-raised px-3 text-[14px]" disabled={!name.trim() || !url.trim() || Boolean(keyId.trim()) !== Boolean(publicKey.trim())} onClick={() => void addSource(name, url, keyId.trim() || undefined, publicKey.trim() || undefined).then((ok) => { if (ok) { setName(''); setUrl(''); setKeyId(''); setPublicKey('') } })}>添加</button>
       </div>
-      <details className="mt-3 text-[10px] text-txt-muted"><summary className="cursor-pointer">可选：固定发布者签名公钥</summary>
+      <details className="mt-3 text-[14px] text-txt-muted"><summary className="cursor-pointer">可选：固定发布者签名公钥</summary>
         <div className="mt-2 grid gap-2"><input aria-label="签名密钥标识" className="input h-8" value={keyId} onChange={(event) => setKeyId(event.target.value)} placeholder="密钥标识（与公钥同时填写）" />
-          <textarea aria-label="Ed25519 签名公钥" className="input min-h-24 resize-y font-mono text-[9px]" value={publicKey} onChange={(event) => setPublicKey(event.target.value)} placeholder="-----BEGIN PUBLIC KEY-----" /></div>
+          <textarea aria-label="Ed25519 签名公钥" className="input min-h-24 resize-y font-mono text-[14px]" value={publicKey} onChange={(event) => setPublicKey(event.target.value)} placeholder="-----BEGIN PUBLIC KEY-----" /></div>
       </details>
     </div>
     <div className="mt-4 border-t border-border">{sources.map((source) => <article key={source.id} className="flex flex-wrap items-center gap-3 border-b border-border py-3">
-      <div className="min-w-[180px] flex-1"><div className="text-[12px] text-txt-primary">{source.name} <span className="text-[9px] text-txt-muted">{source.kind}</span>{source.verified && <span className="ml-1 text-[9px] text-accent">已验证</span>}{source.signingKeyId && <span className="ml-1 text-[9px] text-accent">签名已固定</span>}</div><div className="truncate text-[9px] text-txt-muted">{source.url}</div>{source.error && <div className="text-[10px] text-red-300">{source.error}</div>}</div>
-      <button className="text-[10px] text-txt-secondary" onClick={() => void syncSource(source.id)}>同步</button>
-      {source.kind !== 'official' && <button className="text-[10px] text-txt-secondary" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</button>}
-      {source.kind !== 'official' && <button className="text-[10px] text-red-300" onClick={() => void removeSource(source.id)}>删除</button>}
+      <div className="min-w-[180px] flex-1"><div className="text-[14px] text-txt-primary">{source.name} <span className="text-[14px] text-txt-muted">{source.kind}</span>{source.verified && <span className="ml-1 text-[14px] text-accent">已验证</span>}{source.signingKeyId && <span className="ml-1 text-[14px] text-accent">签名已固定</span>}</div><div className="truncate text-[14px] text-txt-muted">{source.url}</div>{source.error && <div className="text-[14px] text-red-300">{source.error}</div>}</div>
+      <button className="text-[14px] text-txt-secondary" onClick={() => void syncSource(source.id)}>同步</button>
+      {source.kind !== 'official' && <button className="text-[14px] text-txt-secondary" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</button>}
+      {source.kind !== 'official' && <button className="text-[14px] text-red-300" onClick={() => void removeSource(source.id)}>删除</button>}
     </article>)}</div>
     {!sources.length && <EmptySkills label="还没有市场源；添加 HTTPS 索引地址后可手动同步" />}
   </section>
@@ -428,18 +453,18 @@ function PluginRow({ plugin, onToggle, onRecover }: {
     </span>
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <strong className="truncate text-[12px] font-medium text-txt-primary">{plugin.name}</strong>
-        {plugin.version && <span className="text-[9px] text-txt-muted">{plugin.version}</span>}
-        {plugin.status === 'invalid' && <span className="text-[9px] text-red-300">清单无效</span>}
-        {plugin.status === 'quarantined' && <span className="text-[9px] text-amber-300">已隔离</span>}
-        {plugin.managed && <span className="text-[9px] text-accent">受管</span>}<span className="text-[9px] text-txt-muted">{plugin.installOrigin?.sourceName ?? '来源未知'}</span>
+        <strong className="truncate text-[14px] font-medium text-txt-primary">{plugin.name}</strong>
+        {plugin.version && <span className="text-[14px] text-txt-muted">{plugin.version}</span>}
+        {plugin.status === 'invalid' && <span className="text-[14px] text-red-300">清单无效</span>}
+        {plugin.status === 'quarantined' && <span className="text-[14px] text-amber-300">已隔离</span>}
+        {plugin.managed && <span className="text-[14px] text-accent">受管</span>}<span className="text-[14px] text-txt-muted">{plugin.installOrigin?.sourceName ?? '来源未知'}</span>
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-txt-muted">{plugin.errors[0] ?? plugin.description}</p>
+      <p className="mt-0.5 line-clamp-2 text-[14px] leading-4 text-txt-muted">{plugin.errors[0] ?? plugin.description}</p>
       {!!badges.length && <div className="mt-1 flex flex-wrap gap-1.5">{badges.map((badge) =>
-        <span key={badge} className="rounded bg-bg-raised px-1.5 py-0.5 text-[9px] text-txt-muted">{badge}</span>)}</div>}
+        <span key={badge} className="rounded bg-bg-raised px-1.5 py-0.5 text-[14px] text-txt-muted">{badge}</span>)}</div>}
     </div>
     {plugin.status === 'quarantined' ? <button type="button" onClick={onRecover}
-      className="shrink-0 rounded-md border border-border px-2 py-1 text-[10px] text-txt-secondary hover:bg-bg-active">
+      className="shrink-0 rounded-md border border-border px-2 py-1 text-[14px] text-txt-secondary hover:bg-bg-active">
       恢复
     </button> : <button type="button" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
       disabled={plugin.status !== 'ready'} onClick={onToggle}
@@ -449,7 +474,7 @@ function PluginRow({ plugin, onToggle, onRecover }: {
     {!plugin.managed && (!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
       : <PluginUninstallChoices onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />)}
     <button type="button" title="历史版本" className="btn-icon shrink-0 text-txt-muted" onClick={() => void showBackups()}><Icon.ChevronDown size={12} /></button>
-  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}
+  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}
     {!!connection?.servers.length && <div className="ml-12 mt-2 space-y-2">{connection.servers.map((server) =>
       <PluginConnectionPanel key={server.id} pluginId={plugin.id} server={server} mutating={mutatingConnection}
         onConnect={connectMcp} onReauthorize={reauthorizeMcp} onRetry={retryMcp} onDisconnect={disconnectMcp} />)}</div>}
@@ -481,7 +506,7 @@ export function PluginConnectionPanel({ pluginId, server, mutating, onConnect, o
     if (ok !== false) { setCredential(''); setAccountLabel(''); setExistingId('') }
   }
   const status = mcpStateLabel(server.state)
-  return <section className="rounded-lg border border-border bg-bg-raised px-3 py-2.5 text-[10px]">
+  return <section className="rounded-lg border border-border bg-bg-raised px-3 py-2.5 text-[14px]">
     <div className="flex flex-wrap items-center gap-2">
       <span className={`h-1.5 w-1.5 rounded-full ${server.state === 'connected' ? 'bg-emerald-400' : server.state === 'failed' ? 'bg-red-400' : server.state === 'restricted' ? 'bg-amber-400' : 'bg-txt-muted'}`} />
       <span className="font-medium text-txt-secondary">{server.serverOrigin}</span>
@@ -530,7 +555,7 @@ export function PluginUninstallChoices({ onChoose, onCancel }: {
   onChoose: (dataDisposition: 'keep' | 'clear') => void
   onCancel: () => void
 }): JSX.Element {
-  return <span className="flex max-w-[260px] shrink-0 flex-wrap justify-end gap-x-2 gap-y-1 text-[9px]">
+  return <span className="flex max-w-[260px] shrink-0 flex-wrap justify-end gap-x-2 gap-y-1 text-[14px]">
     <span className="w-full text-right text-txt-muted">审计记录会保留</span>
     <button type="button" className="text-txt-secondary" onClick={() => onChoose('keep')}>卸载并保留数据</button>
     <button type="button" className="text-red-300" onClick={() => onChoose('clear')}>卸载并清除数据</button>
@@ -572,23 +597,23 @@ export function SecuritySection(): JSX.Element {
     } else setMessage(result.error.message)
   }
   return <div>
-    <h1 className="selectable text-[18px] font-semibold text-txt-primary">安全与数据</h1>
-    <p className="mt-1 text-[12px] text-txt-muted">管理本机保存的安全记录。</p>
+    <h1 className="selectable text-[20px] font-semibold text-txt-primary">安全与数据</h1>
+    <p className="mt-1 text-[14px] text-txt-muted">管理本机保存的安全记录。</p>
     <Group title="审计记录">
       <div className="flex items-center justify-between gap-6">
         <div>
-          <div className="text-[12px] font-medium text-txt-primary">操作审计</div>
-          <p className="mt-1 max-w-[480px] text-[11px] leading-5 text-txt-muted">仅保存操作类型、结果和脱敏后的目标摘要，用于排查权限与执行问题。</p>
+          <div className="text-[14px] font-medium text-txt-primary">操作审计</div>
+          <p className="mt-1 max-w-[480px] text-[14px] leading-5 text-txt-muted">仅保存操作类型、结果和脱敏后的目标摘要，用于排查权限与执行问题。</p>
         </div>
-        <button type="button" className="btn shrink-0 border border-border px-3 py-2 text-[11px] text-txt-secondary hover:bg-bg-active" disabled={clearing} onClick={() => void clearAudit()}>
+        <button type="button" className="btn shrink-0 border border-border px-3 py-2 text-[14px] text-txt-secondary hover:bg-bg-active" disabled={clearing} onClick={() => void clearAudit()}>
           {clearing ? '清除中…' : '清除审计记录'}
         </button>
       </div>
-      {message && <p role="status" className="mt-3 text-[11px] text-txt-secondary">{message}</p>}
+      {message && <p role="status" className="mt-3 text-[14px] text-txt-secondary">{message}</p>}
       <div className="mt-4 border-t border-border pt-3">
-        <div className="mb-2 text-[11px] font-medium text-txt-secondary">近期记录（最多 100 条）</div>
-        {loadingAudit ? <p className="text-[11px] text-txt-muted">正在读取审计记录…</p>
-          : auditError ? <p role="alert" className="text-[11px] text-red-300">{auditError}</p>
+        <div className="mb-2 text-[14px] font-medium text-txt-secondary">近期记录（最多 100 条）</div>
+        {loadingAudit ? <p className="text-[14px] text-txt-muted">正在读取审计记录…</p>
+          : auditError ? <p role="alert" className="text-[14px] text-red-300">{auditError}</p>
             : <AuditRecordList events={events} />}
       </div>
     </Group>
@@ -596,17 +621,17 @@ export function SecuritySection(): JSX.Element {
 }
 
 export function AuditRecordList({ events }: { events: AuditEvent[] }): JSX.Element {
-  if (!events.length) return <p className="text-[11px] text-txt-muted">暂无审计记录</p>
+  if (!events.length) return <p className="text-[14px] text-txt-muted">暂无审计记录</p>
   return <ol className="space-y-2">
     {events.map((event) => {
       const category = auditCategory(event)
       return <li key={event.id} className="rounded-lg border border-border bg-bg-app px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+        <div className="flex flex-wrap items-center gap-2 text-[14px]">
           <span className={`rounded px-1.5 py-0.5 ${category.tone}`}>{category.label}</span>
           <span className="font-medium text-txt-secondary">{auditOutcomeLabel(event.outcome)}</span>
           <time className="ml-auto text-txt-muted" dateTime={new Date(event.timestamp).toISOString()}>{new Date(event.timestamp).toLocaleString('zh-CN')}</time>
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-txt-muted">
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[14px] text-txt-muted">
           <span>{event.reasonCode ?? event.action}</span>
           {event.pluginId && <span>{event.pluginId}{event.pluginVersion ? `@${event.pluginVersion}` : ''}</span>}
           {event.toolName && <span>{event.toolName}</span>}
@@ -666,25 +691,25 @@ export function SkillsSection(): JSX.Element {
   return <div>
     <div className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
-        <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">技能</h1>
-        <p className="mt-1 text-[12px] text-txt-muted">通过任务专用技能扩展 AI 的能力</p>
+        <h1 className="selectable text-[20px] font-semibold text-txt-primary">技能</h1>
+        <p className="mt-1 text-[14px] text-txt-muted">通过任务专用技能扩展 AI 的能力</p>
       </div>
       <details className="group relative z-20">
-        <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[12px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
+        <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
           添加 <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
         </summary>
         <div className="absolute right-0 top-full mt-1.5 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
-          <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-txt-secondary hover:bg-bg-active"
+          <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[14px] text-txt-secondary hover:bg-bg-active"
             disabled={mutating} onClick={() => void importLocal()}>
             <Icon.Folder size={14} className="text-txt-muted" />
-            <span><strong className="block font-medium text-txt-primary">从本机导入</strong><span className="text-[10px] text-txt-muted">选择 Skill 或 Skill Pack 目录</span></span>
+            <span><strong className="block font-medium text-txt-primary">从本机导入</strong><span className="text-[14px] text-txt-muted">选择 Skill 或 Skill Pack 目录</span></span>
           </button>
           <div className="my-1 border-t border-border" />
-          <div className="px-3 py-1 text-[10px] text-txt-muted">从 GitHub 地址添加</div>
+          <div className="px-3 py-1 text-[14px] text-txt-muted">从 GitHub 地址添加</div>
           <div className="flex gap-1.5 px-1 pb-1">
-            <input className="input h-8 min-w-0 flex-1 text-[11px]" value={githubUrl} onChange={(event) => setGithubUrl(event.target.value)}
+            <input className="input h-8 min-w-0 flex-1 text-[14px]" value={githubUrl} onChange={(event) => setGithubUrl(event.target.value)}
               placeholder="https://github.com/owner/repo" />
-            <button className="btn shrink-0 rounded-md bg-accent px-3 text-[11px] text-white disabled:opacity-40"
+            <button className="btn shrink-0 rounded-md bg-accent px-3 text-[14px] text-white disabled:opacity-40"
               disabled={mutating || !githubUrl.trim()} onClick={() => void install(githubUrl.trim()).then((ok) => { if (ok) setGithubUrl('') })}>
               {mutating ? '添加中…' : '添加'}
             </button>
@@ -693,16 +718,16 @@ export function SkillsSection(): JSX.Element {
       </details>
     </div>
     <div className="mt-6 flex items-center gap-6 border-b border-border">
-      <button className={`-mb-px border-b-2 pb-2.5 text-[12px] font-medium ${tab === 'installed' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('installed')}>已安装</button>
-      <button className={`-mb-px border-b-2 pb-2.5 text-[12px] font-medium ${tab === 'market' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('market')}>技能市场</button>
+      <button className={`-mb-px border-b-2 pb-2.5 text-[14px] font-medium ${tab === 'installed' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('installed')}>已安装</button>
+      <button className={`-mb-px border-b-2 pb-2.5 text-[14px] font-medium ${tab === 'market' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('market')}>技能市场</button>
     </div>
     <div className="mt-5 flex flex-col gap-2 sm:flex-row">
       <div className="relative min-w-0 flex-1">
         <Icon.Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
-        <input className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[12px]" value={query}
+        <input className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[14px]" value={query}
           onChange={(event) => setQuery(event.target.value)} placeholder="搜索技能" />
       </div>
-      {tab === 'installed' && <select aria-label="筛选 Skill 来源" className="input h-9 w-full rounded-full bg-bg-raised px-3 text-[11px] sm:w-[124px]"
+      {tab === 'installed' && <select aria-label="筛选 Skill 来源" className="input h-9 w-full rounded-full bg-bg-raised px-3 text-[14px] sm:w-[124px]"
         value={source} onChange={(event) => setSource(event.target.value as 'all' | SkillSource)}>
         <option value="all">全部来源</option>
         <option value="project">项目</option>
@@ -713,11 +738,11 @@ export function SkillsSection(): JSX.Element {
         <option value="builtin">内置</option>
       </select>}
     </div>
-    {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{error}</div>}
+    {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[14px] text-red-300">{error}</div>}
     {tab === 'installed' ? <section className="mt-7">
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-[13px] font-semibold text-txt-primary">已安装</h2>
-        <span className="text-[10px] tabular-nums text-txt-muted">{visibleItems.length}</span>
+        <h2 className="text-[14px] font-semibold text-txt-primary">已安装</h2>
+        <span className="text-[14px] tabular-nums text-txt-muted">{visibleItems.length}</span>
       </div>
       <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
         {visibleItems.map((skill) => <InstalledSkillRow key={skill.id} skill={skill} expanded={expandedId === skill.id}
@@ -728,8 +753,8 @@ export function SkillsSection(): JSX.Element {
       {!loading && !visibleItems.length && <EmptySkills label="没有找到已安装的 Skill" />}
     </section> : <section className="mt-7">
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-[13px] font-semibold text-txt-primary">技能市场</h2>
-        <span className="text-[10px] tabular-nums text-txt-muted">{catalog.length}</span>
+        <h2 className="text-[14px] font-semibold text-txt-primary">技能市场</h2>
+        <span className="text-[14px] tabular-nums text-txt-muted">{catalog.length}</span>
       </div>
       <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
         {catalog.map((skill) => <MarketSkillRow key={skill.id} skill={skill} mutating={mutating}
@@ -737,7 +762,7 @@ export function SkillsSection(): JSX.Element {
       </div>
       {!loading && !catalog.length && <EmptySkills label="没有找到匹配的 Skill" />}
     </section>}
-    <p className="mt-8 border-t border-border pt-4 text-[10px] leading-5 text-txt-muted">
+    <p className="mt-8 border-t border-border pt-4 text-[14px] leading-5 text-txt-muted">
       项目与 Codex/Agents 目录只读发现；第三方 Skill 不会自动执行脚本，也不能提升工具权限。输入 <code>/</code> 调用。
     </p>
   </div>
@@ -758,10 +783,10 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
         <SkillGlyph muted={!skill.active} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <strong className="truncate text-[12px] font-medium text-txt-primary">{skill.displayName}</strong>
-            {skill.invocation === 'user' && <span className="shrink-0 text-[9px] text-txt-muted">/{skill.name}</span>}
+            <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
+            {skill.invocation === 'user' && <span className="shrink-0 text-[14px] text-txt-muted">/{skill.name}</span>}
           </span>
-          <span className="mt-0.5 block line-clamp-2 text-[10px] leading-4 text-txt-muted">{skill.description}</span>
+          <span className="mt-0.5 block line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</span>
         </span>
       </button>
       <button type="button" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
@@ -770,7 +795,7 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
         {skill.enabled ? <Icon.Check size={14} /> : <span className="h-3 w-3 rounded-full border border-border-strong" />}
       </button>
     </div>
-    {expanded && <div className="ml-9 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[10px] leading-5 text-txt-muted">
+    {expanded && <div className="ml-9 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] leading-5 text-txt-muted">
       <div>{skillSourceLabel(skill.source)} · {skill.invocation === 'user' ? '仅快捷指令' : '可自动触发'}</div>
       <div>{skill.toolPolicy === 'inherit' ? '沿用任务工具，仍受权限审批' : `声明 ${skill.allowedTools.length} 个工具，仍受权限审批`}</div>
       {skill.repository && <div>{skill.repository}{skill.version ? ` @ ${skill.version.slice(0, 8)}` : ''}</div>}
@@ -791,13 +816,13 @@ function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogIte
     <SkillGlyph />
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-1.5">
-        <strong className="truncate text-[12px] font-medium text-txt-primary">{skill.displayName}</strong>
-        {skill.featured && <span className="text-[9px] text-accent">推荐</span>}
+        <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
+        {skill.featured && <span className="text-[14px] text-accent">推荐</span>}
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-txt-muted">{skill.description}</p>
-      <span className="mt-0.5 block truncate text-[9px] text-txt-muted">{skill.publisher}</span>
+      <p className="mt-0.5 line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</p>
+      <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{skill.publisher}</span>
     </div>
-    <button className={`flex h-7 shrink-0 items-center justify-center rounded-full px-2.5 text-[10px] ${skill.installed ? 'text-txt-muted' : 'bg-bg-raised text-txt-secondary hover:bg-bg-active hover:text-txt-primary'}`}
+    <button className={`flex h-7 shrink-0 items-center justify-center rounded-full px-2.5 text-[14px] ${skill.installed ? 'text-txt-muted' : 'bg-bg-raised text-txt-secondary hover:bg-bg-active hover:text-txt-primary'}`}
       disabled={mutating || skill.installed} onClick={onInstall}>{skill.installed ? <Icon.Check size={13} /> : '添加'}</button>
   </article>
 }
@@ -809,7 +834,7 @@ function SkillGlyph({ muted = false }: { muted?: boolean }): JSX.Element {
 }
 
 function EmptySkills({ label }: { label: string }): JSX.Element {
-  return <div className="py-14 text-center text-[11px] text-txt-muted">{label}</div>
+  return <div className="py-14 text-center text-[14px] text-txt-muted">{label}</div>
 }
 
 function skillSourceLabel(source: import('@shared/types').SkillSource): string {
@@ -834,10 +859,15 @@ function NavItem({
 }): JSX.Element {
   return (
     <button
+      type="button"
+      aria-current={active ? 'page' : undefined}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] ${
-        active ? 'bg-bg-active text-txt-primary' : 'text-txt-secondary hover:bg-bg-raised'
-      }`}
+      className={[
+        'flex w-full items-center gap-2 rounded-md px-3 py-2 text-[14px] transition-colors',
+        active
+          ? 'bg-bg-active font-medium text-txt-primary'
+          : 'text-txt-secondary hover:bg-bg-raised hover:text-txt-primary'
+      ].join(' ')}
     >
       <span className={active ? 'text-accent' : 'text-txt-muted'}>{icon}</span>
       <span className="flex-1 text-left">{label}</span>
@@ -845,154 +875,171 @@ function NavItem({
   )
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }): JSX.Element {
-  return (
-    <section className="mt-5 rounded-lg border border-border bg-bg-panel">
-      <h2 className="border-b border-border px-4 py-3 text-[13px] font-semibold text-txt-primary">
-        {title}
-      </h2>
-      <div className="px-4 py-4">{children}</div>
-    </section>
-  )
-}
+/**
+ * @deprecated 旧的分组容器。已由全局 FormSection 取代，
+ * 保留同名别名是为了让尚未迁移的调用点继续工作。
+ */
+const Group = FormSection
 
+/**
+ * 旧的表单说明标签。新代码请直接用 SettingRow 的 label，
+ * 这里保留是为了让尚未迁移的区域继续可用。
+ */
 function Label({ children }: { children: ReactNode }): JSX.Element {
-  return <div className="mb-2 text-[12px] text-txt-secondary">{children}</div>
+  return <div className="mb-2 text-[14px] leading-[22px] text-txt-secondary">{children}</div>
 }
 
+/**
+ * 旧的「标签 + 控件」组合。
+ * 已改为基于 SettingRow，宽度、分隔线与纵向堆叠跟随全局规范。
+ */
+/**
+ * 表单字段：标签在上、控件在下。
+ *
+ * 模型编辑表单里的控件都是输入框，用 stacked 对齐更稳定；
+ * inline 会让「标签—控件」的水平间距随标签长度变化而不齐，
+ * 在宽窗口下显得松散。
+ */
 function Field({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
-    <div>
-      <Label>{label}</Label>
+    <SettingRow label={label} layout="stacked">
       {children}
-    </div>
+    </SettingRow>
   )
 }
 
 /* ---------------- 主题 ---------------- */
 
 function ThemeSection(): JSX.Element {
-  const presetId = useThemeStore((s) => s.presetId)
+  const mode = useThemeStore((s) => s.mode)
   const overrides = useThemeStore((s) => s.overrides)
-  const setPreset = useThemeStore((s) => s.setPreset)
+  const resolved = useThemeStore((s) => s.resolved)
+  const setMode = useThemeStore((s) => s.setMode)
   const setBg = useThemeStore((s) => s.setBg)
   const setText = useThemeStore((s) => s.setText)
   const setAccent = useThemeStore((s) => s.setAccent)
   const resetOverrides = useThemeStore((s) => s.resetOverrides)
 
-  const base = getTheme(presetId)
   const hasOverride = !!(overrides.bg || overrides.text || overrides.accent)
 
   return (
     <>
-      <h1 className="selectable text-[18px] font-semibold text-txt-primary">主题设置</h1>
-      <Group title="主题外观">
-        <Label>应用主题（整体：背景 + 文字 + 强调色）</Label>
-        <div className="grid grid-cols-3 gap-3">
-          {THEMES.map((t) => (
-            <ThemeCard
-              key={t.id}
-              theme={t}
-              active={!hasOverride && t.id === presetId}
-              onClick={() => setPreset(t.id)}
-            />
-          ))}
-        </div>
-        {hasOverride && (
-          <button onClick={resetOverrides} className="mt-3 text-[12px] text-accent hover:underline">
-            恢复预设主题
-          </button>
-        )}
-      </Group>
-      <Group title="自定义颜色">
-        <div className="space-y-3">
-          <ColorField label="背景色" value={overrides.bg ?? base.bgApp} onApply={setBg} />
-          <ColorField label="文字颜色" value={overrides.text ?? base.textPrimary} onApply={setText} />
-          <ColorField label="强调色" value={overrides.accent ?? base.accent} onApply={setAccent} />
-        </div>
-        <p className="mt-3 text-[12px] text-txt-muted">
-          背景色是整体系统色；文字色与强调色可分别自定义。输入合法 HEX 并回车/失焦生效，输入什么就是什么。
-        </p>
-      </Group>
-    </>
-  )
-}
+      <h1 className="selectable text-[20px] font-semibold text-txt-primary">外观</h1>
+      <p className="mt-1 text-[14px] leading-[22px] text-txt-muted">
+        主题默认跟随操作系统；也可以固定为浅色或深色，并单独调整背景、文字与强调色。
+      </p>
 
-function ThemeCard({
-  theme,
-  active,
-  onClick
-}: {
-  theme: ThemePreset
-  active: boolean
-  onClick: () => void
-}): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex flex-col items-center gap-2.5 rounded-lg border p-3 transition-colors ${
-        active ? 'border-accent bg-bg-raised' : 'border-border bg-bg-app hover:border-border-strong'
-      }`}
-    >
-      <div className="h-12 w-24 overflow-hidden rounded-md border border-border" style={{ background: theme.bgApp }}>
-        <div className="h-3 w-full" style={{ background: theme.bgPanel }} />
-        <div className="space-y-1 p-2">
-          <div className="h-1.5 w-12 rounded-sm" style={{ background: theme.textSecondary }} />
-          <div className="h-1.5 w-16 rounded-sm" style={{ background: theme.accent }} />
-        </div>
+      <div className="space-y-5">
+        {/* 主题模式不套外框：三张卡片直接落在页面上（对齐 Codex） */}
+        <section className="mt-5">
+          <h2 className="text-[16px] font-medium leading-6 text-txt-primary">主题模式</h2>
+          <p className="mt-0.5 text-[14px] leading-[22px] text-txt-muted">
+            选择整体外观。跟随系统时，系统切换深浅色会实时生效。
+          </p>
+          <div className="mt-3">
+            <ThemeModeCards
+              value={mode}
+              onChange={setMode}
+              systemDark={resolveTheme({ mode: 'system' }).isDark}
+            />
+          </div>
+        </section>
+
+        <FormSection
+          title="自定义颜色"
+          description="背景色是整体系统色；文字色与强调色可分别自定义。输入合法 HEX 并回车或失焦后生效。"
+          extra={
+            hasOverride ? (
+              <TagChip tone="accent" variant="filled">
+                已自定义
+              </TagChip>
+            ) : undefined
+          }
+        >
+          <ColorField
+            label="背景色"
+            value={overrides.bg ?? resolved.color.surface.app}
+            onApply={setBg}
+            first
+          />
+          <ColorField
+            label="文字颜色"
+            value={overrides.text ?? resolved.color.text.primary}
+            onApply={setText}
+          />
+          <ColorField
+            label="强调色"
+            value={overrides.accent ?? resolved.color.accent.primary}
+            onApply={setAccent}
+          />
+          <SettingRow label="恢复默认" description="清除全部自定义颜色，回到当前模式的基线配色。">
+            <Button variant="text" disabled={!hasOverride} onClick={resetOverrides}>
+              恢复默认
+            </Button>
+          </SettingRow>
+        </FormSection>
       </div>
-      <div className="flex items-center gap-1.5 text-[12px] text-txt-primary">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: theme.accent }} />
-        <span>{theme.name}</span>
-        {active && <Icon.Check size={13} className="text-accent" />}
-      </div>
-    </button>
+    </>
   )
 }
 
 function ColorField({
   label,
   value,
-  onApply
+  onApply,
+  first = false
 }: {
   label: string
   value: string
   onApply: (hex: string) => void
+  first?: boolean
 }): JSX.Element {
   const [text, setText] = useState(value)
-  // 仅外部变化（预设/已提交）时同步，避免输入过程跳动
+  /* 仅外部变化（模式切换 / 已提交）时同步，避免输入过程跳动 */
   useEffect(() => setText(value), [value])
-  const valid = normalizeHex(text) != null
+
+  const valid = normalizeHexColor(text) != null
   const commit = (): void => {
-    const n = normalizeHex(text)
-    if (n) onApply(n)
+    const hex = normalizeHexColor(text)
+    if (hex) onApply(hex)
     else setText(value)
   }
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-20 shrink-0 text-[12px] text-txt-secondary">{label}</span>
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onApply(e.target.value)}
-        className="h-9 w-12 cursor-pointer rounded-md border border-border bg-transparent"
-        title="选择颜色"
-      />
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && commit()}
-        placeholder="#xxxxxx"
-        className={`input w-44 font-mono ${valid ? '' : 'border-warn'}`}
-        spellCheck={false}
-      />
-    </div>
+    <SettingRow
+      label={label}
+      first={first}
+      layout="stacked"
+      description={valid ? undefined : '请输入合法的 HEX 颜色，例如 #4d6bfe'}
+    >
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(event) => onApply(event.target.value)}
+          className="h-8 w-10 shrink-0 cursor-pointer rounded-md border border-border bg-transparent"
+          aria-label={`${label}选择器`}
+        />
+        <TextInput
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit()
+          }}
+          status={valid ? undefined : 'error'}
+          className="font-mono"
+          spellCheck={false}
+          aria-label={label}
+        />
+      </div>
+    </SettingRow>
   )
 }
+
 /* ---------------- 模型 ---------------- */
 
-function ModelSection(): JSX.Element {
+export function ModelSection(): JSX.Element {
   const config = useModelStore((s) => s.config)
   const load = useModelStore((s) => s.load)
   const save = useModelStore((s) => s.save)
@@ -1056,120 +1103,176 @@ function ModelSection(): JSX.Element {
   }
 
   if (editing) {
-    const set = (patch: Partial<ModelPreset>): void => setEditing((e) => (e ? { ...e, ...patch } : e))
+    const set = (patch: Partial<ModelPreset>): void =>
+      setEditing((current) => (current ? { ...current, ...patch } : current))
+
     return (
       <>
-        <h1 className="selectable text-[18px] font-semibold text-txt-primary">模型设置</h1>
-        <Group title={isNew ? '新增模型' : '编辑模型'}>
-          <div className="space-y-3">
+        <h1 className="selectable text-[20px] font-semibold text-txt-primary">模型设置</h1>
+        <FormSection title={isNew ? '新增模型' : '编辑模型'}>
+          <div className="space-y-1">
             <Field label="名称">
-              <input className="input" value={editing.name} onChange={(e) => set({ name: e.target.value })} placeholder="如 DeepSeek / Kimi / 我的模型" />
+              <TextInput
+                aria-label="模型名称"
+                value={editing.name}
+                onChange={(e) => set({ name: e.target.value })}
+                placeholder="如 DeepSeek / Kimi / 我的模型"
+                block
+              />
             </Field>
-            <Label>提供方</Label>
-            <div className="mb-3 flex gap-2">
-              {(['deepseek', 'kimi', 'custom'] as ModelProvider[]).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => {
-                    set({ provider: p })
-                    if (p !== 'custom') {
-                      set({
-                        baseUrl: PROVIDER_PRESETS[p].baseUrl,
-                        model: PROVIDER_PRESETS[p].model
-                      })
-                    }
-                  }}
-                  className={`rounded-md border px-3 py-1.5 text-[13px] ${
-                    editing.provider === p ? 'border-accent text-txt-primary' : 'border-border text-txt-secondary hover:border-border-strong'
-                  }`}
-                >
-                  {p === 'deepseek' ? 'DeepSeek' : p === 'kimi' ? 'Kimi' : '自定义'}
-                </button>
-              ))}
-            </div>
+
+            <SettingRow label="提供方" description="选择提供方会自动填入推荐的接入地址与模型名。" block>
+              <SegmentedControl<ModelProvider>
+                value={editing.provider}
+                aria-label="模型提供方"
+                onChange={(p) => {
+                  set({ provider: p })
+                  if (p !== 'custom') {
+                    set({
+                      baseUrl: PROVIDER_PRESETS[p].baseUrl,
+                      model: PROVIDER_PRESETS[p].model
+                    })
+                  }
+                }}
+                options={[
+                  { value: 'deepseek', label: 'DeepSeek' },
+                  { value: 'kimi', label: 'Kimi' },
+                  { value: 'custom', label: '自定义' }
+                ]}
+              />
+            </SettingRow>
+
             <Field label="Base URL">
-              <input className="input font-mono" value={editing.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder="https://.../v1" />
+              <TextInput
+                aria-label="Base URL"
+                className="font-mono"
+                value={editing.baseUrl}
+                onChange={(e) => set({ baseUrl: e.target.value })}
+                placeholder="https://.../v1"
+                block
+              />
             </Field>
+
             <Field label="API Key">
-              <input
-                className="input font-mono"
-                type="password"
-                value={editing.apiKey}
-                onChange={(e) => set({ apiKey: e.target.value, hasApiKey: e.target.value ? true : editing.hasApiKey })}
-                placeholder={editing.hasApiKey ? '已安全保存；留空保持不变' : 'sk-...'}
-              />
-              {editing.hasApiKey && !editing.apiKey && (
-                <button
-                  className="mt-1 text-[11px] text-txt-muted hover:text-warn"
-                  onClick={() => set({ hasApiKey: false, apiKey: '' })}
-                >
-                  清除已保存的密钥
-                </button>
-              )}
+              <div>
+                <TextInput
+                  aria-label="API Key"
+                  className="font-mono"
+                  type="password"
+                  value={editing.apiKey}
+                  onChange={(e) =>
+                    set({ apiKey: e.target.value, hasApiKey: e.target.value ? true : editing.hasApiKey })
+                  }
+                  placeholder={editing.hasApiKey ? '已安全保存；留空保持不变' : 'sk-...'}
+                  block
+                />
+                {editing.hasApiKey && !editing.apiKey && (
+                  <Button
+                    variant="text"
+                    size="sm"
+                    className="mt-1"
+                    onClick={() => set({ hasApiKey: false, apiKey: '' })}
+                  >
+                    清除已保存的密钥
+                  </Button>
+                )}
+              </div>
             </Field>
+
             <Field label="模型">
-              <input className="input font-mono" value={editing.model} onChange={(e) => set({ model: e.target.value })} placeholder="deepseek-chat / moonshot-v1-8k" />
-              <p className="mt-1.5 text-[11px] leading-relaxed text-txt-muted">
-                图片能力由该模型本身决定。如需识图，请新增一个多模态模型预设，并在对话中切换后发送图片。
-              </p>
+              <div>
+                <TextInput
+                  aria-label="模型标识"
+                  className="font-mono"
+                  value={editing.model}
+                  onChange={(e) => set({ model: e.target.value })}
+                  placeholder="deepseek-chat / moonshot-v1-8k"
+                  block
+                />
+                <p className="mt-1.5 text-[14px] leading-[22px] text-txt-muted">
+                  图片能力由该模型本身决定。如需识图，请新增一个多模态模型预设，并在对话中切换后发送图片。
+                </p>
+              </div>
             </Field>
-            <label className="flex items-center gap-2 text-[12px] text-txt-secondary">
-              <input
-                type="checkbox"
+
+            <SettingRow label="图片输入" description="该模型是否接受图片作为输入。">
+              <ToggleSwitch
                 checked={editing.capabilities?.imageInput ?? false}
-                onChange={(e) => set({ capabilities: { imageInput: e.target.checked } })}
+                aria-label="支持图片输入"
+                onChange={(checked) => set({ capabilities: { imageInput: checked } })}
               />
-              此模型支持图片输入
-            </label>
-            <p className="text-[11px] leading-relaxed text-txt-muted">
+            </SettingRow>
+
+            <p className="py-3 text-[14px] leading-[22px] text-txt-muted">
               多轮记忆和上下文长度由应用按厂商与模型能力自动管理。
             </p>
           </div>
+
           <div className="mt-4 flex items-center gap-3">
-            <button onClick={() => void commit()} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">保存</button>
-            <button onClick={() => void doTest(editing)} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-primary hover:border-accent">测试连接</button>
-            <button onClick={() => setEditing(null)} className="btn border border-border bg-bg-raised px-3 py-1.5 text-txt-secondary">取消</button>
-            {msg && <span className="text-[12px] text-txt-secondary">{msg}</span>}
+            <Button variant="primary" onClick={() => void commit()}>保存</Button>
+            <Button onClick={() => void doTest(editing)}>测试连接</Button>
+            <Button variant="text" onClick={() => setEditing(null)}>取消</Button>
+            {msg && <span className="text-[14px] text-txt-secondary">{msg}</span>}
           </div>
-        </Group>
+        </FormSection>
       </>
     )
   }
 
   return (
     <>
-      <h1 className="selectable text-[18px] font-semibold text-txt-primary">模型设置</h1>
-      <Group title="已配置的模型">
+      <h1 className="selectable text-[20px] font-semibold text-txt-primary">模型设置</h1>
+      <FormSection title="已配置的模型" description="对话输入框下方可快速切换当前模型。">
         <div className="flex flex-col gap-2">
           {(config?.presets ?? []).map((p) => (
-            <div key={p.id} className="flex items-center gap-3 rounded-md border border-border bg-bg-app px-3 py-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[12px] font-semibold text-white">{p.name.slice(0, 1).toUpperCase()}</span>
+            <div
+              key={p.id}
+              className="flex items-center gap-3 rounded-md border border-border-subtle bg-bg-app px-3 py-2"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast-text">
+                {p.name.slice(0, 1).toUpperCase()}
+              </span>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-[13px] text-txt-primary">
-                  {p.name}
-                  <span className="rounded bg-bg-active px-1.5 text-[10px] text-txt-muted">{p.provider}</span>
-                  <span className="text-[10px] text-txt-muted">联网自动</span>
+                <div className="flex items-center gap-2 text-[14px] text-txt-primary">
+                  <span className="truncate">{p.name}</span>
+                  <TagChip>{p.provider}</TagChip>
+                  <TagChip>联网自动</TagChip>
                 </div>
-                <div className="truncate text-[11px] text-txt-muted">{p.model}</div>
+                <div className="truncate text-[14px] text-txt-muted">{p.model}</div>
               </div>
-              {p.id === config?.activePresetId && <span className="chip border border-accent bg-accent-dim/20 text-accent">当前</span>}
-              <button className="btn-icon" title="设为当前" disabled={p.id === config?.activePresetId} onClick={() => void activate(p.id)}><Icon.Check size={14} /></button>
-              <button className="btn-icon" title="编辑" onClick={() => startEdit(p)}><Icon.Edit size={14} /></button>
-              <button className="btn-icon" title="测试" onClick={() => void doTest(p)}><Icon.Play size={14} /></button>
-              <button className="btn-icon" title="删除" onClick={() => void remove(p.id)}><Icon.Trash size={14} /></button>
+              {p.id === config?.activePresetId && (
+                <TagChip tone="accent" variant="filled">
+                  当前
+                </TagChip>
+              )}
+              <IconButton
+                icon={<Icon.Check size={14} />}
+                label="设为当前"
+                disabled={p.id === config?.activePresetId}
+                onClick={() => void activate(p.id)}
+              />
+              <IconButton icon={<Icon.Edit size={14} />} label="编辑" onClick={() => startEdit(p)} />
+              <IconButton icon={<Icon.Play size={14} />} label="测试" onClick={() => void doTest(p)} />
+              <IconButton
+                icon={<Icon.Trash size={14} />}
+                label="删除"
+                danger
+                onClick={() => void remove(p.id)}
+              />
             </div>
           ))}
-          <button onClick={startNew} className="btn justify-center gap-1.5 border border-dashed border-border bg-bg-app px-3 py-2 text-txt-secondary hover:border-accent hover:text-txt-primary">
-            <Icon.Plus size={14} /> 新增模型
-          </button>
+          <Button block onClick={startNew} icon={<Icon.Plus size={14} />}>
+            新增模型
+          </Button>
         </div>
-        {msg && <div className="mt-3 text-[12px] text-txt-secondary">{msg}</div>}
-      </Group>
-      <Group title="说明">
-        <p className="text-[12px] leading-relaxed text-txt-secondary">
+        {msg && <div className="mt-3 text-[14px] text-txt-secondary">{msg}</div>}
+      </FormSection>
+      <FormSection title="说明">
+        <p className="text-[14px] leading-[22px] text-txt-secondary">
           可配置多个模型端点，对话输入框下方可通过下拉快速切换，并选择「低 / 中 / 高」推理等级。联网检索无需单独开关：普通问答会自动向模型提供厂商搜索能力；项目编码任务仍优先使用项目工具。自定义端点不兼容 Responses web_search 时会自动回退普通回答。未配置时回退本地演示（Mock）。
         </p>
-      </Group>
+      </FormSection>
     </>
   )
 }
+

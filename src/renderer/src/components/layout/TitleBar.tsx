@@ -9,7 +9,7 @@ export default function TitleBar(): JSX.Element {
 
   return (
     <div className="h-8 shrink-0 select-none bg-bg-app" style={drag}>
-      <div className="flex h-full items-center gap-2 px-3 text-[12px] text-txt-secondary">
+      <div className="flex h-full items-center gap-2 px-3 text-[14px] text-txt-secondary">
         <span className="font-medium text-txt-primary">AI Agent</span>
         <span className="text-txt-muted">桌面智能体</span>
       </div>

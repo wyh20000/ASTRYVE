@@ -119,7 +119,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
         <span className="responsive-control-label">{executionEnvironmentLabel(project?.preferences.executionEnvironment)}{unavailable && ' · 不可用'}</span>
         <Icon.ChevronDown size={11} />
       </button>
-      {error && <div role="alert" className="absolute bottom-full left-0 z-50 mb-2 max-w-[360px] rounded-md border border-border bg-bg-raised px-3 py-2 text-[11px] text-warn shadow-xl">
+      {error && <div role="alert" className="absolute bottom-full left-0 z-50 mb-2 max-w-[360px] rounded-md border border-border bg-bg-raised px-3 py-2 text-[14px] text-warn shadow-xl">
         {error}
         <button type="button" disabled={loading} className="ml-2 underline" onClick={() => {
           if (workspaceId) void load(workspaceId)
@@ -128,7 +128,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
 
       {open && project && (
         <div className="absolute bottom-full left-0 z-40 mb-2 w-[300px] overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
-          <div className="border-b border-border px-3 py-2 text-[11px] text-txt-muted">
+          <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">
             {open === 'permission' ? 'AI Agent 可以执行哪些操作？'
               : open === 'environment' ? '代码在哪个环境中执行？' : '使用哪个本机已有镜像？'}
           </div>
@@ -144,8 +144,8 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
               >
                 <Icon.Container size={14} className="mt-0.5 shrink-0 text-txt-muted" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12px] text-txt-primary">{image.repository}:{image.tag}</span>
-                  <span className="block truncate text-[10px] leading-4 text-txt-muted">
+                  <span className="block truncate text-[14px] text-txt-primary">{image.repository}:{image.tag}</span>
+                  <span className="block truncate text-[14px] leading-[20px] text-txt-muted">
                     本机镜像 · {(image.digest ?? image.imageId).slice(0, 19)}… · 启动命令将覆盖 entrypoint
                   </span>
                 </span>
@@ -181,8 +181,8 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
                     {open === 'permission' ? <Icon.Shield size={14} /> : <Icon.Container size={14} />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] text-txt-primary">{option.label}</span>
-                    <span className="block text-[10px] leading-4 text-txt-muted">
+                    <span className="block text-[14px] text-txt-primary">{option.label}</span>
+                    <span className="block text-[14px] leading-[20px] text-txt-muted">
                       {environmentDisabled
                         ? (option.value === 'docker'
                             ? dockerStatusText(project.capabilities.dockerReason, docker)
@@ -195,7 +195,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
               )
             })}
           </div>
-          {error && <div className="border-t border-border px-3 py-2 text-[10px] text-red-400">{error}</div>}
+          {error && <div className="border-t border-border px-3 py-2 text-[14px] text-err">{error}</div>}
         </div>
       )}
     </div>
@@ -235,18 +235,18 @@ export function AgentSettingsSection(): JSX.Element {
 
   return <div className="pb-12">
     <h1 className="selectable text-[22px] font-semibold tracking-tight text-txt-primary">Agent 设置</h1>
-    <p className="mt-1 text-[12px] text-txt-muted">配置当前项目的执行位置、权限审批和 Docker 镜像</p>
+    <p className="mt-1 text-[14px] text-txt-muted">配置当前项目的执行位置、权限审批和 Docker 镜像</p>
 
     <div className="mt-6 rounded-xl border border-border bg-bg-panel">
       <div className="border-b border-border px-4 py-3">
-        <div className="text-[13px] font-medium text-txt-primary">当前项目</div>
-        <div className="mt-1 truncate text-[11px] text-txt-muted">
+        <div className="text-[14px] font-medium text-txt-primary">当前项目</div>
+        <div className="mt-1 truncate text-[14px] text-txt-muted">
           {workspace ? `${workspace.name} · ${workspace.displayPath}` : '请先返回对话并选择一个项目'}
         </div>
       </div>
 
-      {!workspaceId ? <div className="px-4 py-10 text-center text-[12px] text-txt-muted">选择项目后即可配置 Agent</div>
-        : !project ? <div className="px-4 py-10 text-center text-[12px] text-txt-muted">{loading ? '正在读取项目设置…' : '项目设置尚未加载'}</div>
+      {!workspaceId ? <div className="px-4 py-10 text-center text-[14px] text-txt-muted">选择项目后即可配置 Agent</div>
+        : !project ? <div className="px-4 py-10 text-center text-[14px] text-txt-muted">{loading ? '正在读取项目设置…' : '项目设置尚未加载'}</div>
         : <div className="divide-y divide-border">
           <SettingsChoice
             title="权限审批"
@@ -275,8 +275,8 @@ export function AgentSettingsSection(): JSX.Element {
             icon="container"
           />
           {environment === 'docker' && <section className="px-4 py-4">
-            <h2 className="text-[13px] font-medium text-txt-primary">Docker 镜像</h2>
-            <p className="mt-1 text-[11px] text-txt-muted">选择本机已有镜像。Agent 启动命令会覆盖镜像 entrypoint。</p>
+            <h2 className="text-[14px] font-medium text-txt-primary">Docker 镜像</h2>
+            <p className="mt-1 text-[14px] text-txt-muted">选择本机已有镜像。Agent 启动命令会覆盖镜像 entrypoint。</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {images.map((image) => {
                 const selected = image.imageId === project.preferences.dockerImageId
@@ -285,19 +285,19 @@ export function AgentSettingsSection(): JSX.Element {
                   className={`flex min-w-0 items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${selected ? 'border-accent bg-accent-dim/10' : 'border-border bg-bg-app hover:border-border-strong'}`}>
                   <Icon.Container size={15} className={selected ? 'mt-0.5 text-accent' : 'mt-0.5 text-txt-muted'} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] text-txt-primary">{image.repository}:{image.tag}</span>
-                    <span className="mt-0.5 block truncate font-mono text-[9px] text-txt-muted">{image.digest ?? image.imageId}</span>
+                    <span className="block truncate text-[14px] text-txt-primary">{image.repository}:{image.tag}</span>
+                    <span className="mt-0.5 block truncate font-mono text-[14px] text-txt-muted">{image.digest ?? image.imageId}</span>
                   </span>
                   {selected && <Icon.Check size={14} className="mt-0.5 shrink-0 text-accent" />}
                 </button>
               })}
-              {!images.length && <div className="col-span-full rounded-lg border border-dashed border-border px-3 py-6 text-center text-[11px] text-txt-muted">本机没有可用的 Docker 镜像</div>}
+              {!images.length && <div className="col-span-full rounded-lg border border-dashed border-border px-3 py-6 text-center text-[14px] text-txt-muted">本机没有可用的 Docker 镜像</div>}
             </div>
           </section>}
         </div>}
     </div>
-    {error && <div role="alert" className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{error}</div>}
-    <p className="mt-4 text-[10px] leading-5 text-txt-muted">这些设置按项目保存。联网检索由模型能力自动提供，不需要在每次对话中手动开关。</p>
+    {error && <div role="alert" className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[14px] text-err">{error}</div>}
+    <p className="mt-4 text-[14px] leading-[22px] text-txt-muted">这些设置按项目保存。联网检索由模型能力自动提供，不需要在每次对话中手动开关。</p>
   </div>
 }
 
@@ -311,8 +311,8 @@ function SettingsChoice({ title, description, options, value, disabled, onChange
   icon: 'shield' | 'container'
 }): JSX.Element {
   return <section className="px-4 py-4">
-    <h2 className="text-[13px] font-medium text-txt-primary">{title}</h2>
-    <p className="mt-1 text-[11px] text-txt-muted">{description}</p>
+    <h2 className="text-[14px] font-medium text-txt-primary">{title}</h2>
+    <p className="mt-1 text-[14px] text-txt-muted">{description}</p>
     <div className="mt-3 grid gap-2 sm:grid-cols-3">
       {options.map((option) => {
         const selected = option.value === value
@@ -323,8 +323,8 @@ function SettingsChoice({ title, description, options, value, disabled, onChange
             {icon === 'shield' ? <Icon.Shield size={15} /> : <Icon.Container size={15} />}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1 text-[12px] text-txt-primary">{option.label}{selected && <Icon.Check size={12} className="text-accent" />}</span>
-            <span className="mt-1 block text-[10px] leading-4 text-txt-muted">{option.description}</span>
+            <span className="flex items-center gap-1 text-[14px] text-txt-primary">{option.label}{selected && <Icon.Check size={12} className="text-accent" />}</span>
+            <span className="mt-1 block text-[14px] leading-[20px] text-txt-muted">{option.description}</span>
           </span>
         </button>
       })}

@@ -519,18 +519,21 @@ export interface ModelTestResult {
   message: string
 }
 
-/** 主题颜色覆盖（背景 / 文字 / 强调色） */
-export interface ThemeOverrides {
-  bg?: string
-  text?: string
-  accent?: string
-}
-
-/** 持久化的主题状态 */
-export interface PersistedTheme {
-  presetId: string
-  overrides: ThemeOverrides
-}
+/**
+ * 主题颜色覆盖与持久化结构统一由 shared/themePreferences 提供，
+ * 这里既转出类型，也把类型引入本地作用域，
+ * 因为文件下方（IPC 契约）还需要直接引用 PersistedTheme。
+ */
+import type { ThemeMode, ThemeOverrides, PersistedTheme } from './themePreferences'
+export type { ThemeMode, ThemeOverrides, PersistedTheme }
+export {
+  DEFAULT_THEME_MODE,
+  DEFAULT_UI_FONT_SIZE,
+  THEME_SCHEMA_VERSION,
+  isThemeMode,
+  resolveThemeSettings,
+  sanitizeThemeOverrides
+} from './themePreferences'
 
 /** 数据库连接配置 */
 export interface DbConfig {

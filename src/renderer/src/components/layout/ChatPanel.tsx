@@ -20,13 +20,13 @@ export default function ChatPanel(): JSX.Element {
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
         <button
           onClick={() => void create()}
-          className="flex items-center gap-1.5 rounded-t-md px-3 text-[12px] text-txt-muted hover:bg-bg-panel hover:text-txt-secondary"
+          className="flex items-center gap-1.5 rounded-t-md px-3 text-[14px] text-txt-muted hover:bg-bg-panel hover:text-txt-secondary"
         >
           <Icon.Plus size={14} />
           新对话
         </button>
         {active && (
-          <div className="flex items-center gap-1.5 border-b-2 border-accent px-3 text-[12px] text-txt-primary">
+          <div className="flex items-center gap-1.5 border-b-2 border-accent px-3 text-[14px] text-txt-primary">
             <span className="selectable max-w-[160px] truncate">{active.title || '新对话'}</span>
             <button className="text-txt-muted hover:text-txt-primary" onClick={() => void create()}>
               <Icon.X size={13} />
@@ -37,7 +37,7 @@ export default function ChatPanel(): JSX.Element {
 
       {/* 标题 + 徽标 */}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
-        <span className="selectable min-w-0 flex-1 truncate text-[13px] font-medium text-txt-primary">
+        <span className="selectable min-w-0 flex-1 truncate text-[14px] font-medium text-txt-primary">
           {active?.title || '新对话'}
         </span>
         <div className="flex shrink-0 items-center gap-2">

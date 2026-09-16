@@ -41,7 +41,7 @@ export function WorkspacePicker({ sessionId, projectPath }: WorkspacePickerProps
 
       {open && (
         <div className="absolute right-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
-          <div className="border-b border-border px-3 py-2 text-[11px] text-txt-muted">
+          <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">
             项目授权仅允许读取所选目录；写入和命令尚未开放。
           </div>
           <div className="max-h-56 overflow-y-auto py-1">
@@ -57,21 +57,21 @@ export function WorkspacePicker({ sessionId, projectPath }: WorkspacePickerProps
               >
                 <Icon.Folder size={14} className="shrink-0 text-accent" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12px] text-txt-primary">{workspace.name}</span>
-                  <span className="block truncate text-[10px] text-txt-muted">{workspace.displayPath}</span>
+                  <span className="block truncate text-[14px] text-txt-primary">{workspace.name}</span>
+                  <span className="block truncate text-[14px] text-txt-muted">{workspace.displayPath}</span>
                 </span>
                 {workspace.id === active?.id && <Icon.Check size={13} className="text-accent" />}
               </button>
             ))}
             {!recent.length && (
-              <div className="px-3 py-3 text-[11px] text-txt-muted">还没有授权过的项目</div>
+              <div className="px-3 py-3 text-[14px] text-txt-muted">还没有授权过的项目</div>
             )}
           </div>
-          {error && <div className="border-t border-border px-3 py-2 text-[11px] text-red-400">{error}</div>}
+          {error && <div className="border-t border-border px-3 py-2 text-[14px] text-red-400">{error}</div>}
           <button
             type="button"
             disabled={loading || !sessionId}
-            className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-[12px] text-txt-primary hover:bg-bg-active disabled:opacity-50"
+            className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-[14px] text-txt-primary hover:bg-bg-active disabled:opacity-50"
             onClick={() => {
               setOpen(false)
               void selectAndActivate(sessionId)

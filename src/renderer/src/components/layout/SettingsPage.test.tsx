@@ -4,7 +4,8 @@ import type { PluginMarketEntry, PluginMetadata, PluginMcpPluginView, SkillMetad
 import type { AuditEvent } from '@shared/agent'
 import {
   AuditRecordList, describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
-  listMarketplaceCategories, PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SecuritySection, SkillsSection
+  listMarketplaceCategories, PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SecuritySection, SkillsSection,
+  ModelSection
 } from './SettingsPage'
 import SettingsPage from './SettingsPage'
 
@@ -39,16 +40,42 @@ vi.mock('../../stores/pluginStore', () => ({
   usePluginStore: (selector: (state: typeof pluginState) => unknown) => selector(pluginState)
 }))
 
+const modelState = vi.hoisted(() => ({
+  config: null as unknown,
+  loading: false,
+  load: vi.fn(),
+  save: vi.fn(),
+  activate: vi.fn(),
+  setReasoning: vi.fn(),
+  test: vi.fn()
+}))
+
+vi.mock('../../stores/modelStore', () => ({
+  useModelStore: (selector: (state: Record<string, unknown>) => unknown) => selector(modelState)
+}))
+
 vi.mock('../../stores/themeStore', () => ({
-  useThemeStore: (selector: (state: Record<string, unknown>) => unknown) => selector({
-    presetId: 'midnight',
-    overrides: {},
-    setPreset: vi.fn(),
-    setBg: vi.fn(),
-    setText: vi.fn(),
-    setAccent: vi.fn(),
-    resetOverrides: vi.fn()
-  })
+  useThemeStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      presetId: 'midnight',
+      mode: 'system',
+      overrides: {},
+      // ThemeSection 会读取 resolved 展示当前生效模式与颜色基线
+      resolved: {
+        light: false,
+        color: {
+          surface: { app: '#111315' },
+          text: { primary: '#e6e8ea' },
+          accent: { primary: '#4d6bfe' }
+        }
+      },
+      setMode: vi.fn(),
+      setPreset: vi.fn(),
+      setBg: vi.fn(),
+      setText: vi.fn(),
+      setAccent: vi.fn(),
+      resetOverrides: vi.fn()
+    })
 }))
 
 beforeEach(() => {
@@ -290,6 +317,54 @@ describe('Extensions settings page', () => {
   })
 })
 
+describe('Appearance settings section', () => {
+  it('exposes the three theme modes through an accessible segmented control', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    expect(html).toContain('跟随系统')
+    expect(html).toContain('浅色')
+    expect(html).toContain('深色')
+    expect(html).toContain('aria-label="主题模式"')
+  })
+
+  it('renders the theme mode cards without an outer framed container', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    expect(html).toContain('主题模式：跟随系统')
+    expect(html).toContain('主题模式：浅色')
+    expect(html).toContain('主题模式：深色')
+    // 不再展示「当前实际生效」文案（用户要求）
+    expect(html).not.toMatch(/当前：(深色|浅色)/)
+  })
+
+  it('renders the three theme mode cards as a radiogroup', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    expect(html).toContain('role="radiogroup"')
+    expect(html).toContain('role="radio"')
+    expect(html).toContain('主题模式：浅色')
+    expect(html).toContain('主题模式：深色')
+  })
+
+  it('keeps background, text and accent colour inputs', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    expect(html).toContain('背景色')
+    expect(html).toContain('文字颜色')
+    expect(html).toContain('强调色')
+  })
+
+  it('disables the reset action until a colour is customised', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    // 没有覆盖时「恢复默认」应为禁用态
+    // 精确断言 antd Button 的禁用标记，避免匹配到页面上其他 disabled 属性
+    const resetButton = html.match(/<button[^>]*disabled=""[^>]*><span>恢复默认<\/span><\/button>/)
+    expect(resetButton, '「恢复默认」在无自定义颜色时应为禁用态').not.toBeNull()
+  })
+
+  it('no longer renders the old preset theme cards', () => {
+    const html = renderToStaticMarkup(<SettingsPage />)
+    expect(html).not.toContain('午夜蓝')
+    expect(html).not.toContain('日光（浅色）')
+  })
+})
+
 describe('Security settings page', () => {
   it('offers a concise user-controlled audit cleanup action', () => {
     const html = renderToStaticMarkup(<SecuritySection />)
@@ -317,5 +392,79 @@ describe('Security settings page', () => {
     expect(html).toContain('连接')
     expect(html).toContain('acme@1.0.0')
     expect(html).not.toContain('workspace-1')
+  })
+})
+
+describe('Model settings section', () => {
+  beforeEach(() => {
+    modelState.config = null
+  })
+
+  it('uses the shared section heading level (20px page title)', () => {
+    const html = renderToStaticMarkup(<ModelSection />)
+    expect(html).toContain('text-[20px]')
+    expect(html).toContain('模型设置')
+  })
+
+  it('explains model switching and lists the configured section', () => {
+    const html = renderToStaticMarkup(<ModelSection />)
+    expect(html).toContain('已配置的模型')
+    expect(html).toContain('对话输入框下方可快速切换当前模型')
+  })
+
+  it('renders configured presets with provider metadata and per-row actions', () => {
+    modelState.config = {
+      activePresetId: 'p1',
+      reasoning: 'medium',
+      presets: [
+        {
+          id: 'p1',
+          name: 'DeepSeek',
+          provider: 'deepseek',
+          baseUrl: 'https://api.deepseek.com/v1',
+          model: 'deepseek-chat',
+          hasApiKey: true
+        },
+        {
+          id: 'p2',
+          name: 'Kimi',
+          provider: 'kimi',
+          baseUrl: 'https://api.moonshot.cn/v1',
+          model: 'moonshot-v1-8k',
+          hasApiKey: true
+        }
+      ]
+    }
+    const html = renderToStaticMarkup(<ModelSection />)
+
+    expect(html).toContain('DeepSeek')
+    expect(html).toContain('Kimi')
+    expect(html).toContain('deepseek-chat')
+    expect(html).toContain('moonshot-v1-8k')
+    // 提供方改用语义标签而不是裸 span
+    expect(html).toContain('ant-tag')
+    // 每行提供无文字图标操作，必须有可访问名称
+    expect(html).toContain('aria-label="编辑"')
+    expect(html).toContain('aria-label="测试"')
+    expect(html).toContain('aria-label="删除"')
+  })
+
+  it('marks the active preset action as unavailable', () => {
+    modelState.config = {
+      activePresetId: 'p1',
+      presets: [
+        { id: 'p1', name: 'A', provider: 'custom', baseUrl: 'u', model: 'm', hasApiKey: false }
+      ]
+    }
+    const html = renderToStaticMarkup(<ModelSection />)
+    // 注意属性顺序：IconButton 先输出 aria-label，再输出 disabled
+    const disabled = html.match(/<button[^>]*aria-label="设为当前"[^>]*disabled=""/)
+    expect(disabled, '当前预设的「设为当前」应为禁用态').not.toBeNull()
+  })
+
+  it('offers an add-model action', () => {
+    modelState.config = { activePresetId: null, presets: [] }
+    const html = renderToStaticMarkup(<ModelSection />)
+    expect(html).toContain('新增模型')
   })
 })

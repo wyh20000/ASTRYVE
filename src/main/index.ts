@@ -5,6 +5,7 @@ import { getStore, initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
 import { initSettings } from './services/settings'
 import { registerIpcHandlers } from './ipc'
+import { FIRST_PAINT_BACKGROUND, FIRST_PAINT_SYMBOL } from '@shared/themePaint'
 import { initWorkspaceService } from './services/agent/workspaceManager'
 import {
   cancelAllAgentTasks,
@@ -34,19 +35,20 @@ const rendererEntry = isDev && process.env['ELECTRON_RENDERER_URL']
   ? process.env['ELECTRON_RENDERER_URL']
   : pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1120,
     minHeight: 720,
     autoHideMenuBar: true,
-    backgroundColor: '#0a0e17',
+    // 首帧兜底：渲染进程应用主题前的底色（跟随深色基线，避免闪旧版深蓝）
+    backgroundColor: FIRST_PAINT_BACKGROUND,
     // 用自定义隐藏标题栏 + 覆盖层（仅 Windows），让顶部随主题颜色变化
     titleBarStyle: process.platform === 'win32' ? 'hidden' : undefined,
     titleBarOverlay:
       process.platform === 'win32'
-        ? { color: '#0a0e17', symbolColor: '#a7b0c0', height: 32 }
+        ? { color: FIRST_PAINT_BACKGROUND, symbolColor: FIRST_PAINT_SYMBOL, height: 32 }
         : undefined,
     webPreferences: createSecureWebPreferences(join(__dirname, '../preload/index.js'))
   })
@@ -86,6 +88,8 @@ function createWindow(): void {
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return win
 }
 
 app.whenReady().then(async () => {
@@ -157,7 +161,20 @@ app.whenReady().then(async () => {
   initModelConfig()
   configureTrustedIpcSender(rendererEntry)
   registerIpcHandlers()
-  createWindow()
+  const mainWindow = createWindow()
+
+  // 真实窗口主题验收：只在显式开启时运行，用于替代纯 jsdom 的假验证。
+  if (process.env.AI_AGENT_THEME_SMOKE === '1') {
+    try {
+      const { runThemePaintSmoke } = await import('./services/themePaintSmoke')
+      await runThemePaintSmoke(mainWindow)
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: theme paint smoke', error)
+      app.exit(1)
+    }
+    return
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

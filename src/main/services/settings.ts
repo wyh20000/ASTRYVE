@@ -3,6 +3,12 @@ import { join } from 'path'
 import fs from 'fs'
 import type { AgentProjectPreferences, PersistedTheme, DbConfig, BrowserPreferences, PluginPreferences } from '@shared/types'
 import {
+  DEFAULT_THEME_MODE,
+  MODE_LEGACY_PRESET_ID,
+  isCurrentThemeSchema,
+  resolveThemeSettings
+} from '@shared/themePreferences'
+import {
   EXECUTION_ENVIRONMENTS,
   PERMISSION_MODES,
   type WorkspaceGrant
@@ -20,7 +26,12 @@ interface SettingsFile {
 }
 
 const DEFAULTS: { theme: PersistedTheme; db: DbConfig } = {
-  theme: { presetId: 'midnight', overrides: {} },
+  theme: {
+    version: 2,
+    mode: DEFAULT_THEME_MODE,
+    overrides: {},
+    presetId: MODE_LEGACY_PRESET_ID[DEFAULT_THEME_MODE]
+  },
   db: { host: '127.0.0.1', port: 3306, user: 'root', password: '', database: 'ai_agent' }
 }
 
@@ -52,9 +63,14 @@ export function initSettings(): void {
   try {
     if (fs.existsSync(file())) {
       const raw = JSON.parse(fs.readFileSync(file(), 'utf-8')) as SettingsFile & Partial<PersistedTheme>
-      // 兼容旧结构：顶层直接是主题
-      if (raw.presetId) data.theme = { presetId: raw.presetId, overrides: raw.overrides ?? {} }
-      if (raw.theme) data.theme = { ...data.theme, ...raw.theme }
+      // 主题：兼容「顶层直接是主题」「theme 包裹」「新版 mode」三种历史形态。
+      // resolveThemeSettings 会把旧 presetId 迁移成 mode + 覆盖，且永不抛错。
+      const themeSource = raw.theme ?? (raw.presetId ? raw : undefined)
+      let themeMigrated = false
+      if (themeSource) {
+        data.theme = resolveThemeSettings(themeSource)
+        themeMigrated = !isCurrentThemeSchema(themeSource)
+      }
       if (raw.db) data.db = { ...data.db, ...raw.db }
       if (Array.isArray(raw.workspaces)) data.workspaces = raw.workspaces
       if (raw.agentProjects && typeof raw.agentProjects === 'object') {
@@ -77,6 +93,8 @@ export function initSettings(): void {
       }
       if (raw.browser) data.browser = sanitizeBrowserPreferences(raw.browser)
       if (raw.plugins && typeof raw.plugins === 'object') data.plugins = { autoUpdate: raw.plugins.autoUpdate === true }
+      // 旧结构迁移成功后立即写回，后续启动直接读取新结构
+      if (themeMigrated) persist()
     }
   } catch (e) {
     console.warn('[settings] load failed:', e)
@@ -106,7 +124,10 @@ export function getThemeSettings(): PersistedTheme {
 }
 
 export function setThemeSettings(t: PersistedTheme): PersistedTheme {
-  data.theme = { presetId: t.presetId ?? data.theme.presetId, overrides: t.overrides ?? {} }
+  // 统一走 resolveThemeSettings：清洗覆盖、补齐 version 并镜像 presetId，
+  // 因此即使渲染进程传入旧结构也能安全落盘。
+  const merged = { ...data.theme, ...t }
+  data.theme = resolveThemeSettings(merged)
   persist()
   return data.theme
 }

@@ -200,7 +200,7 @@ export default function WorkspacePanel(): JSX.Element | null {
       {([['files', '文件'], ['diff', `Diff${diffs.length ? ` ${diffs.length}` : ''}`], ['steps', '步骤'],
         ['output', `输出${commands.length ? ` ${commands.length}` : ''}`], ['terminal', '终端']] as const)
         .map(([id, label]) => <button key={id} type="button" onClick={() => setView(id)}
-          className={`relative h-10 px-2.5 text-[11px] transition-colors ${view === id
+          className={`relative h-10 px-2.5 text-[14px] transition-colors ${view === id
             ? 'text-txt-primary after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-accent'
             : 'text-txt-muted hover:text-txt-secondary'}`}>
           {label}
@@ -249,7 +249,7 @@ function EditorTabs({ files, activePath, dirtyPaths, diff, onSelect, onClose }: 
 }): JSX.Element {
   return <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-bg-panel">
     {files.length ? files.map((file) => <div key={file.path}
-      className={`group/tab flex min-w-[120px] max-w-[210px] items-center border-r border-border text-[11px] ${
+      className={`group/tab flex min-w-[120px] max-w-[210px] items-center border-r border-border text-[14px] ${
         activePath === file.path ? 'bg-bg-app text-txt-primary' : 'text-txt-muted hover:bg-bg-raised hover:text-txt-secondary'}`}>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2" onClick={() => onSelect(file.path)}>
         <FileGlyph path={file.path} diff={diff} />
@@ -259,7 +259,7 @@ function EditorTabs({ files, activePath, dirtyPaths, diff, onSelect, onClose }: 
         className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-bg-active group-hover/tab:opacity-100 focus-visible:opacity-100"
         onClick={() => onClose(file.path)}>{dirtyPaths.has(file.path)
           ? <span className="h-2 w-2 rounded-full bg-accent" /> : <Icon.X size={11} />}</button>
-    </div>) : <span className="flex items-center px-3 text-[10px] text-txt-muted">没有打开的文件</span>}
+    </div>) : <span className="flex items-center px-3 text-[14px] text-txt-muted">没有打开的文件</span>}
   </div>
 }
 
@@ -267,13 +267,13 @@ function Breadcrumb({ workspace, path, dirty, saving, error, onSave }: {
   workspace: string; path?: string; dirty?: boolean; saving?: boolean; error?: string; onSave?: () => Promise<void>
 }): JSX.Element {
   const parts = path?.split('/') ?? []
-  return <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-bg-app px-3 text-[10px] text-txt-muted">
+  return <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-bg-app px-3 text-[14px] text-txt-muted">
     <span className="truncate">{workspace}</span>
     {parts.map((part, index) => <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
       <Icon.ChevronRight size={10} /><span className={index === parts.length - 1 ? 'truncate text-txt-secondary' : 'truncate'}>{part}</span>
     </span>)}
     {error && <span className="ml-auto max-w-[240px] truncate text-red-300" title={error}>{error}</span>}
-    {dirty && <button type="button" className="ml-auto shrink-0 rounded px-2 py-0.5 text-[10px] text-accent hover:bg-bg-raised"
+    {dirty && <button type="button" className="ml-auto shrink-0 rounded px-2 py-0.5 text-[14px] text-accent hover:bg-bg-raised"
       disabled={saving} title="保存文件（Ctrl+S）" onClick={() => void onSave?.()}>{saving ? '保存中…' : '保存 Ctrl+S'}</button>}
   </div>
 }
@@ -305,7 +305,7 @@ function Explorer({ workspaceId, directories, expanded, activePath, loading, rev
       <label className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-bg-app px-2 focus-within:border-accent">
         <Icon.Search size={12} className="shrink-0 text-txt-muted" />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选文件…"
-          className="min-w-0 flex-1 bg-transparent text-[11px] text-txt-primary outline-none placeholder:text-txt-muted" />
+          className="min-w-0 flex-1 bg-transparent text-[14px] text-txt-primary outline-none placeholder:text-txt-muted" />
         {query && <button type="button" className="text-txt-muted hover:text-txt-primary" onClick={() => setQuery('')}><Icon.X size={11} /></button>}
       </label>
     </div>
@@ -315,7 +315,7 @@ function Explorer({ workspaceId, directories, expanded, activePath, loading, rev
         : <Empty text={searching ? '正在搜索…' : '没有匹配文件'} />)
         : <FileTree path="" directories={directories} expanded={expanded} activePath={activePath}
           onDirectory={onDirectory} onFile={onFile} />}
-      {loading && !query && <div className="px-3 py-2 text-[10px] text-txt-muted">读取中…</div>}
+      {loading && !query && <div className="px-3 py-2 text-[14px] text-txt-muted">读取中…</div>}
     </div>
   </aside>
 }
@@ -335,7 +335,7 @@ function FileTree({ path, directories, expanded, activePath, onDirectory, onFile
 function FileRow({ entry, depth, active, expanded, showPath, onClick }: {
   entry: WorkspaceFileEntry; depth: number; active: boolean; expanded?: boolean; showPath?: boolean; onClick: () => void
 }): JSX.Element {
-  return <button type="button" className={`mx-1 flex w-[calc(100%-8px)] items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] ${
+  return <button type="button" className={`mx-1 flex w-[calc(100%-8px)] items-center gap-1.5 rounded px-2 py-1 text-left text-[14px] ${
     active ? 'bg-bg-active text-txt-primary shadow-sm ring-1 ring-inset ring-border-strong' : 'text-txt-secondary hover:bg-bg-raised'}`}
     style={{ paddingLeft: `${8 + depth * 11}px` }} onClick={onClick} title={entry.path}>
     {entry.kind === 'directory' ? <><Icon.ChevronRight size={11} className={expanded ? 'rotate-90' : ''} /><Icon.Folder size={13} className="text-amber-300/80" /></>
@@ -362,12 +362,12 @@ function AuxiliaryView({ view, plans, commands, activeId, terminalId, terminalOu
 }): JSX.Element {
   return <div className="min-h-0 flex-1 overflow-auto">
     {view === 'steps' && (plans.length ? <ol className="p-2">{plans.flatMap((plan) => plan.items).map((item, index) =>
-      <li key={`${item.order}-${index}`} className="flex gap-2 border-b border-border px-2 py-2 text-[11px] text-txt-secondary">
+      <li key={`${item.order}-${index}`} className="flex gap-2 border-b border-border px-2 py-2 text-[14px] text-txt-secondary">
         <span className={item.done ? 'text-ok' : 'text-txt-muted'}>{item.done ? '✓' : '○'}</span><span>{item.title}</span>
       </li>)}</ol> : <Empty text="暂无任务步骤" />)}
     {view === 'output' && (commands.length ? commands.map((command) => <details key={command.callId} open={command.exitCode !== 0} className="border-b border-border">
-      <summary className="cursor-pointer px-3 py-2 font-mono text-[11px] text-txt-primary">{command.executable} {command.args.join(' ')} · exit {command.exitCode ?? '—'}</summary>
-      <pre className="selectable max-h-80 overflow-auto bg-bg-app p-3 text-[10px] leading-4 text-txt-secondary">{[
+      <summary className="cursor-pointer px-3 py-2 font-mono text-[14px] text-txt-primary">{command.executable} {command.args.join(' ')} · exit {command.exitCode ?? '—'}</summary>
+      <pre className="selectable max-h-80 overflow-auto bg-bg-app p-3 text-[14px] leading-[21px] text-txt-secondary">{[
         command.stdout, command.stderr && `stderr:\n${command.stderr}`, command.truncated && '[输出已截断]'
       ].filter(Boolean).join('\n')}</pre>
     </details>) : <Empty text="暂无命令输出" />)}
@@ -381,24 +381,24 @@ function Terminal({ terminalId, terminalOutput, terminalInput, activeId, setTerm
   setTerminalId: (value: string) => void; setTerminalOutput: (value: string) => void; setTerminalInput: (value: string) => void
 }): JSX.Element {
   return <div className="flex h-full min-h-[240px] flex-col bg-bg-app">
-    <div className="border-b border-border px-3 py-2 text-[10px] text-txt-muted">仅接收你的键盘输入；Agent 工具无法读取、写入或控制此终端。</div>
-    {!terminalId ? <button type="button" className="m-3 rounded border border-border bg-bg-raised px-3 py-2 text-[11px] text-txt-primary hover:bg-bg-active"
+    <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">仅接收你的键盘输入；Agent 工具无法读取、写入或控制此终端。</div>
+    {!terminalId ? <button type="button" className="m-3 rounded border border-border bg-bg-raised px-3 py-2 text-[14px] text-txt-primary hover:bg-bg-active"
       onClick={async () => {
         if (!activeId) return
         const result = await window.agent.terminal.open(activeId)
         if (result.ok) { setTerminalId(result.data.id); setTerminalOutput(`已启动 ${result.data.shell}\n`) }
         else setTerminalOutput(result.error.message)
       }}>启动用户终端</button> : <>
-      <pre className="selectable min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 font-mono text-[11px] leading-5 text-txt-secondary">{terminalOutput}</pre>
+      <pre className="selectable min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 font-mono text-[14px] leading-[21px] text-txt-secondary">{terminalOutput}</pre>
       <form className="flex border-t border-border" onSubmit={(event) => {
         event.preventDefault()
         if (!terminalInput || !terminalId) return
         void window.agent.terminal.write(terminalId, `${terminalInput}\r\n`)
         setTerminalInput('')
       }}>
-        <span className="px-2 py-2 font-mono text-[11px] text-accent">›</span>
+        <span className="px-2 py-2 font-mono text-[14px] text-accent">›</span>
         <input value={terminalInput} onChange={(event) => setTerminalInput(event.target.value)} autoComplete="off"
-          className="min-w-0 flex-1 bg-transparent py-2 pr-2 font-mono text-[11px] text-txt-primary outline-none" placeholder="输入命令并回车" />
+          className="min-w-0 flex-1 bg-transparent py-2 pr-2 font-mono text-[14px] text-txt-primary outline-none" placeholder="输入命令并回车" />
       </form>
     </>}
   </div>
@@ -436,5 +436,5 @@ async function withTimeout<T>(promise: Promise<T>, milliseconds: number, message
 }
 
 function Empty({ text }: { text: string }): JSX.Element {
-  return <div className="flex h-full min-h-32 items-center justify-center px-4 text-center text-[11px] text-txt-muted">{text}</div>
+  return <div className="flex h-full min-h-32 items-center justify-center px-4 text-center text-[14px] text-txt-muted">{text}</div>
 }

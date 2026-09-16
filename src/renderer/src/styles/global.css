@@ -2,22 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * 设计令牌的基础兜底值（深色 / 跟随系统的深色侧）。
+ *
+ * 真正的取值由 themeStore 在 React 挂载前写入根节点内联样式，
+ * 这里的声明只保证：
+ * 1. JS 尚未执行时首帧不会是空白或黑白默认；
+ * 2. 组件在任何情况下都能解析到合法的变量值。
+ * 变量清单与 theme/applyTheme.ts 的 toCssVariables 一一对应。
+ */
 :root {
   color-scheme: dark;
-  --bg-app: #0a0e17;
-  --bg-panel: #0f141e;
-  --bg-raised: #151b28;
-  --bg-active: #1a2233;
-  --border: #1d2534;
-  --border-strong: #2a3547;
-  --text-primary: #e6e9ef;
-  --text-secondary: #98a1b3;
-  --text-muted: #5c6577;
-  --accent: #5271ff;
-  --accent-dim: #33427f;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --err: #f85149;
+
+  /* Surface */
+  --surface-app: #111315;
+  --surface-sidebar: #181b1e;
+  --surface-panel: #1a1d20;
+  --surface-raised: #202428;
+  --surface-overlay: #24282d;
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-active: rgba(255, 255, 255, 0.09);
+
+  /* Border */
+  --border-subtle: #23272b;
+  --border-default: #2c3135;
+  --border-strong: #3a4046;
+  --border-focus: #3b5bdb;
+
+  /* Text */
+  --text-primary: #e6e8ea;
+  --text-secondary: #a8b0b8;
+  --text-muted: #8b939b;
+  --text-inverse: #111315;
+  --text-link: #3b5bdb;
+
+  /* Accent */
+  --accent: #3b5bdb;
+  --accent-hover: #6a83fe;
+  --accent-active: #7b91ff;
+  --accent-soft: rgba(77, 107, 254, 0.16);
+  --accent-contrast-text: #ffffff;
+
+  /* Status */
+  --status-success: #3fb950;
+  --status-warning: #d29922;
+  --status-error: #f85149;
+  --status-info: #4d9cf6;
+  --status-success-soft: rgba(63, 185, 80, 0.16);
+  --status-warning-soft: rgba(210, 153, 34, 0.16);
+  --status-error-soft: rgba(248, 81, 73, 0.16);
+  --status-info-soft: rgba(77, 156, 246, 0.16);
+
+  /* Code */
+  --code-editor: #0d0f10;
+  --code-inline: rgba(255, 255, 255, 0.06);
+  --code-block: #0b0d0e;
+  --code-diff-add: rgba(63, 185, 80, 0.16);
+  --code-diff-remove: rgba(248, 81, 73, 0.16);
+
+  /* Typography */
+  --font-sans: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Noto Sans CJK SC",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  --font-size-base: 14px;
+  --line-height-base: 22px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-bubble: 12px;
+  --radius-full: 999px;
+
+  /* Elevation */
+  --shadow-raised: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.6);
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- 旧变量别名（阶段 A 兼容，阶段 E 清理） ---- */
+  --bg-app: var(--surface-app);
+  --bg-panel: var(--surface-sidebar);
+  --bg-raised: var(--surface-raised);
+  --bg-active: var(--surface-active);
+  --border: var(--border-default);
+  --ok: var(--status-success);
+  --warn: var(--status-warning);
+  --err: var(--status-error);
 }
 
 html,
@@ -28,16 +105,11 @@ body,
 
 body {
   margin: 0;
-  background: var(--bg-app);
+  background: var(--surface-app);
   color: var(--text-primary);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -48,34 +120,97 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1d2534;
-  border-radius: 5px;
+  background: var(--border-default);
+  border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2a3547;
+  background: var(--border-strong);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/*
+ * 旧样式类（阶段 A 兼容）。
+ * 这里的尺寸已经对齐新令牌，但调用点仍由未迁移组件使用；
+ * 阶段 B 建立 components/ui 后逐族替换，阶段 E 统一删除。
+ */
 @layer components {
   .btn {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md text-[13px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md text-[14px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-icon {
-    @apply inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-txt-secondary transition-colors hover:bg-bg-raised hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-txt-secondary transition-colors hover:bg-bg-raised hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[14px] font-medium;
   }
   .input {
-    @apply w-full rounded-md border border-border bg-bg-panel px-3 py-1.5 text-[13px] text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent;
+    @apply w-full rounded-md border border-border bg-bg-panel px-3 py-1.5 text-[14px] text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent;
   }
 }
 
-:where(button, a, input, textarea, select):focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/*
+ * 键盘焦点指示：只给按钮与链接画外描边。
+ *
+ * 输入类控件（input / textarea / select）**不再**画 outline：
+ * 它们本身有边框，聚焦时改变边框颜色已经是足够清晰的焦点反馈；
+ * 再叠一层 2px outline + 2px offset 会显得「边框变粗」，
+ * 视觉上明显变重。这一取舍不违反无障碍要求 —— 焦点态依然可见、可辨。
+ */
+/*
+ * 键盘焦点指示：按钮与链接用 1px 紧贴描边。
+ *
+ * 演进说明：
+ * 1) 最初 2px outline + 2px offset 外扩 4px，在圆角按钮上只有最外缘露出，
+ *    且边缘被抗锯齿混成近白（实测 #d3e0dc），看起来像多了一条白边；
+ * 2) 改为 offset 0 后环完整了，但 2px 仍显厚重；
+ * 3) 最终用 1px：仍然是完整、清晰、可辨的焦点指示，但不再抢视觉。
+ */
+:where(button, a):focus-visible {
+  outline: 1px solid var(--border-focus);
+  outline-offset: 0;
+}
+
+/*
+ * 移除 Ant Design 按钮自带的 focus 阴影。
+ * 它与上面的描边叠加会让聚焦态显得又厚又亮；
+ * 焦点可见性由描边单独承担，语义与键盘行为不受影响。
+ */
+.ant-btn:focus,
+.ant-btn:focus-visible,
+.ant-btn-primary:focus,
+.ant-btn-primary:focus-visible,
+.ant-btn-default:focus,
+.ant-btn-default:focus-visible {
+  box-shadow: none !important;
+}
+
+/*
+ * 输入类控件：聚焦只改边框颜色，不加粗、不外扩、不加阴影。
+ * 同时覆盖 Ant Design 默认的聚焦阴影与描边。
+ */
+:where(input, textarea, select):focus,
+:where(input, textarea, select):focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-outlined:focus,
+.ant-input-outlined:focus-within,
+.ant-input-textarea-affix-wrapper:focus-within,
+.ant-select-focused .ant-select-content,
+.ant-select-content:focus,
+.ant-select-outlined:not(.ant-select-customize-input) .ant-select-content,
+.ant-picker-focused,
+.ant-input-number-focused {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--border-focus) !important;
 }
 
 /* 聊天输入由外层容器呈现焦点态，避免 textarea 再画一层内部边框。 */
@@ -92,8 +227,8 @@ body {
 
 .thinking-dots i,
 .reply-dots i {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
   border-radius: 999px;
   background: var(--text-secondary);
   animation: thinking-dot 1.1s ease-in-out infinite;
@@ -114,10 +249,23 @@ body {
   30% { transform: translateY(-2px); opacity: 1; }
 }
 
+/*
+ * reduced-motion：全局压缩动效，而不只是关掉思考动画。
+ * 组件自身仍可通过 prefers-reduced-motion 做更细的处理。
+ */
 @media (prefers-reduced-motion: reduce) {
   .thinking-dots i,
   .reply-dots i {
     animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -128,7 +276,7 @@ body {
 
 /* markdown 正文样式（消息正文 / 助手回复） */
 .markdown {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
   word-break: break-word;
 }
@@ -146,18 +294,18 @@ body {
   line-height: 1.3;
 }
 .markdown h1 {
-  font-size: 1.25rem;
+  font-size: 24px;
 }
 .markdown h2 {
-  font-size: 1.125rem;
+  font-size: 20px;
 }
 .markdown h3 {
-  font-size: 1rem;
+  font-size: 16px;
 }
 .markdown h4,
 .markdown h5,
 .markdown h6 {
-  font-size: 0.95rem;
+  font-size: 16px;
 }
 .markdown ul {
   list-style: disc;
@@ -178,23 +326,23 @@ body {
 }
 .markdown blockquote {
   border-left: 3px solid var(--accent);
-  background: var(--bg-raised);
+  background: var(--surface-raised);
   padding: 0.5rem 0.75rem;
   margin: 0.6rem 0;
   color: var(--text-secondary);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 .markdown code {
-  background: var(--bg-raised);
+  background: var(--code-inline);
   padding: 0.1rem 0.35rem;
-  border-radius: 4px;
-  font-family: ui-monospace, 'JetBrains Mono', Consolas, 'SF Mono', Menlo, monospace;
-  font-size: 0.85em;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 .markdown pre {
-  background: var(--bg-app);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--code-block);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: 0.75rem 0.9rem;
   overflow-x: auto;
   margin: 0.6rem 0;
@@ -202,11 +350,11 @@ body {
 .markdown pre code {
   background: transparent;
   padding: 0;
-  font-size: 0.85em;
+  font-size: 14px;
   line-height: 1.5;
 }
 .markdown a {
-  color: var(--accent);
+  color: var(--text-link);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -215,43 +363,46 @@ body {
 }
 .markdown hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   margin: 1rem 0;
 }
 .markdown table {
   border-collapse: collapse;
   margin: 0.6rem 0;
   width: 100%;
-  font-size: 0.9em;
+  font-size: 14px;
   display: block;
   overflow-x: auto;
 }
 .markdown th,
 .markdown td {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   padding: 0.4rem 0.6rem;
   text-align: left;
 }
 .markdown th {
-  background: var(--bg-raised);
+  background: var(--surface-raised);
   font-weight: 600;
   color: var(--text-primary);
 }
 .markdown img {
   max-width: 100%;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
-/* 窄窗口保持对话输入工具栏单行可用。模型名称始终显示。 */
+/*
+ * 窄窗口下工具区折叠，而不是把字号压到 14px 以下。
+ * 除间距与隐藏次要标签外，不做任何字号缩减。
+ */
 @media (max-width: 1500px) {
   .chat-input-toolbar {
-    gap: 0.2rem;
-    padding-left: 0.4rem;
-    padding-right: 0.4rem;
+    gap: 0.25rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
   }
 
   .chat-input-toolbar .chip {
-    padding-left: 0.35rem;
-    padding-right: 0.35rem;
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
   }
 }

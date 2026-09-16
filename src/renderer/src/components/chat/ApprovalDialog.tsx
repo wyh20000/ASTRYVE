@@ -49,53 +49,53 @@ export function ApprovalDialogView({ request, onClear }: {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 id="approval-title" className="truncate text-[14px] font-semibold text-txt-primary">{request.title}</h2>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${riskTone.badge}`}>{request.risk}</span>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[14px] ${riskTone.badge}`}>{request.risk}</span>
           </div>
-          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-txt-muted">{request.summary}</p>
+          <p className="mt-1 line-clamp-2 text-[14px] leading-4 text-txt-muted">{request.summary}</p>
         </div>
       </header>
 
       <div className="min-h-0 overflow-y-auto px-4 py-3">
-        <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[11px]">
+        <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[14px]">
           <span className="text-txt-muted">操作</span><span className="text-txt-secondary">{request.operation}</span>
           <span className="text-txt-muted">环境</span><span className="text-txt-secondary">{request.environment}</span>
           <span className="text-txt-muted">目标</span>
-          <code className="min-w-0 break-words rounded-md bg-bg-app px-2 py-1.5 font-mono text-[10px] leading-4 text-txt-primary">{request.target}</code>
+          <code className="min-w-0 break-words rounded-md bg-bg-app px-2 py-1.5 font-mono text-[14px] leading-4 text-txt-primary">{request.target}</code>
         </div>
         <details className="group mt-3 rounded-lg border border-border bg-bg-app">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-[11px] text-txt-secondary">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-[14px] text-txt-secondary">
             <Icon.ChevronRight size={11} className="transition-transform group-open:rotate-90" />
             查看可信详情与参数摘要
           </summary>
-          <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-border px-3 py-2 text-[10px] leading-4">
+          <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-border px-3 py-2 text-[14px] leading-4">
             <span className="text-txt-muted">工具</span><code className="break-words text-txt-secondary">{request.toolName}</code>
             {request.plugin && <><span className="text-txt-muted">插件</span><code className="break-words text-txt-secondary">{request.plugin.id}{request.plugin.version ? `@${request.plugin.version}` : ''}</code></>}
             <span className="text-txt-muted">调用 ID</span><code className="break-all text-txt-secondary">{request.callId}</code>
             <span className="text-txt-muted">权限依据</span><code className="break-words text-txt-secondary">{request.permissionBasis}</code>
           </div>
           {request.details &&
-          <pre className="selectable max-h-44 overflow-auto whitespace-pre-wrap break-words border-t border-border px-3 py-2 font-mono text-[10px] leading-4 text-txt-muted">{request.details}{request.detailsTruncated ? '\n\n[内容过长，界面已截断；审批仍绑定完整参数]' : ''}</pre>
+          <pre className="selectable max-h-44 overflow-auto whitespace-pre-wrap break-words border-t border-border px-3 py-2 font-mono text-[14px] leading-4 text-txt-muted">{request.details}{request.detailsTruncated ? '\n\n[内容过长，界面已截断；审批仍绑定完整参数]' : ''}</pre>
           }
         </details>
-        <p className="mt-3 text-[10px] leading-4 text-txt-muted">拒绝后不会执行该操作。批准只对当前显示且经过安全绑定的操作有效。</p>
-        {error && <p className="mt-2 text-[11px] text-red-300">{error}</p>}
+        <p className="mt-3 text-[14px] leading-4 text-txt-muted">拒绝后不会执行该操作。批准只对当前显示且经过安全绑定的操作有效。</p>
+        {error && <p className="mt-2 text-[14px] text-red-300">{error}</p>}
       </div>
 
       <footer className="flex flex-wrap justify-end gap-2 border-t border-border bg-bg-raised/50 px-4 py-3">
         <button type="button" disabled={Boolean(submitting)} onClick={() => void respond()}
-          className="rounded-lg border border-border px-3 py-2 text-[11px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
+          className="rounded-lg border border-border px-3 py-2 text-[14px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
           {submitting === 'deny' ? '拒绝中…' : '拒绝'}
         </button>
         {request.scopeOptions.includes('task-prefix') && <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('task-prefix')}
-          className="rounded-lg border border-border-strong px-3 py-2 text-[11px] text-txt-primary hover:bg-bg-active disabled:opacity-50">
+          className="rounded-lg border border-border-strong px-3 py-2 text-[14px] text-txt-primary hover:bg-bg-active disabled:opacity-50">
           {submitting === 'task-prefix' ? '批准中…' : '本任务允许相同命令'}
         </button>}
         {request.scopeOptions.includes('site') && <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('site')}
-          className="rounded-lg border border-border bg-bg-raised px-3 py-2 text-[12px] text-txt-secondary hover:bg-bg-active hover:text-txt-primary">
+          className="rounded-lg border border-border bg-bg-raised px-3 py-2 text-[14px] text-txt-secondary hover:bg-bg-active hover:text-txt-primary">
           {submitting === 'site' ? '保存中…' : '始终允许读取此网站'}
         </button>}
         <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('once')}
-          className="rounded-lg bg-accent px-3.5 py-2 text-[11px] font-medium text-white hover:bg-accent/85 disabled:opacity-50">
+          className="rounded-lg bg-accent px-3.5 py-2 text-[14px] font-medium text-white hover:bg-accent/85 disabled:opacity-50">
           {submitting === 'once' ? '批准中…' : '仅批准本次'}
         </button>
       </footer>

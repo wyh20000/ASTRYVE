@@ -51,7 +51,7 @@ export function MessageList({ messages }: { messages: Message[] }): JSX.Element 
             const el = ref.current
             if (el) el.scrollTop = el.scrollHeight
           }}
-          className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-bg-raised px-3 py-1 text-[11px] text-txt-secondary shadow-lg hover:text-txt-primary"
+          className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-bg-raised px-3 py-1 text-[14px] text-txt-secondary shadow-lg hover:text-txt-primary"
         >
           回到底部
         </button>
@@ -67,7 +67,7 @@ function EmptyState(): JSX.Element {
         <span className="text-[20px]">💬</span>
       </div>
       <div className="text-[14px] text-txt-secondary">开始一段新的对话</div>
-      <div className="max-w-[360px] text-[12px] text-txt-muted">
+      <div className="max-w-[360px] text-[14px] text-txt-muted">
         发送消息即可与 AI 流式对话；在「设置 → 模型设置」中配置模型后生效，未配置时使用本地演示。
       </div>
     </div>
