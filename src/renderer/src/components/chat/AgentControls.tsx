@@ -259,9 +259,16 @@ export function AgentSettingsSection(): JSX.Element {
               disabled: option.value === 'docker'
                 ? !project.capabilities.dockerAvailable
                 : !project.capabilities.localAvailable,
+              /*
+               * 卡片正文用人话说明状态；系统错误原文交给 title，
+               * 避免把多行报错铺在设置页并撑高整行网格。
+               */
               description: option.value === 'docker' && !project.capabilities.dockerAvailable
+                ? dockerStatusBrief(project.capabilities.dockerReason, project.capabilities.dockerPreflight)
+                : option.description,
+              detail: option.value === 'docker' && !project.capabilities.dockerAvailable
                 ? dockerStatusText(project.capabilities.dockerReason, project.capabilities.dockerPreflight)
-                : option.description
+                : undefined
             }))}
             value={environment}
             disabled={loading}
@@ -298,7 +305,7 @@ export function AgentSettingsSection(): JSX.Element {
 function SettingsChoice({ title, description, options, value, disabled, onChange, icon }: {
   title: string
   description: string
-  options: Array<{ value: string; label: string; description: string; disabled?: boolean }>
+  options: Array<{ value: string; label: string; description: string; detail?: string; disabled?: boolean }>
   value?: string
   disabled: boolean
   onChange: (value: string) => void
@@ -316,14 +323,14 @@ function SettingsChoice({ title, description, options, value, disabled, onChange
            * 完整描述放 title：Docker 不可用时这里会是一整段系统错误原文，
            * 直接平铺会把卡片撑高并连带拉高整行网格（另一张卡出现大片空白）。
            */
-          title={option.description}
+          title={option.detail ?? option.description}
           className={`flex min-h-[78px] items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${selected ? 'border-accent bg-accent-dim/10' : 'border-border bg-bg-app hover:border-border-strong'}`}>
           <span className={selected ? 'mt-0.5 text-accent' : 'mt-0.5 text-txt-muted'}>
             {icon === 'shield' ? <Icon.Shield size={15} /> : <Icon.Container size={15} />}
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1 text-[14px] text-txt-primary">{option.label}{selected && <Icon.Check size={12} className="text-accent" />}</span>
-            <span className="mt-1 line-clamp-3 block text-[14px] leading-[20px] text-txt-muted">{option.description}</span>
+            <span className="mt-1 block text-[14px] leading-[20px] text-txt-muted">{option.description}</span>
           </span>
         </button>
       })}
@@ -343,4 +350,25 @@ export function dockerStatusText(
     status.imagePresent ? '内置镜像已安装' : undefined
   ].filter(Boolean)
   return `${reason ?? status.reason}${facts.length ? ` · ${facts.join(' · ')}` : ''}`
+}
+/**
+ * 卡片用的简短 Docker 状态说明。
+ *
+ * 为什么不直接用 dockerStatusText：那个函数会拼出完整的系统错误原文
+ * （例如 npipe 连接失败的多行提示），把它铺在设置卡片里既不可读、
+ * 又会把卡片撑高并连带拉高整行网格。
+ *
+ * 这里只回答用户真正关心的两件事：能不能用、为什么不能。
+ * 完整原文仍通过 dockerStatusText 提供给 title，便于排查。
+ */
+export function dockerStatusBrief(
+  reason: string | undefined,
+  status: AgentExecutionCapabilities['dockerPreflight']
+): string {
+  if (!status) return '暂时无法确认 Docker 是否可用'
+  if (!status.cliFound) return '未检测到 Docker CLI，需要先安装 Docker Desktop'
+  if (!status.daemonReachable) return 'Docker 已安装但未运行，请先启动 Docker Desktop'
+  if (!status.linuxContainers) return '当前 Docker 未启用 Linux 容器，无法运行沙箱'
+  if (!status.imagePresent) return '缺少内置沙箱镜像，需要先拉取后才能使用'
+  return reason?.trim() ? '当前环境暂不可用' : 'Docker 沙箱暂不可用'
 }

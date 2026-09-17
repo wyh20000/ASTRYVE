@@ -1038,8 +1038,8 @@ function SkillDetails({ skill, mutating, onClose, onToggle, onUpdate, onUninstal
           <h2 id="skill-detail-title" className="text-[17px] font-semibold text-txt-primary">{skill.displayName} Skill</h2>
           <p className="mt-1 text-[14px] leading-5 text-txt-secondary">{skill.description}</p>
         </div>
-        {/* 启用开关：按 Codex 放在右上角 */}
-        <ToggleSwitch size="small" className="shrink-0"
+        {/* 启用开关：按 Codex 放在右上角（与关闭按钮同加 8px，保持同一水平线） */}
+        <ToggleSwitch size="small" className="mt-2 shrink-0"
           aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
           checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
         <IconButton autoFocus className="mt-2" icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />

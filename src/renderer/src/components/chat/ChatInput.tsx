@@ -77,8 +77,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [pluginDismissed, setPluginDismissed] = useState(false)
   const [pluginIndex, setPluginIndex] = useState(0)
   const send = useChatStore((s) => s.send)
-  const consumePendingPrompt = useUiStore((s) => s.consumePendingPrompt)
   const pendingPrompt = useUiStore((s) => s.pendingPrompt)
+  const clearPendingPrompt = useUiStore((s) => s.clearPendingPrompt)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
   const inputRequest = useChatStore((s) => s.inputRequests[sessionId])
@@ -128,16 +128,22 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   }, [sessionId])
 
   /*
-   * 消费「待填充文本」（技能详情的「立即试用」）。
+   * 把「待填充文本」（技能详情的「立即试用」）同步进输入框。
    *
-   * 依赖 pendingPrompt 本身而不是 sessionId：
-   * sessionStore.create() 会复用已激活的空会话，此时 sessionId 不变，
-   * 只依赖 sessionId 的话永远不会触发（实测过：输入框仍是空的）。
+   * 两个刻意的设计：
+   *
+   * 1) 不依赖 sessionId 触发：sessionStore.create() 会复用已激活的空会话，
+   *    sessionId 不变，只依赖它则永远不会触发。
+   *
+   * 2) **幂等**：这里只「读值并写入」，不在 effect 里清空。
+   *    因为 main.tsx 启用了 React.StrictMode，开发模式下 effect 会执行两次
+   *    （mount → unmount → mount）。原先用一次性 consume，第一次就取走并清空，
+   *    第二次拿到 undefined —— 而那才是最终生效的一次，于是预填在 dev 下消失。
+   *    清空改由用户开始编辑时进行，语义也更准确。
    */
   useEffect(() => {
-    const pending = consumePendingPrompt()
-    if (pending) setValue(pending)
-  }, [sessionId, pendingPrompt, consumePendingPrompt])
+    if (pendingPrompt) setValue(pendingPrompt)
+  }, [sessionId, pendingPrompt])
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')
@@ -445,6 +451,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             value={value}
             onChange={(next) => {
               setValue(next)
+              // 用户开始编辑：待填文本已完成使命，清掉以免污染后续会话
+              if (pendingPrompt !== undefined) clearPendingPrompt()
               setSlashDismissed(false)
               setSlashIndex(0)
               setPluginDismissed(false)

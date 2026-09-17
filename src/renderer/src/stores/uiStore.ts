@@ -35,13 +35,20 @@ interface UiState {
   openSettings: () => void
   closeSettings: () => void
   setSearchQuery: (q: string) => void
-  /** 待填入对话输入框的文本；消费一次后清空 */
+  /**
+   * 待填入对话输入框的文本（例如技能详情的「立即试用」）。
+   *
+   * 注意：读取方应当**幂等**地同步它，不要用「读一次就清空」的消费语义。
+   * main.tsx 启用了 React.StrictMode，开发模式下 effect 会执行两次，
+   * 一次性消费会在第一次就把值取走，导致最终那次拿到 undefined。
+   * 清空由 clearPendingPrompt 在用户开始编辑时显式进行。
+   */
   pendingPrompt?: string
   setPendingPrompt: (text: string) => void
-  consumePendingPrompt: () => string | undefined
+  clearPendingPrompt: () => void
 }
 
-export const useUiStore = create<UiState>((set, get) => ({
+export const useUiStore = create<UiState>((set) => ({
   sidebarOpen: true,
   sidebarWidth: readWidth(),
   settingsOpen: false,
@@ -67,9 +74,5 @@ export const useUiStore = create<UiState>((set, get) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   pendingPrompt: undefined,
   setPendingPrompt: (text) => set({ pendingPrompt: text }),
-  consumePendingPrompt: () => {
-    const text = get().pendingPrompt
-    if (text !== undefined) set({ pendingPrompt: undefined })
-    return text
-  }
+  clearPendingPrompt: () => set({ pendingPrompt: undefined })
 }))

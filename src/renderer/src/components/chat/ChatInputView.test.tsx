@@ -14,7 +14,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App as AntdApp, ConfigProvider } from 'antd'
-import type { ReactElement } from 'react'
+import { StrictMode, act, type ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toAntdTheme } from '../../theme/antdTheme'
 import { resolveTheme } from '../../theme/tokens'
@@ -313,5 +313,46 @@ describe('ChatInput 由 Ant Design X Sender 驱动', () => {
 
     expect(textarea).toHaveValue('上一条消息')
     expect(chatState.send).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('ChatInput 待填文本（技能「立即试用」）', () => {
+  it('在 StrictMode 下也能把待填文本写入输入框', async () => {
+    // 直接使用真实 uiStore：本用例验证的正是 store 与组件的协作语义
+    const { useUiStore } = await import('../../stores/uiStore')
+    useUiStore.setState({ pendingPrompt: undefined })
+
+    const theme = resolveTheme({ mode: 'dark', isDark: true })
+    render(
+      <StrictMode>
+        <ConfigProvider theme={toAntdTheme(theme)}>
+          <AntdApp>
+            <ChatInput sessionId="s1" />
+          </AntdApp>
+        </ConfigProvider>
+      </StrictMode>
+    )
+
+    // 模拟「立即试用」设置待填文本
+    act(() => { useUiStore.getState().setPendingPrompt('/frontend-app-builder ') })
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveValue('/frontend-app-builder ')
+    })
+  })
+
+  it('用户一旦编辑就清空待填文本，避免污染后续会话', async () => {
+    const { useUiStore } = await import('../../stores/uiStore')
+    useUiStore.setState({ pendingPrompt: '/review ' })
+
+    render(wrap(<ChatInput sessionId="s1" />))
+    const box = await screen.findByRole('textbox')
+    expect(box).toHaveValue('/review ')
+
+    await userEvent.type(box, 'x')
+    await waitFor(() => {
+      expect(useUiStore.getState().pendingPrompt).toBeUndefined()
+    })
   })
 })
