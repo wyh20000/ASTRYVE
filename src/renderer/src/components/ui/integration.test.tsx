@@ -13,7 +13,6 @@ import userEvent from '@testing-library/user-event'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { useState, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ThemeMode } from '@shared/themePreferences'
 import { toAntdTheme } from '../../theme/applyTheme'
 import { resolveTheme, type ResolvedTheme } from '../../theme/tokens'
 import { Button } from './Button'
@@ -24,15 +23,13 @@ import { SearchInput, TextInput } from './Input'
 /** 与 App.tsx 相同的 Provider 结构 */
 function WithTheme({
   children,
-  theme,
-  mode = 'dark'
+  theme
 }: {
   children: ReactNode
   theme: ResolvedTheme
-  mode?: ThemeMode
 }): JSX.Element {
   return (
-    <ConfigProvider theme={toAntdTheme(theme, mode) as never}>
+    <ConfigProvider theme={toAntdTheme(theme) as never}>
       <AntdApp>{children}</AntdApp>
     </ConfigProvider>
   )
@@ -57,7 +54,7 @@ describe('令牌驱动组件外观', () => {
     unmount()
 
     render(
-      <WithTheme theme={light} mode="light">
+      <WithTheme theme={light}>
         <Button variant="primary">主操作</Button>
       </WithTheme>
     )
@@ -66,13 +63,13 @@ describe('令牌驱动组件外观', () => {
 
   it('自定义强调色会注入到 Ant Design 主色令牌', () => {
     const custom = resolveTheme({ mode: 'dark', overrides: { accent: '#ff0000' } })
-    const config = toAntdTheme(custom, 'dark') as { token: { colorPrimary: string } }
+    const config = toAntdTheme(custom) as { token: { colorPrimary: string } }
     expect(config.token.colorPrimary).toBe('#ff0000')
     expect(config.token.colorPrimary).toBe(custom.color.accent.primary)
   })
 
   it('控件高度与圆角来自令牌而非硬编码', () => {
-    const config = toAntdTheme(dark, 'dark') as {
+    const config = toAntdTheme(dark) as {
       token: { controlHeight: number; borderRadius: number; fontSize: number }
     }
     expect(config.token.controlHeight).toBe(dark.space.control)

@@ -125,7 +125,6 @@ function AppShell(): JSX.Element {
 export default function App(): JSX.Element {
   // 主题令牌由 themeStore 统一解析；系统主题变化会更新 resolved 并触发重渲染。
   const theme = useResolvedTheme()
-  const mode = useThemeStore((state) => state.mode)
 
   /*
    * 根节点使用 XProvider 而不是 antd 的 ConfigProvider。
@@ -139,7 +138,7 @@ export default function App(): JSX.Element {
    * 任何字段写错都会在 typecheck 阶段报错。
    */
   return (
-    <XProvider theme={toAntdTheme(theme, mode)} locale={zhCN}>
+    <XProvider theme={toAntdTheme(theme)} locale={zhCN}>
       <AntdApp message={{ top: 48, maxCount: 3 }}>
         <AppShell />
       </AntdApp>

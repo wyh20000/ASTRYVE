@@ -23,6 +23,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { stepInputHistory, type InputHistoryState } from './inputHistory'
 import { useSkillStore } from '../../stores/skillStore'
 import { usePluginStore } from '../../stores/pluginStore'
+import { useDismissibleLayer } from '../../hooks/useDismissibleLayer'
 
 /**
  * 输入框最大高度约束。迁移前是 `max-h-[200px]` + 手动 autosize；
@@ -588,7 +589,7 @@ export function UserInputCard({ request, onResolved }: { request: UserInputReque
         {index > 0 && <button type="button" disabled={submitting} onClick={() => setIndex((current) => current - 1)}
           className="rounded-md px-2.5 py-1.5 text-[14px] text-txt-secondary hover:bg-bg-active">上一个</button>}
         <button type="button" disabled={!answer.trim() || submitting} onClick={() => void submit()}
-          className="rounded-md bg-accent px-3 py-1.5 text-[14px] font-medium text-accent-contrast-text disabled:opacity-40">
+          className="rounded-md bg-accent px-3 py-1.5 text-[14px] font-medium text-accent-contrast disabled:opacity-40">
           {submitting ? '提交中…' : isLast ? '提交并继续' : '下一个'}
         </button>
       </div>
@@ -623,6 +624,9 @@ function ModelSelector(): JSX.Element {
   const setReasoning = useModelStore((s) => s.setReasoning)
   const openSettings = useUiStore((s) => s.openSettings)
   const [open, setOpen] = useState(false)
+  const container = useRef<HTMLDivElement>(null)
+
+  useDismissibleLayer(container, open, () => setOpen(false))
 
   const active = config?.presets.find((p) => p.id === config.activePresetId)
   const effort = config?.reasoningEffort ?? 'medium'
@@ -636,59 +640,87 @@ function ModelSelector(): JSX.Element {
   }
 
   return (
-    <div className="relative shrink-0">
+    <div ref={container} className="relative shrink-0">
       <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[14px] text-txt-secondary hover:bg-bg-raised"
+        className={`flex min-h-8 items-center gap-2 rounded-lg px-2.5 py-1 text-[14px] transition-colors ${
+          open ? 'bg-bg-active text-txt-primary' : 'text-txt-secondary hover:bg-bg-raised hover:text-txt-primary'
+        }`}
       >
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast-text">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast">
           {active.name.slice(0, 1).toUpperCase()}
         </span>
         <span className="max-w-[150px] truncate" title={`${active.name} · ${active.model}`}>{active.name}</span>
         <span className="rounded bg-bg-active px-1.5 text-[14px] text-txt-muted">{EFFORT_LABEL[effort]}</span>
-        <Icon.ChevronDown size={13} className={open ? 'rotate-180' : ''} />
+        <Icon.ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-1 w-[250px] overflow-hidden rounded-md border border-border bg-bg-raised shadow-xl">
-          <div className="border-b border-border px-3 py-1.5 text-[14px] text-txt-muted">模型</div>
-          {config.presets.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => {
-                void activate(p.id)
-                setOpen(false)
-              }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] hover:bg-bg-active ${
-                p.id === config.activePresetId ? 'text-txt-primary' : 'text-txt-secondary'
-              }`}
-            >
-              <span className="flex-1 truncate">{p.name}</span>
-              <span className="max-w-[90px] truncate text-[14px] text-txt-muted">{p.model}</span>
-              {p.id === config.activePresetId && <Icon.Check size={13} className="text-accent" />}
-            </button>
-          ))}
+        <div
+          role="listbox"
+          aria-label="模型与推理等级"
+          style={{ backgroundColor: 'var(--surface-overlay)' }}
+          className="absolute bottom-full left-0 z-40 mb-2 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border-strong bg-surface-overlay p-1.5 shadow-overlay"
+        >
+          <div className="px-2.5 pb-1.5 pt-1 text-[14px] font-medium text-txt-muted">选择模型</div>
+          <div className="max-h-[260px] space-y-0.5 overflow-y-auto">
+            {config.presets.map((p) => {
+              const selected = p.id === config.activePresetId
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    void activate(p.id)
+                    setOpen(false)
+                  }}
+                  className={`flex min-h-[52px] w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[14px] transition-colors ${
+                    selected ? 'bg-accent-soft text-txt-primary' : 'text-txt-secondary hover:bg-bg-active hover:text-txt-primary'
+                  }`}
+                >
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-semibold ${
+                    selected ? 'bg-accent text-accent-contrast' : 'bg-bg-active text-txt-secondary'
+                  }`}>
+                    {p.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{p.name}</span>
+                    <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{p.model}</span>
+                  </span>
+                  {selected && <Icon.Check size={16} className="shrink-0 text-accent" />}
+                </button>
+              )
+            })}
+          </div>
           <button
+            type="button"
             onClick={() => {
               setOpen(false)
               openSettings()
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] text-accent hover:bg-bg-active"
+            className="mt-1 flex min-h-10 w-full items-center gap-2 rounded-lg border-t border-border px-3 py-2 text-left text-[14px] leading-5 text-accent transition-colors hover:bg-bg-active"
           >
-            <Icon.Settings size={14} />
+            <Icon.Settings size={16} />
             配置 / 管理模型
           </button>
-          <div className="border-b border-border px-3 py-1.5 text-[14px] text-txt-muted">推理等级</div>
-          <div className="flex gap-1 px-2 py-1.5">
+          <div className="mx-1 mt-1 border-t border-border px-2 pb-1 pt-2 text-[14px] font-medium text-txt-muted">推理等级</div>
+          <div className="grid grid-cols-3 gap-1 p-1">
             {EFFORTS.map((r) => (
               <button
                 key={r}
+                type="button"
+                aria-pressed={effort === r}
                 onClick={() => {
                   void setReasoning(r)
                   setOpen(false)
                 }}
-                className={`flex-1 rounded-md px-2 py-1 text-[14px] ${
-                  effort === r ? 'bg-accent text-white' : 'bg-bg-panel text-txt-secondary hover:bg-bg-active'
+                className={`min-h-9 rounded-lg px-2 py-1 text-[14px] font-medium transition-colors ${
+                  effort === r ? 'bg-accent text-accent-contrast' : 'bg-bg-panel text-txt-secondary hover:bg-bg-active hover:text-txt-primary'
                 }`}
               >
                 {EFFORT_LABEL[r]}

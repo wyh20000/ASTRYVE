@@ -21,9 +21,15 @@ const projectRoot = path.resolve(__dirname, '..')
 
 console.log('[smoke:theme] 启动真实 Electron 窗口进行主题验收…')
 
-const result = spawnSync(electronBinary, [projectRoot], {
+const electronArgs = [projectRoot]
+if (process.env.AI_AGENT_THEME_SMOKE_USER_DATA) {
+  electronArgs.push(`--user-data-dir=${path.resolve(process.env.AI_AGENT_THEME_SMOKE_USER_DATA)}`)
+}
+
+const result = spawnSync(electronBinary, electronArgs, {
   cwd: projectRoot,
-  stdio: 'inherit',
+  encoding: 'utf8',
+  maxBuffer: 10 * 1024 * 1024,
   env: {
     ...process.env,
     AI_AGENT_THEME_SMOKE: '1'
@@ -35,5 +41,14 @@ if (result.error) {
   process.exit(1)
 }
 
-// Electron 在 Windows 上偶发非零退出码但输出已 PASS，因此以标记为准
-process.exit(result.status ?? 1)
+const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+if (result.stdout) process.stdout.write(result.stdout)
+if (result.stderr) process.stderr.write(result.stderr)
+
+// Electron 在 Windows 上偶发非零退出码但输出已 PASS，因此只把明确的 PASS
+// 标记视为成功；反过来，即使 Electron 异常地返回 0，没有 PASS 也必须失败。
+const passed = output.includes('[theme-smoke] PASS:')
+if (!passed) {
+  console.error('[smoke:theme] 未检测到 PASS 标记，真实窗口验收失败。')
+}
+process.exit(passed ? 0 : (result.status && result.status !== 0 ? result.status : 1))

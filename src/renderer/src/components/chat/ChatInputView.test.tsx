@@ -68,7 +68,7 @@ import { ChatInput } from './ChatInput'
 function wrap(ui: ReactElement): ReactElement {
   const theme = resolveTheme({ mode: 'dark', isDark: true })
   return (
-    <ConfigProvider theme={toAntdTheme(theme, 'dark')}>
+    <ConfigProvider theme={toAntdTheme(theme)}>
       <AntdApp>{ui}</AntdApp>
     </ConfigProvider>
   )
@@ -231,6 +231,30 @@ describe('ChatInput 由 Ant Design X Sender 驱动', () => {
     const { container } = render(wrap(<ChatInput sessionId="s1" />))
     expect(container.querySelector('.ant-sender')).not.toBeNull()
     expect(container.querySelector('textarea.ant-sender-input')).not.toBeNull()
+  })
+
+  it('模型菜单点击外部或按 Escape 会关闭', async () => {
+    modelState.config = {
+      activePresetId: 'deepseek',
+      reasoningEffort: 'high',
+      presets: [{ id: 'deepseek', name: 'DeepSeek V4', model: 'deepseek-v4-pro' }]
+    }
+    render(wrap(<ChatInput sessionId="s1" />))
+    const trigger = screen.getByRole('button', { name: /DeepSeek V4/ })
+
+    await userEvent.click(trigger)
+    const menu = screen.getByRole('listbox', { name: '模型与推理等级' })
+    expect(menu).toBeInTheDocument()
+    expect(menu).toHaveClass('bg-surface-overlay')
+    expect(menu).toHaveStyle({ backgroundColor: 'var(--surface-overlay)' })
+    expect(screen.getByRole('button', { name: '配置 / 管理模型' })).toHaveClass('items-center', 'py-2')
+    await userEvent.click(screen.getByText('AI 生成的内容可能不准确，请注意甄别'))
+    expect(screen.queryByRole('listbox', { name: '模型与推理等级' })).not.toBeInTheDocument()
+
+    await userEvent.click(trigger)
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox', { name: '模型与推理等级' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   it('Skill 菜单里回车只补齐指令，不会同时发送消息', async () => {

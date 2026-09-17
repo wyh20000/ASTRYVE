@@ -15,6 +15,9 @@
 /** 深色基线：应用背景（等价于 token surface.app 的深色取值） */
 export const FIRST_PAINT_BACKGROUND = '#111315'
 
+/** 浅色基线：应用背景。 */
+export const FIRST_PAINT_LIGHT_BACKGROUND = '#f5f6f8'
+
 /**
  * 默认强调色。
  *
@@ -26,3 +29,6 @@ export const DEFAULT_ACCENT = '#3b5bdb'
 
 /** 深色基线：主文字色（等价于 token text.primary 的深色取值） */
 export const FIRST_PAINT_SYMBOL = '#e6e8ea'
+
+/** 浅色基线：主文字与窗口控制符号色。 */
+export const FIRST_PAINT_LIGHT_SYMBOL = '#1c1f23'

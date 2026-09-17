@@ -30,7 +30,7 @@ const THEME = resolveTheme({ mode: 'dark', isDark: true })
 /** 与 App.tsx 相同的 Provider 结构 */
 function wrap(ui: ReactElement): ReactElement {
   return (
-    <XProvider theme={toAntdTheme(THEME, 'dark')} locale={zhCN}>
+    <XProvider theme={toAntdTheme(THEME)} locale={zhCN}>
       <AntdApp>{ui}</AntdApp>
     </XProvider>
   )

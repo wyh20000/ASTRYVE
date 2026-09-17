@@ -46,7 +46,7 @@ describe('ToggleSwitch', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('size 只接受 small / default（antd 的 SwitchSize 不含 large）', () => {
+  it('size 只接受 small / medium（不使用已弃用的 default）', () => {
     const { container, unmount } = render(
       <ToggleSwitch checked onChange={() => undefined} size="small" aria-label="小" />
     )
@@ -54,7 +54,7 @@ describe('ToggleSwitch', () => {
     unmount()
 
     const { container: def } = render(
-      <ToggleSwitch checked onChange={() => undefined} size="default" aria-label="默认" />
+      <ToggleSwitch checked onChange={() => undefined} size="medium" aria-label="默认" />
     )
     expect(def.querySelector('.ant-switch-small')).toBeNull()
   })

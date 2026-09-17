@@ -40,7 +40,7 @@ export default function Sidebar(): JSX.Element {
       {/* 顶栏：Logo + 应用名 + 收起 */}
       <div className="flex h-12 items-center gap-2 px-3">
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent">
-          <Icon.Brain size={16} className="text-accent-contrast-text" />
+          <Icon.Brain size={16} className="text-accent-contrast" />
         </div>
         <span className="text-[16px] font-semibold text-txt-primary">AI Agent</span>
         <span className="ml-auto">

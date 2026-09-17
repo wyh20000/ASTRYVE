@@ -128,7 +128,7 @@ describe('首帧与默认值', () => {
     const { useThemeStore } = await loadStore()
     expect(useThemeStore.getState().resolved.isDark).toBe(false)
     expect(env.root.classes.has('dark')).toBe(false)
-    expect(env.root.style.props['--surface-app']).toBe('#f7f8fa')
+    expect(env.root.style.props['--surface-app']).toBe('#f5f6f8')
   })
 })
 
@@ -194,7 +194,7 @@ describe('跟随系统 - 实时响应且不改写用户选择', () => {
     env.setDark(false)
     expect(useThemeStore.getState().resolved.isDark).toBe(false)
     expect(env.root.classes.has('dark')).toBe(false)
-    expect(env.root.style.props['--surface-app']).toBe('#f7f8fa')
+    expect(env.root.style.props['--surface-app']).toBe('#f5f6f8')
   })
 
   it('系统主题变化不会把 mode 改写成固定模式', async () => {
@@ -356,7 +356,7 @@ describe('标题栏同步', () => {
     const { useThemeStore } = await loadStore()
     useThemeStore.getState().setMode('light')
 
-    expect(env.titleBarColors.at(-1)).toBe('#f7f8fa')
+    expect(env.titleBarColors.at(-1)).toBe('#f5f6f8')
   })
 
   it('系统主题变化同样同步标题栏', async () => {
@@ -367,7 +367,7 @@ describe('标题栏同步', () => {
 
     env.setDark(false)
     expect(env.titleBarColors.length).toBeGreaterThan(before)
-    expect(env.titleBarColors.at(-1)).toBe('#f7f8fa')
+    expect(env.titleBarColors.at(-1)).toBe('#f5f6f8')
   })
 
   it('缺少 Electron bridge 时不抛错', async () => {

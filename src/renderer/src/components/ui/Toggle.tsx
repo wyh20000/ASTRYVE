@@ -5,8 +5,7 @@ import type { ReactNode } from 'react'
  * 开关与标签。
  *
  * API 依据（antd 6.6.2，见 docs/13-组件API参考.md）：
- * - `SwitchProps.size` 类型为 `Exclude<SizeType, 'large'> | 'default'`，
- *   即 **不接受 'large'**；
+ * - antd 6 使用 `small` / `medium`；旧的 `default` 已弃用，会产生运行时告警；
  * - `SwitchProps` 同时提供 `checked/defaultChecked` 与 `value/defaultValue` 两套受控名；
  * - `TagProps.variant` 取值为 `'filled' | 'solid' | 'outlined'`，
  *   颜色可用预设名（如 'success'）或自定义 hex。
@@ -14,7 +13,7 @@ import type { ReactNode } from 'react'
 
 /* ---------------- Switch ---------------- */
 
-export type SwitchSize = 'small' | 'default'
+export type SwitchSize = 'small' | 'medium'
 
 export interface ToggleSwitchProps {
   checked: boolean

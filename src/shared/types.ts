@@ -433,6 +433,8 @@ export interface PluginMarketSource {
   error?: string
   signingKeyId?: string
   signingPublicKey?: string
+  /** Version of locally derived presentation metadata such as official icon URLs. */
+  presentationVersion?: number
 }
 export interface PluginMarketEntry {
   id: string
@@ -462,6 +464,11 @@ export interface PluginMarketEntry {
   dataTargets?: string[]
   installable?: boolean
   unavailableReason?: string
+  /** Codex official manifest presentation metadata. Remote assets are accepted only from the pinned official repository. */
+  brandColor?: string
+  composerIconUrl?: string
+  logoUrl?: string
+  logoDarkUrl?: string
   repository?: {
     owner: string
     repo: string

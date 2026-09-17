@@ -9,7 +9,7 @@ export default function SidebarFooter(): JSX.Element {
   return (
     <div className="mt-auto border-t border-border-subtle">
       <div className="flex items-center gap-2 px-3 py-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast-text">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast">
           M
         </div>
         <span className="text-[14px] text-txt-primary">

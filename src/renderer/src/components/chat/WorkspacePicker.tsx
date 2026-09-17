@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { Icon } from '../ui/icons'
+import { useDismissibleLayer } from '../../hooks/useDismissibleLayer'
 
 interface WorkspacePickerProps {
   sessionId: string
@@ -17,19 +18,14 @@ export function WorkspacePicker({ sessionId, projectPath }: WorkspacePickerProps
   const selectAndActivate = useWorkspaceStore((state) => state.selectAndActivate)
   const active = recent.find((workspace) => workspace.displayPath === projectPath)
 
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent): void => {
-      if (!container.current?.contains(event.target as Node)) setOpen(false)
-    }
-    window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
-  }, [open])
+  useDismissibleLayer(container, open, () => setOpen(false))
 
   return (
     <div ref={container} className="relative">
       <button
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className="chip flex max-w-[240px] items-center gap-1.5 border border-border bg-bg-panel text-txt-secondary hover:border-accent hover:text-txt-primary"
         onClick={() => setOpen((value) => !value)}
         title={active?.displayPath ?? '选择项目工作区'}

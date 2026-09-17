@@ -31,7 +31,7 @@ const LIGHT = resolveTheme({ mode: 'light', isDark: false })
 describe('XProvider 接线', () => {
   it('承载 antd ThemeConfig 并正常渲染子树', () => {
     render(
-      <XProvider theme={toAntdTheme(DARK, 'dark')} locale={zhCN}>
+      <XProvider theme={toAntdTheme(DARK)} locale={zhCN}>
         <Button>确定</Button>
       </XProvider>
     )
@@ -40,7 +40,7 @@ describe('XProvider 接线', () => {
 
   it('浅色令牌同样可用（单一主题源，不漂移）', () => {
     render(
-      <XProvider theme={toAntdTheme(LIGHT, 'light')} locale={zhCN}>
+      <XProvider theme={toAntdTheme(LIGHT)} locale={zhCN}>
         <Button>确定</Button>
       </XProvider>
     )
@@ -57,7 +57,7 @@ describe('XProvider 接线', () => {
       )
     }
     render(
-      <XProvider theme={toAntdTheme(DARK, 'dark')} locale={zhCN}>
+      <XProvider theme={toAntdTheme(DARK)} locale={zhCN}>
         <AntdApp>
           <Probe />
         </AntdApp>
@@ -70,7 +70,7 @@ describe('XProvider 接线', () => {
 
   it('透传 antd 的其余 ConfigProvider 能力（如 componentSize）', () => {
     render(
-      <XProvider theme={toAntdTheme(DARK, 'dark')} locale={zhCN} componentSize="small">
+      <XProvider theme={toAntdTheme(DARK)} locale={zhCN} componentSize="small">
         <Button>小号</Button>
       </XProvider>
     )

@@ -1,11 +1,16 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'node:url'
 import { getStore, initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
-import { initSettings } from './services/settings'
+import { getThemeSettings, initSettings } from './services/settings'
 import { registerIpcHandlers } from './ipc'
-import { FIRST_PAINT_BACKGROUND, FIRST_PAINT_SYMBOL } from '@shared/themePaint'
+import {
+  FIRST_PAINT_BACKGROUND,
+  FIRST_PAINT_LIGHT_BACKGROUND,
+  FIRST_PAINT_LIGHT_SYMBOL,
+  FIRST_PAINT_SYMBOL
+} from '@shared/themePaint'
 import { initWorkspaceService } from './services/agent/workspaceManager'
 import {
   cancelAllAgentTasks,
@@ -36,19 +41,30 @@ const rendererEntry = isDev && process.env['ELECTRON_RENDERER_URL']
   : pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
 
 function createWindow(): BrowserWindow {
+  const persistedTheme = getThemeSettings()
+  const isDark = persistedTheme.mode === 'system'
+    ? nativeTheme.shouldUseDarkColors
+    : persistedTheme.mode !== 'light'
+  const firstPaintBackground = persistedTheme.overrides.bg ?? (
+    isDark ? FIRST_PAINT_BACKGROUND : FIRST_PAINT_LIGHT_BACKGROUND
+  )
+  const firstPaintSymbol = persistedTheme.overrides.text ?? (
+    isDark ? FIRST_PAINT_SYMBOL : FIRST_PAINT_LIGHT_SYMBOL
+  )
+
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1120,
     minHeight: 720,
     autoHideMenuBar: true,
-    // 首帧兜底：渲染进程应用主题前的底色（跟随深色基线，避免闪旧版深蓝）
-    backgroundColor: FIRST_PAINT_BACKGROUND,
+    // 首帧兜底：渲染进程应用主题前即匹配系统/持久化模式，避免明暗闪烁
+    backgroundColor: firstPaintBackground,
     // 用自定义隐藏标题栏 + 覆盖层（仅 Windows），让顶部随主题颜色变化
     titleBarStyle: process.platform === 'win32' ? 'hidden' : undefined,
     titleBarOverlay:
       process.platform === 'win32'
-        ? { color: FIRST_PAINT_BACKGROUND, symbolColor: FIRST_PAINT_SYMBOL, height: 32 }
+        ? { color: firstPaintBackground, symbolColor: firstPaintSymbol, height: 32 }
         : undefined,
     webPreferences: createSecureWebPreferences(join(__dirname, '../preload/index.js'))
   })

@@ -28,6 +28,7 @@ import { AgentSettingsSection } from '../chat/AgentControls'
 import { usePluginStore } from '../../stores/pluginStore'
 import { compareSemver } from '@shared/semver'
 import type { AuditEvent } from '@shared/agent'
+import { useDismissibleLayer } from '../../hooks/useDismissibleLayer'
 
 type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'security'
 type ExtensionTab = 'plugins' | 'skills'
@@ -48,6 +49,18 @@ const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }
 export default function SettingsPage(): JSX.Element {
   const closeSettings = useUiStore((s) => s.closeSettings)
   const [section, setSection] = useState<Section>('theme')
+  const [settingsQuery, setSettingsQuery] = useState('')
+  const normalizedQuery = settingsQuery.trim().toLowerCase()
+  const allNavItems: Array<{ id: Section; label: string; icon: JSX.Element }> = [
+    { id: 'theme', label: '主题设置', icon: <Icon.Settings size={14} /> },
+    { id: 'model', label: '模型设置', icon: <Icon.Brain size={14} /> },
+    { id: 'agent', label: 'Agent 设置', icon: <Icon.Shield size={14} /> },
+    { id: 'extensions', label: '插件', icon: <Icon.FileDir size={14} /> },
+    { id: 'security', label: '安全与数据', icon: <Icon.Shield size={14} /> }
+  ]
+  const navItems = allNavItems.filter(
+    (item) => !normalizedQuery || item.label.toLowerCase().includes(normalizedQuery)
+  )
 
   return (
     <div className="flex min-h-0 flex-1 bg-bg-app text-txt-primary">
@@ -59,17 +72,19 @@ export default function SettingsPage(): JSX.Element {
         <div className="px-3 pb-2">
           <SearchInput
             aria-label="搜索设置项"
-            value=""
-            onChange={() => undefined}
+            value={settingsQuery}
+            onChange={setSettingsQuery}
             placeholder="搜索设置项..."
           />
         </div>
         <nav className="flex-1 space-y-1 px-2">
-          <NavItem active={section === 'theme'} icon={<Icon.Settings size={14} />} label="主题设置" onClick={() => setSection('theme')} />
-          <NavItem active={section === 'model'} icon={<Icon.Brain size={14} />} label="模型设置" onClick={() => setSection('model')} />
-          <NavItem active={section === 'agent'} icon={<Icon.Shield size={14} />} label="Agent 设置" onClick={() => setSection('agent')} />
-          <NavItem active={section === 'extensions'} icon={<Icon.FileDir size={14} />} label="插件" onClick={() => setSection('extensions')} />
-          <NavItem active={section === 'security'} icon={<Icon.Shield size={14} />} label="安全与数据" onClick={() => setSection('security')} />
+          {navItems.map((item) => (
+            <NavItem key={item.id} active={section === item.id} icon={item.icon} label={item.label}
+              onClick={() => setSection(item.id)} />
+          ))}
+          {navItems.length === 0 && (
+            <div className="px-2 py-3 text-[14px] leading-[22px] text-txt-muted">没有匹配的设置项</div>
+          )}
         </nav>
       </div>
 
@@ -133,26 +148,35 @@ export function PluginSection(): JSX.Element {
   const loadPreferences = usePluginStore((state) => state.loadPreferences)
   const setAutoUpdate = usePluginStore((state) => state.setAutoUpdate)
   const loadConnections = usePluginStore((state) => state.loadConnections)
+  const [importMenuOpen, setImportMenuOpen] = useState(false)
+  const importMenuRef = useRef<HTMLDetailsElement>(null)
+  const closeImportMenu = (): void => {
+    if (importMenuRef.current) importMenuRef.current.open = false
+    setImportMenuOpen(false)
+  }
+  useDismissibleLayer(importMenuRef, importMenuOpen, closeImportMenu)
   useEffect(() => { void load(); void loadPreferences(); void loadConnections(); if (loadMarketplace) void loadMarketplace() }, [load, loadConnections, loadMarketplace, loadPreferences])
   const filtered = filterPlugins(items, query)
+  const marketById = new Map(latestMarketplaceEntries(marketEntries).map((entry) => [entry.id, entry]))
   return <div>
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
         <h1 className="selectable text-[20px] font-semibold text-txt-primary">插件</h1>
         <p className="mt-1 text-[14px] text-txt-muted">在你常用的工具中与 AI Agent 协作</p>
       </div>
-      <details className="group relative shrink-0">
-        <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md border border-border bg-bg-raised px-3 py-1.5 text-[14px] text-txt-secondary transition-colors hover:bg-bg-active focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+      <details ref={importMenuRef} onToggle={(event) => setImportMenuOpen(event.currentTarget.open)} className="group relative shrink-0">
+        <summary aria-haspopup="menu" aria-expanded={importMenuOpen} className="inline-flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] font-medium text-txt-secondary transition-colors hover:border-border-strong hover:bg-bg-active hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
           {mutating ? '处理中…' : '添加'}
           <Icon.ChevronDown size={14} className="transition-transform group-open:rotate-180" />
         </summary>
-        <div className="absolute right-0 top-full z-20 mt-1.5 w-[min(240px,calc(100vw-2rem))] rounded-lg border border-border bg-bg-panel p-2 shadow-overlay">
+        <div hidden={!importMenuOpen} role="menu" style={{ backgroundColor: 'var(--surface-overlay)' }} className="absolute right-0 top-full z-40 mt-2 w-[min(280px,calc(100vw-2rem))] rounded-xl border border-border-strong bg-surface-overlay p-1.5 shadow-overlay">
           <Button
             block
             variant="text"
             disabled={mutating}
             icon={<Icon.Folder size={14} />}
-            onClick={() => void importLocal('directory')}
+            className="min-h-11 justify-start rounded-lg"
+            onClick={() => { closeImportMenu(); void importLocal('directory') }}
           >
             导入文件夹
           </Button>
@@ -161,7 +185,8 @@ export function PluginSection(): JSX.Element {
             variant="text"
             disabled={mutating}
             icon={<Icon.File size={14} />}
-            onClick={() => void importLocal('zip')}
+            className="min-h-11 justify-start rounded-lg"
+            onClick={() => { closeImportMenu(); void importLocal('zip') }}
           >
             导入 ZIP
           </Button>
@@ -193,9 +218,11 @@ export function PluginSection(): JSX.Element {
           </Checkbox>
         </span>
       </div>
-      {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin}
-        onToggle={(next) => void setEnabled(plugin.id, next)}
-        onRecover={() => void recover(plugin.id)} />)}
+      <div className="grid grid-cols-1 sm:grid-cols-2 sm:gap-x-8">
+        {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} marketEntry={marketById.get(plugin.id)}
+          onToggle={(next) => void setEnabled(plugin.id, next)}
+          onRecover={() => void recover(plugin.id)} />)}
+      </div>
       {!loading && !filtered.length && <div className="flex min-h-[220px] flex-col items-center justify-center px-4 text-center">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-raised text-txt-muted">
           <Icon.FileDir size={18} />
@@ -291,7 +318,7 @@ function PluginMarketView({ entries, installed, query }: { entries: PluginMarket
         <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[14px] ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted'}`}>{label}</button>)}
     </div>
     <div className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">{visible.map((entry) => <article key={`${entry.sourceId}:${entry.id}:${entry.version}`} className="border-b border-border py-4">
-      <div className="flex items-start gap-3"><SkillGlyph /><div className="min-w-0 flex-1">
+      <div className="flex items-start gap-3"><PluginLogo entry={entry} /><div className="min-w-0 flex-1">
         <button type="button" className="block w-full text-left" onClick={(event) => openDetails(entry, event.currentTarget)} aria-label={`查看 ${entry.name} 详情`}><div className="flex flex-wrap items-center gap-1.5"><strong className="text-[14px]">{entry.name}</strong><span className="text-[14px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[14px] text-accent">已验证</span>}</div>
         <p className="mt-1 line-clamp-2 text-[14px] leading-4 text-txt-muted">{entry.description}</p>
         <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p></button>
@@ -310,7 +337,12 @@ function MarketActionButton({ entry, installed, releases, mutating, onOpen }: {
 }): JSX.Element {
   const risk = describePluginInstallRisk(entry, installed, releases)
   const label = entry.installable === false ? '待支持' : risk.mode === 'installed' ? '已安装' : risk.mode === 'older' ? '版本较旧' : risk.mode === 'update' ? '更新' : '安装'
-  return <Button size="sm" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'installed' || risk.mode === 'older' || mutating}
+  if (risk.mode === 'install' || risk.mode === 'installed') {
+    return <IconButton size="sm" label={label} hideTooltip={false} disabled={entry.installable === false || risk.mode === 'installed' || mutating}
+      icon={risk.mode === 'installed' ? <Icon.Check size={14} /> : <Icon.Plus size={14} />}
+      onClick={(event) => onOpen(entry, event.currentTarget)} />
+  }
+  return <Button size="sm" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'older' || mutating}
     onClick={(event) => onOpen(entry, event.currentTarget)}>{label}</Button>
 }
 
@@ -342,7 +374,7 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
     <aside ref={dialog} role="dialog" aria-modal="true" aria-labelledby="plugin-detail-title" tabIndex={-1}
       onKeyDown={(event) => { if (event.key === 'Escape') onClose(); else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot) }} onMouseDown={(event) => event.stopPropagation()}
       className="h-full w-full max-w-[560px] overflow-y-auto border-l border-border bg-bg-panel p-5 shadow-2xl sm:p-7">
-      <div className="flex items-start gap-4"><SkillGlyph /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
+      <div className="flex items-start gap-4"><PluginLogo entry={entry} size="lg" /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
         <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.version}</p></div>
         <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭插件详情" onClick={onClose} /></div>
       <p className="mt-5 text-[14px] leading-6 text-txt-secondary">{entry.description}</p>
@@ -438,8 +470,8 @@ export function filterPlugins(items: PluginMetadata[], query: string): PluginMet
     `${plugin.name} ${plugin.description} ${plugin.author ?? ''}`.toLocaleLowerCase().includes(normalizedQuery))
 }
 
-function PluginRow({ plugin, onToggle, onRecover }: {
-  plugin: PluginMetadata; onToggle: (next: boolean) => void; onRecover: () => void
+function PluginRow({ plugin, marketEntry, onToggle, onRecover }: {
+  plugin: PluginMetadata; marketEntry?: PluginMarketEntry; onToggle: (next: boolean) => void; onRecover: () => void
 }): JSX.Element {
   const badges = plugin.permissions.slice(0, 2).map(pluginPermissionLabel)
   const uninstall = usePluginStore((state) => state.uninstall)
@@ -453,11 +485,12 @@ function PluginRow({ plugin, onToggle, onRecover }: {
   const disconnectMcp = usePluginStore((state) => state.disconnectMcp)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
-  const showBackups = async (): Promise<void> => setBackups(await loadBackups(plugin.id))
-  return <article className="border-b border-border py-3"><div className="flex min-h-[52px] items-center gap-3">
-    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${plugin.status === 'ready' ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-red-300'}`}>
-      <Icon.FileDir size={16} />
-    </span>
+  const toggleBackups = async (): Promise<void> => {
+    if (backups !== undefined) { setBackups(undefined); return }
+    setBackups(await loadBackups(plugin.id))
+  }
+  return <article className="border-b border-border py-3"><div className="flex min-h-[52px] items-center gap-2.5">
+    <PluginLogo entry={marketEntry} invalid={plugin.status !== 'ready'} />
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <strong className="truncate text-[14px] font-medium text-txt-primary">{plugin.name}</strong>
@@ -472,12 +505,17 @@ function PluginRow({ plugin, onToggle, onRecover }: {
     </div>
     {plugin.status === 'quarantined' ? <Button size="sm" className="shrink-0" onClick={onRecover}>恢复</Button>
       : /* 启用与否是标准开关语义：角色 switch + aria-checked，不再用图标自绘 */
-      <ToggleSwitch className="shrink-0" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
+      <ToggleSwitch size="small" className="shrink-0" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
         checked={plugin.enabled} disabled={plugin.status !== 'ready'} onChange={onToggle} />}
-    {!plugin.managed && (!confirmRemove ? <IconButton className="shrink-0" danger icon={<Icon.Trash size={14} />} label="卸载" onClick={() => setConfirmRemove(true)} />
-      : <PluginUninstallChoices onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />)}
-    <IconButton className="shrink-0" icon={<Icon.ChevronDown size={14} />} label="历史版本" onClick={() => void showBackups()} />
-  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><Button size="sm" variant="text" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</Button></div>) : '没有可回滚版本'}</div>}
+    {!plugin.managed && <IconButton size="sm" className="shrink-0" danger active={confirmRemove} icon={<Icon.Trash size={14} />} label="卸载" onClick={() => setConfirmRemove((open) => !open)} />}
+    <IconButton size="sm" className="shrink-0" active={backups !== undefined} aria-expanded={backups !== undefined}
+      icon={<Icon.ChevronDown size={14} className={`transition-transform ${backups !== undefined ? 'rotate-180' : ''}`} />} label="历史版本" onClick={() => void toggleBackups()} />
+  </div>
+    {confirmRemove && <div style={{ backgroundColor: 'var(--surface-overlay)' }} className="ml-9 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border-strong px-3 py-2 text-[14px]">
+      <span className="mr-auto text-txt-muted">确认卸载 {plugin.name}？审计记录会保留。</span>
+      <PluginUninstallChoices showHint={false} onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />
+    </div>}
+    {backups !== undefined && <div style={{ backgroundColor: 'var(--surface-overlay)' }} className="ml-9 mt-2 rounded-lg border border-border px-3 py-2 text-[14px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><Button size="sm" variant="text" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</Button></div>) : '没有可回滚版本'}</div>}
     {!!connection?.servers.length && <div className="ml-12 mt-2 space-y-2">{connection.servers.map((server) =>
       <PluginConnectionPanel key={server.id} pluginId={plugin.id} server={server} mutating={mutatingConnection}
         onConnect={connectMcp} onReauthorize={reauthorizeMcp} onRetry={retryMcp} onDisconnect={disconnectMcp} />)}</div>}
@@ -562,16 +600,38 @@ function mcpErrorLabel(code: string): string {
   return ({ MCP_UNAUTHORIZED: '需要重新授权', MCP_FORBIDDEN: '账号权限不足', MCP_NETWORK_BLOCKED: '网络目标受限', MCP_CONNECT_FAILED: '服务暂不可用' } as Record<string, string>)[code] ?? '请稍后重试'
 }
 
-export function PluginUninstallChoices({ onChoose, onCancel }: {
+export function PluginUninstallChoices({ onChoose, onCancel, showHint = true }: {
   onChoose: (dataDisposition: 'keep' | 'clear') => void
   onCancel: () => void
+  showHint?: boolean
 }): JSX.Element {
-  return <span className="flex max-w-[260px] shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[14px]">
-    <span className="w-full text-right text-txt-muted">审计记录会保留</span>
+  return <span className="flex shrink-0 flex-wrap items-center justify-end gap-1 text-[14px]">
+    {showHint && <span className="w-full text-right text-txt-muted">审计记录会保留</span>}
     <Button size="sm" variant="text" onClick={() => onChoose('keep')}>卸载并保留数据</Button>
     {/* 清除数据不可撤销（文档 8.7）：用 danger 语义而不是红字 */}
     <Button size="sm" variant="danger" onClick={() => onChoose('clear')}>卸载并清除数据</Button>
     <Button size="sm" variant="text" onClick={onCancel}>取消</Button>
+  </span>
+}
+
+function PluginLogo({ entry, size = 'md', invalid = false }: {
+  entry?: PluginMarketEntry
+  size?: 'md' | 'lg'
+  invalid?: boolean
+}): JSX.Element {
+  const light = useThemeStore((state) => state.resolved.light)
+  const src = (light ? entry?.logoUrl : entry?.logoDarkUrl ?? entry?.logoUrl) ?? entry?.composerIconUrl
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [src])
+  const dimension = size === 'lg' ? 'h-11 w-11 rounded-xl' : 'h-8 w-8 rounded-lg'
+  const iconSize = size === 'lg' ? 19 : 15
+  return <span
+    className={`flex shrink-0 items-center justify-center overflow-hidden ${dimension} ${invalid ? 'bg-bg-raised text-red-300' : 'bg-accent-dim text-accent'}`}
+    style={!invalid && entry?.brandColor ? { backgroundColor: entry.brandColor } : undefined}
+  >
+    {src && !failed
+      ? <img src={src} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      : <Icon.Container size={iconSize} />}
   </span>
 }
 
@@ -692,6 +752,13 @@ export function SkillsSection(): JSX.Element {
   const [source, setSource] = useState<'all' | SkillSource>('all')
   const [githubUrl, setGithubUrl] = useState('')
   const [expandedId, setExpandedId] = useState<string>()
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const addMenuRef = useRef<HTMLDetailsElement>(null)
+  const closeAddMenu = (): void => {
+    if (addMenuRef.current) addMenuRef.current.open = false
+    setAddMenuOpen(false)
+  }
+  useDismissibleLayer(addMenuRef, addMenuOpen, closeAddMenu)
   useEffect(() => { void load(workspaceId); void loadCatalog() }, [load, loadCatalog, workspaceId])
   useEffect(() => {
     if (tab !== 'market') return
@@ -706,18 +773,18 @@ export function SkillsSection(): JSX.Element {
         <h1 className="selectable text-[20px] font-semibold text-txt-primary">技能</h1>
         <p className="mt-1 text-[14px] text-txt-muted">通过任务专用技能扩展 AI 的能力</p>
       </div>
-      <details className="group relative z-20">
+      <details ref={addMenuRef} onToggle={(event) => setAddMenuOpen(event.currentTarget.open)} className="group relative z-20">
         {/*
           * 这里是原生 <details>/<summary>（展开行为由浏览器提供），
           * 不能换成 Button：按钮放进 summary 会破坏原生开合语义与键盘操作。
           * 因此保留 summary，只把 .btn 工具类摊开成等价工具类，去掉旧类依赖。
           */}
-        <summary className="inline-flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] font-medium text-txt-secondary transition-colors hover:bg-bg-active focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+        <summary aria-haspopup="menu" aria-expanded={addMenuOpen} className="inline-flex min-h-9 cursor-pointer list-none items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] font-medium text-txt-secondary transition-colors hover:border-border-strong hover:bg-bg-active hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
           添加 <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
         </summary>
-        <div className="absolute right-0 top-full mt-1.5 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
+        <div hidden={!addMenuOpen} role="menu" style={{ backgroundColor: 'var(--surface-overlay)' }} className="absolute right-0 top-full z-40 mt-2 w-[min(380px,calc(100vw-2rem))] rounded-xl border border-border-strong bg-surface-overlay p-2 shadow-overlay">
           <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[14px] text-txt-secondary hover:bg-bg-active"
-            disabled={mutating} onClick={() => void importLocal()}>
+            disabled={mutating} onClick={() => { closeAddMenu(); void importLocal() }}>
             <Icon.Folder size={14} className="text-txt-muted" />
             <span><strong className="block font-medium text-txt-primary">从本机导入</strong><span className="text-[14px] text-txt-muted">选择 Skill 或 Skill Pack 目录</span></span>
           </button>
@@ -727,7 +794,7 @@ export function SkillsSection(): JSX.Element {
             <div className="min-w-0 flex-1"><TextInput aria-label="GitHub 地址" value={githubUrl} onChange={(event) => setGithubUrl(event.target.value)}
               placeholder="https://github.com/owner/repo" block /></div>
             <Button className="shrink-0" variant="primary"
-              disabled={mutating || !githubUrl.trim()} onClick={() => void install(githubUrl.trim()).then((ok) => { if (ok) setGithubUrl('') })}>
+              disabled={mutating || !githubUrl.trim()} onClick={() => void install(githubUrl.trim()).then((ok) => { if (ok) { setGithubUrl(''); closeAddMenu() } })}>
               {mutating ? '添加中…' : '添加'}
             </Button>
           </div>
@@ -810,7 +877,7 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
           <span className="mt-0.5 block line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</span>
         </span>
       </button>
-      <ToggleSwitch className="shrink-0" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
+      <ToggleSwitch size="small" className="shrink-0" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
         checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
     </div>
     {expanded && <div className="ml-9 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] leading-5 text-txt-muted">
@@ -830,7 +897,7 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
 }
 
 function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogItem; mutating: boolean; onInstall: () => void }): JSX.Element {
-  return <article className="flex min-h-[72px] items-center gap-2.5 border-b border-border py-3">
+  return <article className="flex min-h-[64px] items-center gap-2.5 border-b border-border py-2.5">
     <SkillGlyph />
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-1.5">
@@ -840,15 +907,14 @@ function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogIte
       <p className="mt-0.5 line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</p>
       <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{skill.publisher}</span>
     </div>
-    {/* 已安装时不再只显示一个无名图标：文案 + 勾一起表达状态（文档 6 可访问名称） */}
-    <Button size="sm" className="shrink-0" disabled={mutating || skill.installed} icon={skill.installed ? <Icon.Check size={14} /> : undefined}
-      onClick={onInstall}>{skill.installed ? '已添加' : '添加'}</Button>
+    <IconButton size="sm" className="shrink-0" label={skill.installed ? '已添加' : '添加'} disabled={mutating || skill.installed}
+      icon={skill.installed ? <Icon.Check size={14} /> : <Icon.Plus size={14} />} onClick={onInstall} />
   </article>
 }
 
 function SkillGlyph({ muted = false }: { muted?: boolean }): JSX.Element {
-  return <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-dim ${muted ? 'text-txt-muted' : 'text-accent'}`}>
-    <Icon.Brain size={13} />
+  return <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-raised ${muted ? 'opacity-55' : ''}`}>
+    <span className="h-3.5 w-3.5 rotate-45 rounded-[3px] bg-gradient-to-br from-amber-300 via-rose-400 to-violet-500 shadow-sm" aria-hidden="true" />
   </span>
 }
 
@@ -1248,7 +1314,7 @@ export function ModelSection(): JSX.Element {
               key={p.id}
               className="flex items-center gap-3 rounded-md border border-border-subtle bg-bg-app px-3 py-2"
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast-text">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-contrast">
                 {p.name.slice(0, 1).toUpperCase()}
               </span>
               <div className="min-w-0 flex-1">

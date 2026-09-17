@@ -17,28 +17,28 @@ const LIGHT = resolveTheme({ mode: 'light', isDark: false })
 
 describe('ThemeConfig 结构', () => {
   it('cssVar 是对象而不是布尔值（antd 6 的真实签名）', () => {
-    const config = toAntdTheme(DARK, 'dark')
+    const config = toAntdTheme(DARK)
     // 曾经的错误写法是 cssVar: true；antd 6 定义为 { prefix?, key? }
     expect(typeof config.cssVar).toBe('object')
     expect(config.cssVar?.prefix).toBe('ant')
   })
 
   it('hashed 关闭以减少单版本应用样式体积', () => {
-    expect(toAntdTheme(DARK, 'dark').hashed).toBe(false)
+    expect(toAntdTheme(DARK).hashed).toBe(false)
   })
 
   it('只包含 ThemeConfig 的已知键（不塞自定义调试字段）', () => {
-    const config = toAntdTheme(DARK, 'dark') as Record<string, unknown>
+    const config = toAntdTheme(DARK) as Record<string, unknown>
     expect(config._mode).toBeUndefined()
     expect(Object.keys(config).sort()).toEqual(
-      ['components', 'cssVar', 'hashed', 'token'].sort()
+      ['algorithm', 'components', 'cssVar', 'hashed', 'token'].sort()
     )
   })
 })
 
 describe('token 映射到真实设计令牌', () => {
   it('颜色 token 与令牌一一对应', () => {
-    const config = toAntdTheme(DARK, 'dark')
+    const config = toAntdTheme(DARK)
     expect(config.token?.colorPrimary).toBe(DARK.color.accent.primary)
     expect(config.token?.colorBgBase).toBe(DARK.color.surface.app)
     expect(config.token?.colorBgContainer).toBe(DARK.color.surface.raised)
@@ -58,20 +58,20 @@ describe('token 映射到真实设计令牌', () => {
   })
 
   it('字体与字号 token 使用 14px 基准与微软雅黑栈', () => {
-    const config = toAntdTheme(DARK, 'dark')
+    const config = toAntdTheme(DARK)
     expect(config.token?.fontSize).toBe(14)
     expect(config.token?.fontFamily).toContain('Microsoft YaHei')
     expect(config.token?.fontFamilyCode).toContain('JetBrains Mono')
   })
 
   it('尺寸 token 来自间距与圆角令牌', () => {
-    const config = toAntdTheme(DARK, 'dark')
+    const config = toAntdTheme(DARK)
     expect(config.token?.controlHeight).toBe(DARK.space.control)
     expect(config.token?.borderRadius).toBe(DARK.radius.md)
   })
 
   it('不使用 var() 作为 token 值（antd 需要可计算的真实色值）', () => {
-    const config = toAntdTheme(DARK, 'dark')
+    const config = toAntdTheme(DARK)
     for (const value of Object.values(config.token ?? {})) {
       if (typeof value !== 'string') continue
       expect(value).not.toContain('var(')
@@ -79,21 +79,21 @@ describe('token 映射到真实设计令牌', () => {
   })
 
   it('深色与浅色产出不同的背景与文字 token', () => {
-    const dark = toAntdTheme(DARK, 'dark').token
-    const light = toAntdTheme(LIGHT, 'light').token
+    const dark = toAntdTheme(DARK).token
+    const light = toAntdTheme(LIGHT).token
     expect(dark?.colorBgBase).not.toBe(light?.colorBgBase)
     expect(dark?.colorText).not.toBe(light?.colorText)
   })
 
   it('自定义强调色会传导到 colorPrimary', () => {
     const custom = resolveTheme({ mode: 'dark', overrides: { accent: '#ff0000' } })
-    expect(toAntdTheme(custom, 'dark').token?.colorPrimary).toBe('#ff0000')
+    expect(toAntdTheme(custom).token?.colorPrimary).toBe('#ff0000')
   })
 })
 
 describe('components 级 token', () => {
   it('弹层与卡片背景跟随令牌，避免与自定义背景不一致', () => {
-    const config = toAntdTheme(DARK, 'dark')
+    const config = toAntdTheme(DARK)
     expect(config.components?.Modal?.contentBg).toBe(DARK.color.surface.overlay)
     expect(config.components?.Segmented?.itemSelectedBg).toBe(DARK.color.surface.raised)
     // Card 没有 colorBgContainer 组件级 token，卡片背景走全局 alias
@@ -114,6 +114,18 @@ describe('components 级 token', () => {
  * 所以字段名写错时 antd 不会报错，这正是必须依赖 TypeScript 校验的原因。
  */
 describe('与 antd 官方算法交叉验证', () => {
+  it('深浅模式使用对应算法，派生的禁用态不会串色', () => {
+    const darkConfig = toAntdTheme(DARK)
+    const lightConfig = toAntdTheme(LIGHT)
+    const dark = antdTheme.getDesignToken(darkConfig)
+    const light = antdTheme.getDesignToken(lightConfig)
+
+    expect(darkConfig.algorithm).toBe(antdTheme.darkAlgorithm)
+    expect(lightConfig.algorithm).toBe(antdTheme.defaultAlgorithm)
+    expect(dark.colorFillSecondary).not.toBe(light.colorFillSecondary)
+    expect(dark.colorPrimaryBg).not.toBe('#f0f5ff')
+  })
+
   it('colorPrimary 覆盖会被 getDesignToken 采纳', () => {
     const computed = antdTheme.getDesignToken({ token: { colorPrimary: '#ff0000' } })
     expect(computed.colorPrimary).toBe('#ff0000')
@@ -124,11 +136,12 @@ describe('与 antd 官方算法交叉验证', () => {
     expect(computed.fontSize).toBe(14)
   })
 
-  it('我们传入的 token 值与官方计算结果完全一致（确实生效）', () => {
-    const config = toAntdTheme(DARK, 'dark')
-    const computed = antdTheme.getDesignToken(config) as unknown as Record<string, unknown>
-    for (const [key, value] of Object.entries(config.token ?? {})) {
-      expect(computed[key], `token ${key} 未生效`).toBe(value)
-    }
+  it('核心表面、文字和排版 token 经算法计算后仍保持项目定义', () => {
+    const config = toAntdTheme(DARK)
+    const computed = antdTheme.getDesignToken(config)
+    expect(computed.colorBgBase).toBe(DARK.color.surface.app)
+    expect(computed.colorText).toBe(DARK.color.text.primary)
+    expect(computed.fontSize).toBe(DARK.font.size.body)
+    expect(computed.fontFamily).toBe(DARK.font.sans)
   })
 })

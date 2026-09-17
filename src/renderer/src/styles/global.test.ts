@@ -124,6 +124,25 @@ describe('排版规范', () => {
 })
 
 describe('可访问性', () => {
+  it('强调色实心控件使用真实存在的对比文字工具类', () => {
+    const offenders: string[] = []
+    const walk = (directory: string): void => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const target = path.join(directory, entry.name)
+        if (entry.isDirectory()) {
+          walk(target)
+          continue
+        }
+        if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue
+        if (fs.readFileSync(target, 'utf-8').includes('text-accent-contrast-text')) {
+          offenders.push(path.relative(RENDERER_ROOT, target))
+        }
+      }
+    }
+    walk(RENDERER_ROOT)
+    expect(offenders, '发现不存在的 Tailwind 类 text-accent-contrast-text').toEqual([])
+  })
+
   it('reduced-motion 全局压缩动效并关闭思考动画', () => {
     const block = /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/.exec(css)
     expect(block, 'global.css 缺少 prefers-reduced-motion 处理').toBeTruthy()

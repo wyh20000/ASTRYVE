@@ -110,7 +110,10 @@ describe('plugin marketplace', () => {
     const manifest = {
       name: 'docs-helper', version: '1.2.3', description: 'Use official documentation',
       author: { name: 'OpenAI' }, skills: './skills/', permissions: ['workspace.read'],
-      interface: { displayName: 'Docs Helper', capabilities: ['Read'] }
+      interface: {
+        displayName: 'Docs Helper', capabilities: ['Read'], brandColor: '#3366FF',
+        composerIcon: './assets/composer.svg', logo: './assets/logo.png', logoDark: './assets/logo-dark.png'
+      }
     }
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(catalog), { status: 200 }))
@@ -122,6 +125,12 @@ describe('plugin marketplace', () => {
     expect(snapshot.entries[0]).toMatchObject({
       id: 'docs-helper', name: 'Docs Helper', version: '1.2.3', verified: true, installable: true,
       permissions: ['workspace.read'], capabilities: ['Read'], components: ['skills'], repository: { ref: commit, path: 'plugins/docs-helper' }
+    })
+    expect(snapshot.entries[0]).toMatchObject({
+      brandColor: '#3366FF',
+      composerIconUrl: `https://raw.githubusercontent.com/openai/plugins/${commit}/plugins/docs-helper/assets/composer.svg`,
+      logoUrl: `https://raw.githubusercontent.com/openai/plugins/${commit}/plugins/docs-helper/assets/logo.png`,
+      logoDarkUrl: `https://raw.githubusercontent.com/openai/plugins/${commit}/plugins/docs-helper/assets/logo-dark.png`
     })
     await expect(market.removeSource(CODEX_OFFICIAL_SOURCE_ID)).rejects.toThrow('不能删除')
     await expect(market.setSourceEnabled(CODEX_OFFICIAL_SOURCE_ID, false)).rejects.toThrow('不能禁用')

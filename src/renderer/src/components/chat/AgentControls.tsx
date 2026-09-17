@@ -5,6 +5,7 @@ import { useAgentSettingsStore } from '../../stores/agentSettingsStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { Icon } from '../ui/icons'
+import { useDismissibleLayer } from '../../hooks/useDismissibleLayer'
 
 export const PERMISSION_OPTIONS: Array<{
   value: PermissionMode
@@ -57,14 +58,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
     if (workspaceId) void load(workspaceId)
   }, [load, workspaceId])
 
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent): void => {
-      if (!container.current?.contains(event.target as Node)) setOpen(null)
-    }
-    window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
-  }, [open])
+  useDismissibleLayer(container, Boolean(open), () => setOpen(null))
 
   const permission = PERMISSION_OPTIONS.find(
     (option) => option.value === project?.preferences.permissionMode

@@ -14,6 +14,7 @@ const MARKET_FILE = 'plugin-market.json'
 export const CODEX_OFFICIAL_SOURCE_ID = 'source-00000000-0000-4000-8000-000000000001'
 export const CODEX_OFFICIAL_INDEX_URL = 'https://raw.githubusercontent.com/openai/plugins/main/.agents/plugins/marketplace.json'
 const CODEX_REPOSITORY = { owner: 'openai', repo: 'plugins' } as const
+const OFFICIAL_PRESENTATION_VERSION = 1
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
@@ -98,6 +99,7 @@ export class PluginMarketplace {
         : parseMarketplaceIndex(parsed, source)
       state.entries = [...state.entries.filter((entry) => entry.sourceId !== id), ...entries]
       source.lastSyncAt = Date.now()
+      if (source.id === CODEX_OFFICIAL_SOURCE_ID) source.presentationVersion = OFFICIAL_PRESENTATION_VERSION
       delete source.error
     } catch (error) {
       source.error = safeError(error)
@@ -127,7 +129,9 @@ export class PluginMarketplace {
       this.initialization = (async () => {
         const state = await this.load()
         const official = state.sources.find((source) => source.id === CODEX_OFFICIAL_SOURCE_ID)
-        if (official && !official.lastSyncAt) await this.syncSource(CODEX_OFFICIAL_SOURCE_ID)
+        if (official && (!official.lastSyncAt || official.presentationVersion !== OFFICIAL_PRESENTATION_VERSION)) {
+          await this.syncSource(CODEX_OFFICIAL_SOURCE_ID)
+        }
       })()
     }
     await this.initialization
@@ -156,7 +160,8 @@ function officialSource(previous?: PluginMarketSource): PluginMarketSource {
     enabled: true,
     verified: true,
     lastSyncAt: previous?.lastSyncAt,
-    error: previous?.error
+    error: previous?.error,
+    presentationVersion: previous?.presentationVersion
   }
 }
 
@@ -287,6 +292,10 @@ export async function parseCodexMarketplaceIndex(
         permissions: [...new Set(permissions)].sort(),
         capabilities: strings(interfaceValue?.capabilities, '插件能力', 32, 64),
         dataTargets: strings(interfaceValue?.dataTargets, '数据目标', 32, 100),
+        brandColor: officialBrandColor(interfaceValue?.brandColor),
+        composerIconUrl: officialAssetUrl(ref, path, interfaceValue?.composerIcon),
+        logoUrl: officialAssetUrl(ref, path, interfaceValue?.logo),
+        logoDarkUrl: officialAssetUrl(ref, path, interfaceValue?.logoDark),
         components,
         installable,
         unavailableReason: installable ? undefined : hasUnsupportedApps
@@ -347,6 +356,17 @@ function supportsCurrentRuntime(components: readonly PluginComponent[] | undefin
 function normalizeCodexPluginPath(value: string, id: string): string | undefined {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')
   return normalized === `plugins/${id}` ? normalized : undefined
+}
+function officialBrandColor(value: unknown): string | undefined {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : undefined
+}
+function officialAssetUrl(ref: string, pluginPath: string, value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.startsWith('./') || value.includes('\\')) return undefined
+  const segments = value.slice(2).split('/')
+  if (!segments.length || segments.some((segment) => !segment || segment === '.' || segment === '..')) return undefined
+  if (!/\.(?:png|svg|webp)$/i.test(segments.at(-1) ?? '')) return undefined
+  const encodedPath = [...pluginPath.split('/'), ...segments].map(encodeURIComponent).join('/')
+  return `https://raw.githubusercontent.com/${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}/${ref}/${encodedPath}`
 }
 async function readResponseText(response: Response, maxBytes: number, label: string): Promise<string> {
   const length = Number(response.headers.get('content-length') ?? 0)

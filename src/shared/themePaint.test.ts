@@ -2,17 +2,24 @@
  * 首帧颜色常量与令牌的一致性约束。
  *
  * 背景：`BrowserWindow.backgroundColor` 与 `titleBarOverlay` 必须在渲染进程
- * 应用主题之前给出颜色，因此在 shared 层保留了两个字面量。
+ * 应用主题之前给出颜色，因此在 shared 层保留深浅两组字面量。
  * 这类「两处相同取值」最容易随时间漂移，所以用测试锁住。
  */
 import { describe, expect, it } from 'vitest'
-import { FIRST_PAINT_BACKGROUND, FIRST_PAINT_SYMBOL } from './themePaint'
+import {
+  FIRST_PAINT_BACKGROUND,
+  FIRST_PAINT_LIGHT_BACKGROUND,
+  FIRST_PAINT_LIGHT_SYMBOL,
+  FIRST_PAINT_SYMBOL
+} from './themePaint'
 import { resolveTheme } from '../renderer/src/theme/tokens'
 
 describe('首帧颜色常量', () => {
   it('是合法 hex', () => {
     expect(FIRST_PAINT_BACKGROUND).toMatch(/^#[0-9a-f]{6}$/)
     expect(FIRST_PAINT_SYMBOL).toMatch(/^#[0-9a-f]{6}$/)
+    expect(FIRST_PAINT_LIGHT_BACKGROUND).toMatch(/^#[0-9a-f]{6}$/)
+    expect(FIRST_PAINT_LIGHT_SYMBOL).toMatch(/^#[0-9a-f]{6}$/)
   })
 
   it('与深色令牌的应用背景一致（窗口首帧不闪别的底色）', () => {
@@ -23,6 +30,12 @@ describe('首帧颜色常量', () => {
   it('与深色令牌的主文字色一致（标题栏符号颜色正确）', () => {
     const dark = resolveTheme({ mode: 'dark', isDark: true })
     expect(FIRST_PAINT_SYMBOL).toBe(dark.color.text.primary)
+  })
+
+  it('与浅色令牌一致（浅色启动不先闪深色窗口）', () => {
+    const light = resolveTheme({ mode: 'light', isDark: false })
+    expect(FIRST_PAINT_LIGHT_BACKGROUND).toBe(light.color.surface.app)
+    expect(FIRST_PAINT_LIGHT_SYMBOL).toBe(light.color.text.primary)
   })
 
   it('不再使用旧版偏蓝黑底色', () => {

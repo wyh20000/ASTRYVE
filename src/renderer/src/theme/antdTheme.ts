@@ -15,15 +15,19 @@
  * - `AliasToken`：`node_modules/antd/es/theme/interface/alias.d.ts`
  *   继承 `MapToken` → `SeedToken`，颜色种子色（colorPrimary 等）来自 seeds。
  */
-import type { ThemeConfig } from 'antd'
-import type { ThemeMode } from '@shared/themePreferences'
+import { theme as antdTheme, type ThemeConfig } from 'antd'
 import type { ResolvedTheme } from './tokens'
 
-export function toAntdTheme(theme: ResolvedTheme, mode: ThemeMode): ThemeConfig {
+export function toAntdTheme(theme: ResolvedTheme): ThemeConfig {
   const { color, font, radius, space, shadow } = theme
-  void mode
 
   return {
+    /*
+     * 必须按“实际解析结果”选算法，不能按用户选择的 mode：system 模式也可能
+     * 解析成深色。若省略 algorithm，antd 会始终使用浅色算法，导致深色界面的
+     * disabled/fill/selected 等派生 token 仍是黑色透明或浅蓝背景。
+     */
+    algorithm: theme.isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     /*
      * CSS 变量模式：antd 6 中 `cssVar` 是对象而不是布尔值。
      * 开启后组件样式引用 CSS 变量，主题切换只改变量、不重新生成样式表。

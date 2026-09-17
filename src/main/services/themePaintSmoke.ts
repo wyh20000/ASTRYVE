@@ -21,6 +21,12 @@ interface PaintReport {
   themeMode: string
   themeResolved: string
   accent: string
+  accentSolidSamples: Array<{
+    label: string
+    color: string
+    backgroundColor: string
+    contrast: number
+  }>
   sessionTitleColor: string
   bubbles: { end: number; start: number; borderless: number; corner: number }
   headingSpacing: { checked: boolean; minGap: number; detail: string }
@@ -66,6 +72,43 @@ function collectScript(): string {
       if (!span || !(span.textContent || '').trim()) continue
       sessionTitleColor = getComputedStyle(span).color
       break
+    }
+
+    // 实心强调色元素（头像、模型图标、发送按钮等）必须保持足够的文字/图标对比度。
+    // 这会直接捕获“蓝底继承成黑字”一类视觉回归。
+    const parseRgb = (value) => {
+      const match = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/.exec(value)
+      return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+    }
+    const luminance = (rgb) => {
+      const channels = rgb.map((value) => {
+        const normalized = value / 255
+        return normalized <= 0.04045
+          ? normalized / 12.92
+          : Math.pow((normalized + 0.055) / 1.055, 2.4)
+      })
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+    }
+    const accentSolidSamples = []
+    for (const el of document.querySelectorAll('.bg-accent')) {
+      if (!el.textContent.trim() && !el.querySelector('svg')) continue
+      const rect = el.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) continue
+      const style = getComputedStyle(el)
+      const foregroundNode = el.querySelector('svg') || el
+      const foregroundStyle = getComputedStyle(foregroundNode)
+      const foreground = parseRgb(foregroundStyle.color)
+      const background = parseRgb(style.backgroundColor)
+      if (!foreground || !background) continue
+      const lighter = Math.max(luminance(foreground), luminance(background))
+      const darker = Math.min(luminance(foreground), luminance(background))
+      accentSolidSamples.push({
+        label: (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 20),
+        color: foregroundStyle.color,
+        backgroundColor: style.backgroundColor,
+        contrast: Math.round(((lighter + 0.05) / (darker + 0.05)) * 100) / 100
+      })
+      if (accentSolidSamples.length >= 8) break
     }
 
     // 页面标题与分区之间的最小间距（结构不变式）
@@ -138,6 +181,7 @@ function collectScript(): string {
       themeMode: document.documentElement.dataset.themeMode || '',
       themeResolved: document.documentElement.dataset.themeResolved || '',
       accent: cs.getPropertyValue('--accent').trim(),
+      accentSolidSamples,
       sessionTitleColor,
       bubbles: {
         end: document.querySelectorAll('.ant-bubble-end').length,
@@ -194,6 +238,18 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
   /* ---- 字号：DOM 中不得有小于 14px 的可见文字 ---- */
   if (report.smallFontSamples.length) {
     failures.push(`仍存在小于 14px 的可见文字: ${report.smallFontSamples.join(' | ')}`)
+  }
+
+  /* ---- 实心强调色上的文字/图标对比度 ---- */
+  if (!report.accentSolidSamples.length) {
+    failures.push('未找到可见的实心强调色元素，无法验证头像/按钮前景色')
+  }
+  for (const sample of report.accentSolidSamples) {
+    if (sample.contrast < 4.5) {
+      failures.push(
+        `强调色元素对比度不足（${sample.label || '未命名'}）: ${sample.color} / ${sample.backgroundColor} = ${sample.contrast}:1`
+      )
+    }
   }
 
   /* ---- 中性文本不得被强调色污染 ---- */
@@ -331,5 +387,5 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
   if (failures.length) {
     throw new Error(`真实窗口主题验收未通过:\n- ${failures.join('\n- ')}`)
   }
-  console.log('[theme-smoke] PASS: 真实窗口中的令牌、字体、字号、文本色与聚焦环均符合规范')
+  console.log('[theme-smoke] PASS: 真实窗口中的令牌、字体、字号、文本色、强调色对比度与聚焦环均符合规范')
 }

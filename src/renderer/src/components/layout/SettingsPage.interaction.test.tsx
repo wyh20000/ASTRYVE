@@ -200,6 +200,22 @@ describe('技能页 - 迁移到全局组件后行为不变', () => {
     await userEvent.type(input, 'https://github.com/owner/repo')
     expect(submit).toBeEnabled()
   })
+
+  it('添加菜单点击外部或按 Escape 会关闭', async () => {
+    render(<SkillsSection />)
+    const trigger = screen.getByText('添加', { selector: 'summary' })
+
+    await userEvent.click(trigger)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('heading', { name: '技能' }))
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+    await userEvent.click(trigger)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
 })
 
 describe('卸载插件的数据处置 - 危险分支必须有 danger 语义（文档 8.7）', () => {
