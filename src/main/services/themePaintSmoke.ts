@@ -336,12 +336,12 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
         settingsBtn.click()
         await new Promise((r) => setTimeout(r, 700))
       }
-      const themeNav = Array.from(document.querySelectorAll("nav button")).find(
-        (b) => (b.textContent || "").includes("主题设置")
+      const pluginNav = Array.from(document.querySelectorAll("nav button")).find(
+        (b) => (b.textContent || "").includes("插件")
       )
-      if (themeNav) {
-        themeNav.click()
-        await new Promise((r) => setTimeout(r, 700))
+      if (pluginNav) {
+        pluginNav.click()
+        await new Promise((r) => setTimeout(r, 1400))
       }
       return "ok"
     })()`
@@ -372,6 +372,10 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
   } catch (error) {
     failures.push(`主题缩略图检查失败: ${String(error)}`)
   }
+  // ---- 诊断：插件 logo 的明暗分布（评估去掉容器底色的可行性）----
+  const { runLogoContrastDiagnostics } = await import('./logoContrastDiagnostics')
+  const logoContrast = await runLogoContrastDiagnostics(win)
+  console.log("[theme-smoke] Logo 亮度:", logoContrast)
   // 截图供人工复核（文档要求的人工验收）
   try {
     const image = await win.webContents.capturePage()

@@ -312,25 +312,86 @@ function PluginMarketView({ entries, installed, query }: { entries: PluginMarket
   const visible = latestMarketplaceEntries(filterMarketplaceEntries(entries, { scope, category: 'all', query }))
   const openDetails = (entry: PluginMarketEntry, element: HTMLElement): void => { opener.current = element; setPending(entry) }
   const closeDetails = (): void => { setPending(undefined); queueMicrotask(() => opener.current?.focus()) }
+  /*
+   * 分组（对齐 Codex 的「热门 / 新品推荐 / 分类」区块）。
+   * 重要：只用数据里已有的字段（recommended / categories），不虚构运营分组。
+   * 搜索时不做分组 —— 搜索结果应当是一个扁平列表，分组会干扰查找。
+   */
+  const groups = buildMarketGroups(visible, query)
   return <section className="mt-7">
     <div className="flex flex-wrap gap-2" role="group" aria-label="市场范围">
       {([['recommended', '推荐'], ['official', '官方'], ['community', '社区'], ['all', '全部']] as const).map(([id, label]) =>
-        <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[14px] ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted'}`}>{label}</button>)}
+        <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[14px] transition-colors ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted hover:text-txt-secondary'}`}>{label}</button>)}
     </div>
-    <div className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">{visible.map((entry) => <article key={`${entry.sourceId}:${entry.id}:${entry.version}`} className="border-b border-border py-4">
-      <div className="flex items-start gap-3"><PluginLogo entry={entry} /><div className="min-w-0 flex-1">
-        <button type="button" className="block w-full text-left" onClick={(event) => openDetails(entry, event.currentTarget)} aria-label={`查看 ${entry.name} 详情`}><div className="flex flex-wrap items-center gap-1.5"><strong className="text-[14px]">{entry.name}</strong><span className="text-[14px] text-txt-muted">{entry.version}</span>{entry.verified && <span className="text-[14px] text-accent">已验证</span>}</div>
-        <p className="mt-1 line-clamp-2 text-[14px] leading-4 text-txt-muted">{entry.description}</p>
-        <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.permissions.length} 项权限</p></button>
-        {entry.installable === false && <p className="mt-1 text-[14px] text-amber-300">{entry.unavailableReason}</p>}
-      </div><MarketActionButton entry={entry} installed={installed.find((item) => item.id === entry.id)} releases={entries} mutating={mutating} onOpen={openDetails} /></div>
-    </article>)}</div>
+    {groups.map((group) => <div key={group.title} className="mt-6">
+      <h3 className="text-[14px] font-medium text-txt-secondary">{group.title}</h3>
+      <div className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+        {group.entries.map((entry) => <MarketCard key={`${entry.sourceId}:${entry.id}:${entry.version}`} entry={entry}
+          installed={installed.find((item) => item.id === entry.id)} releases={entries} mutating={mutating} onOpen={openDetails} />)}
+      </div>
+    </div>)}
     {!visible.length && <EmptySkills label={entries.length ? '没有符合当前筛选条件的插件' : '正在同步 Codex 官方市场；也可以在“市场源”添加其他来源'} />}
     {pending && <PluginMarketDetails entry={pending} installed={installed.find((item) => item.id === pending.id)} releases={entries}
       mutating={mutating} onClose={closeDetails} onConfirm={() => void install(pending.sourceId, pending.id, pending.version).then((ok) => { if (ok) closeDetails() })} />}
   </section>
 }
 
+/**
+ * 按现有字段把市场条目分成若干区块。
+ *
+ * 不使用任何虚构的运营数据：
+ * - `recommended` 为 true 的进「推荐」区；
+ * - 其余按 `categories[0]` 归类；无分类则进「其他」。
+ * 搜索状态下不分组，直接返回单一列表。
+ */
+export function buildMarketGroups(
+  entries: PluginMarketEntry[],
+  query: string
+): Array<{ title: string; entries: PluginMarketEntry[] }> {
+  if (query.trim()) return entries.length ? [{ title: '搜索结果', entries }] : []
+  const recommended = entries.filter((entry) => entry.recommended)
+  const rest = entries.filter((entry) => !entry.recommended)
+  const byCategory = new Map<string, PluginMarketEntry[]>()
+  for (const entry of rest) {
+    const category = entry.categories[0]?.trim() || '其他'
+    const bucket = byCategory.get(category)
+    if (bucket) bucket.push(entry)
+    else byCategory.set(category, [entry])
+  }
+  const groups: Array<{ title: string; entries: PluginMarketEntry[] }> = []
+  if (recommended.length) groups.push({ title: '推荐', entries: recommended })
+  for (const [title, categoryEntries] of [...byCategory.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))) {
+    groups.push({ title, entries: categoryEntries })
+  }
+  return groups
+}
+
+/**
+ * 市场卡片（Codex 风格）：图标 + 名称 + 右上角操作按钮。
+ *
+ * 刻意不在卡片上堆叠作者 / 权限条数 / 来源等文字：
+ * 这些信息在详情抽屉里完整呈现，卡片保持轻量更接近 Codex。
+ * 卡片本身可点开详情（保留 aria-label），操作按钮独立可聚焦。
+ */
+function MarketCard({ entry, installed, releases, mutating, onOpen }: {
+  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean
+  onOpen: (entry: PluginMarketEntry, element: HTMLElement) => void
+}): JSX.Element {
+  return <article className="group flex items-center gap-3 border-b border-border py-3 transition-colors hover:bg-bg-active">
+    <PluginLogo entry={entry} />
+    <button type="button" className="min-w-0 flex-1 text-left" onClick={(event) => onOpen(entry, event.currentTarget)}
+      aria-label={`查看 ${entry.name} 详情`}>
+      <span className="flex flex-wrap items-baseline gap-1.5">
+        <strong className="truncate text-[14px] text-txt-primary">{entry.name}</strong>
+        <span className="text-[14px] tabular-nums text-txt-muted">{entry.version}</span>
+        {entry.verified && <span className="text-[14px] text-accent">已验证</span>}
+      </span>
+      <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{entry.description}</span>
+      {entry.installable === false && <span className="mt-0.5 block truncate text-[14px] text-warn">{entry.unavailableReason}</span>}
+    </button>
+    <MarketActionButton entry={entry} installed={installed} releases={releases} mutating={mutating} onOpen={onOpen} />
+  </article>
+}
 function MarketActionButton({ entry, installed, releases, mutating, onOpen }: {
   entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean
   onOpen: (entry: PluginMarketEntry, element: HTMLElement) => void
@@ -623,14 +684,22 @@ function PluginLogo({ entry, size = 'md', invalid = false }: {
   const src = (light ? entry?.logoUrl : entry?.logoDarkUrl ?? entry?.logoUrl) ?? entry?.composerIconUrl
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
-  const dimension = size === 'lg' ? 'h-11 w-11 rounded-xl' : 'h-8 w-8 rounded-lg'
+  const dimension = size === 'lg' ? 'h-11 w-11 rounded-lg' : 'h-8 w-8 rounded-md'
   const iconSize = size === 'lg' ? 19 : 15
+  /*
+   * 只保留一层中性底，不加任何边框或描边（用户要求去掉多余外框）。
+   *
+   * 这层底不是装饰而是可见性必需：实测 20 个官方 logo 中 12 个是
+   * 近白色字形（亮度 216-255），若容器完全透明，浅色模式下会直接消失；
+   * 且 logoDark 变体只有 9/57 覆盖，换图兜不住。
+   */
   return <span
-    className={`flex shrink-0 items-center justify-center overflow-hidden ${dimension} ${invalid ? 'bg-bg-raised text-red-300' : 'bg-accent-dim text-accent'}`}
-    style={!invalid && entry?.brandColor ? { backgroundColor: entry.brandColor } : undefined}
+    className={`flex shrink-0 items-center justify-center overflow-hidden ${dimension} ${
+      invalid ? 'bg-bg-raised text-err' : 'bg-surface-raised text-txt-secondary'
+    }`}
   >
     {src && !failed
-      ? <img src={src} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      ? <img src={src} alt="" className="h-full w-full object-contain" onError={() => setFailed(true)} />
       : <Icon.Container size={iconSize} />}
   </span>
 }
