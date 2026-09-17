@@ -304,6 +304,44 @@ describe('技能行内操作 - 迁移到全局 Button 后仍能触达 store', ()
     expect(screen.queryByRole('button', { name: '卸载' })).not.toBeInTheDocument()
   })
 
+  it('技能市场：点击条目打开弹窗，未安装时提供添加且不展示启用开关', async () => {
+    skillState.catalog = [catalogItem({ id: 'market:pdf', displayName: 'PDF' })]
+    render(<SkillsSection />)
+    await userEvent.click(screen.getByRole('button', { name: '技能市场' }))
+
+    await userEvent.click(await screen.findByLabelText('查看技能 PDF 详情'))
+    const dialog = await screen.findByRole('dialog')
+
+    // 未安装：右下角是「添加」
+    expect(within(dialog).getByRole('button', { name: '添加' })).toBeEnabled()
+    // 未安装：不应出现启用开关
+    expect(within(dialog).queryByRole('switch')).not.toBeInTheDocument()
+    // 也不应出现「立即试用」（那是已安装技能才有的动作）
+    expect(within(dialog).queryByRole('button', { name: '立即试用' })).not.toBeInTheDocument()
+  })
+
+  it('技能市场弹窗已安装条目：按钮显示已添加并禁用', async () => {
+    skillState.catalog = [catalogItem({ id: 'market:docx', displayName: 'DOCX', installed: true })]
+    render(<SkillsSection />)
+    await userEvent.click(screen.getByRole('button', { name: '技能市场' }))
+
+    await userEvent.click(await screen.findByLabelText('查看技能 DOCX 详情'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: '已添加' })).toBeDisabled()
+  })
+
+  it('技能市场弹窗可用 Escape 关闭', async () => {
+    skillState.catalog = [catalogItem({ id: 'market:pdf', displayName: 'PDF' })]
+    render(<SkillsSection />)
+    await userEvent.click(screen.getByRole('button', { name: '技能市场' }))
+
+    await userEvent.click(await screen.findByLabelText('查看技能 PDF 详情'))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('技能市场行：未安装可添加，已安装的按钮禁用且带勾', async () => {
     skillState.catalog = [catalogItem({}), catalogItem({ id: 'market:docx', displayName: 'DOCX', installed: true })]
 

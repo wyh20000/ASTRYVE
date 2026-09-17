@@ -88,14 +88,6 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const senderRef = useRef<SenderRef>(null)
   const historyState = useRef<InputHistoryState>({ index: null, draft: '' })
 
-  /*
-   * 消费「待填充文本」（例如技能详情的「立即试用」）。
-   * 依赖 sessionId：跳转会切换/新建会话，届时也要把文本填进去。
-   */
-  useEffect(() => {
-    const pending = consumePendingPrompt()
-    if (pending) setValue(pending)
-  }, [sessionId, consumePendingPrompt])
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
@@ -126,7 +118,16 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     setSlashIndex(0)
     setPluginDismissed(false)
     setPluginIndex(0)
-  }, [sessionId])
+    /*
+     * 消费「待填充文本」（技能详情的「立即试用」）。
+     *
+     * 必须放在重置之后：该 effect 会在 sessionId 变化时清空输入框，
+     * 若消费逻辑单独成 effect 且排在前面，预填会被随后的重置覆盖
+     * （实测过：跳转后输入框是空的）。
+     */
+    const pending = consumePendingPrompt()
+    if (pending) setValue(pending)
+  }, [sessionId, consumePendingPrompt])
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')

@@ -824,6 +824,8 @@ export function SkillsSection(): JSX.Element {
   const [source, setSource] = useState<'all' | SkillSource>('all')
   const [githubUrl, setGithubUrl] = useState('')
   const [expandedId, setExpandedId] = useState<string>()
+  /** 市场条目的详情弹窗（与已安装技能分开管理） */
+  const [pendingCatalog, setPendingCatalog] = useState<SkillCatalogItem>()
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const addMenuRef = useRef<HTMLDetailsElement>(null)
   const closeAddMenu = (): void => {
@@ -936,13 +938,71 @@ export function SkillsSection(): JSX.Element {
       </div>
       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-x-4">
         {catalog.map((skill) => <MarketSkillRow key={skill.id} skill={skill} mutating={mutating}
+          onOpen={() => setPendingCatalog(skill)}
           onInstall={() => void install(skill.installUrl)} />)}
       </div>
       {!loading && !catalog.length && <EmptySkills label="没有找到匹配的 Skill" />}
+      {pendingCatalog && <MarketSkillDetails skill={pendingCatalog} mutating={mutating}
+        onClose={() => setPendingCatalog(undefined)}
+        onInstall={() => void install(pendingCatalog.installUrl)} />}
     </section>}
     <p className="mt-8 border-t border-border pt-4 text-[14px] leading-5 text-txt-muted">
       项目与 Codex/Agents 目录只读发现；第三方 Skill 不会自动执行脚本，也不能提升工具权限。输入 <code>/</code> 调用。
     </p>
+  </div>
+}
+
+/**
+ * 市场技能详情弹窗。
+ *
+ * 与已安装技能的弹窗差异（按用户要求）：
+ * - 未安装时**不展示启用开关** —— 还没有可切换的启用状态；
+ * - 未安装时右下角是「添加」而不是「立即试用」；
+ * - 已安装时展示「已添加」并禁用，避免重复添加。
+ *
+ * 市场条目是 SkillCatalogItem，字段比已安装技能少（无工具/资源等），
+ * 因此只呈现真实存在的字段。
+ */
+function MarketSkillDetails({ skill, mutating, onClose, onInstall }: {
+  skill: SkillCatalogItem
+  mutating: boolean
+  onClose: () => void
+  onInstall: () => void
+}): JSX.Element {
+  const dialog = useRef<HTMLDivElement | null>(null)
+  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onMouseDown={onClose}>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="market-skill-title" tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose()
+        else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot)
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+      className="w-full max-w-[560px] rounded-xl border border-border bg-bg-panel p-5 shadow-2xl">
+      <div className="flex items-center gap-3">
+        <SkillGlyph />
+        <div className="min-w-0 flex-1">
+          <h2 id="market-skill-title" className="flex items-center gap-2 text-[17px] font-semibold text-txt-primary">
+            {skill.displayName}
+            {skill.featured && <span className="text-[14px] font-normal text-accent">推荐</span>}
+          </h2>
+          <p className="mt-1 text-[14px] leading-5 text-txt-secondary">{skill.description}</p>
+        </div>
+        <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
+      </div>
+      <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
+        <DetailField label="发布者">{skill.publisher || '未声明'}</DetailField>
+        <DetailField label="仓库">{skill.repository}</DetailField>
+        <DetailField label="安装状态">{skill.installed ? '已添加' : '未添加'}</DetailField>
+      </div>
+      <p className="mt-4 break-all font-mono text-[14px] text-txt-muted">{skill.installUrl}</p>
+      <p className="mt-4 text-[14px] leading-5 text-txt-muted">第三方 Skill 不会自动执行脚本，也不能提升工具权限。</p>
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+        <Button size="sm" onClick={onClose}>取消</Button>
+        <Button size="sm" variant="primary" disabled={mutating || skill.installed} onClick={onInstall}>
+          {skill.installed ? '已添加' : '添加'}
+        </Button>
+      </div>
+    </div>
   </div>
 }
 
@@ -982,7 +1042,7 @@ function SkillDetails({ skill, mutating, onClose, onToggle, onUpdate, onUninstal
         <ToggleSwitch size="small" className="shrink-0"
           aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
           checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
-        <IconButton icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
+        <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
       </div>
       <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
         <DetailField label="来源">{sourceLabel}</DetailField>
@@ -1024,7 +1084,7 @@ function InstalledSkillRow({ skill, onExpand }: {
   onExpand: () => void
 }): JSX.Element {
   return <article className={`rounded-lg transition-colors hover:bg-bg-active ${skill.errors.length ? 'text-err' : ''}`}>
-    <button type="button" className="flex min-h-[46px] w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left"
+    <button type="button" className="flex min-h-[58px] w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left"
       aria-label={`查看技能 ${skill.displayName} 详情`} onClick={onExpand}>
       <SkillGlyph muted={!skill.active} />
       <span className="min-w-0 flex-1">
@@ -1032,23 +1092,38 @@ function InstalledSkillRow({ skill, onExpand }: {
           <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
           {skill.invocation === 'user' && <span className="shrink-0 text-[14px] text-txt-muted">/{skill.name}</span>}
         </span>
-        <span className="mt-0.5 block truncate text-[14px] leading-4 text-txt-muted">{skill.description}</span>
+        <span className="mt-1 block truncate text-[14px] leading-5 text-txt-muted">{skill.description}</span>
       </span>
     </button>
   </article>
 }
 
-function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogItem; mutating: boolean; onInstall: () => void }): JSX.Element {
-  return <article className="flex min-h-[52px] items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-bg-active">
-    <SkillGlyph />
-    <div className="min-w-0 flex-1">
-      <div className="flex items-center gap-1.5">
-        <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
-        {skill.featured && <span className="text-[14px] text-accent">推荐</span>}
-      </div>
-      <p className="mt-0.5 truncate text-[14px] leading-4 text-txt-muted">{skill.description}</p>
-      <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{skill.publisher}</span>
-    </div>
+/**
+ * 技能市场行。
+ *
+ * 整行主体（图标/名称/描述/发布者）可点开详情弹窗；
+ * 右侧的添加按钮是**兄弟节点**而不是嵌套在按钮内 ——
+ * 嵌套会造成「按钮里套按钮」的无效结构与键盘焦点问题。
+ */
+function MarketSkillRow({ skill, mutating, onInstall, onOpen }: {
+  skill: SkillCatalogItem
+  mutating: boolean
+  onInstall: () => void
+  onOpen: () => void
+}): JSX.Element {
+  return <article className="flex min-h-[58px] items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-bg-active">
+    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      aria-label={`查看技能 ${skill.displayName} 详情`} onClick={onOpen}>
+      <SkillGlyph />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
+          {skill.featured && <span className="shrink-0 text-[14px] text-accent">推荐</span>}
+        </span>
+        <span className="mt-1 block truncate text-[14px] leading-5 text-txt-muted">{skill.description}</span>
+        <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{skill.publisher}</span>
+      </span>
+    </button>
     <IconButton size="sm" className="shrink-0" label={skill.installed ? '已添加' : '添加'} disabled={mutating || skill.installed}
       icon={skill.installed ? <Icon.Check size={14} /> : <Icon.Plus size={14} />} onClick={onInstall} />
   </article>
