@@ -5,6 +5,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { useChatStore } from '../../stores/chatStore'
 import { Icon } from '../ui/icons'
+import { IconButton } from '../ui'
 import { useUiStore } from '../../stores/uiStore'
 import WorkspaceResizeHandle from './WorkspaceResizeHandle'
 import MonacoPreview from './MonacoPreview'
@@ -205,9 +206,9 @@ export default function WorkspacePanel(): JSX.Element | null {
             : 'text-txt-muted hover:text-txt-secondary'}`}>
           {label}
         </button>)}
-      <button type="button" className={`btn-icon ml-auto ${explorerOpen ? 'bg-bg-active text-txt-primary' : ''}`}
-        title={explorerOpen ? '收起文件列表' : '展开文件列表'} aria-pressed={explorerOpen}
-        onClick={() => setExplorerOpen((value) => !value)}><Icon.FileDir size={15} /></button>
+      <IconButton className="ml-auto" active={explorerOpen} icon={<Icon.FileDir size={15} />}
+        label={explorerOpen ? '收起文件列表' : '展开文件列表'}
+        onClick={() => setExplorerOpen((value) => !value)} />
     </div>
 
     {(view === 'files' || view === 'diff') ? <div className="flex min-h-0 flex-1 flex-col bg-bg-app">

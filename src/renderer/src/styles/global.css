@@ -85,16 +85,6 @@
   --motion-base: 180ms;
   --motion-slow: 260ms;
   --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* ---- 旧变量别名（阶段 A 兼容，阶段 E 清理） ---- */
-  --bg-app: var(--surface-app);
-  --bg-panel: var(--surface-sidebar);
-  --bg-raised: var(--surface-raised);
-  --bg-active: var(--surface-active);
-  --border: var(--border-default);
-  --ok: var(--status-success);
-  --warn: var(--status-warning);
-  --err: var(--status-error);
 }
 
 html,
@@ -131,22 +121,16 @@ body {
 }
 
 /*
- * 旧样式类（阶段 A 兼容）。
- * 这里的尺寸已经对齐新令牌，但调用点仍由未迁移组件使用；
- * 阶段 B 建立 components/ui 后逐族替换，阶段 E 统一删除。
+ * 组件工具类。
+ *
+ * 演进说明（阶段 E）：`.btn` / `.btn-icon` / `.input` 已随阶段 D 的迁移
+ * 全部替换为 components/ui 里的 Button / IconButton / TextInput 等组件，
+ * 引用数归零后在此删除 —— 它们与全局组件共享同一批令牌，
+ * 因此删除不会带来任何视觉变化，只是不再允许「绕开组件层写样式」。
  */
 @layer components {
-  .btn {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md text-[14px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-icon {
-    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-txt-secondary transition-colors hover:bg-bg-raised hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
-  }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[14px] font-medium;
-  }
-  .input {
-    @apply w-full rounded-md border border-border bg-bg-panel px-3 py-1.5 text-[14px] text-txt-primary outline-none placeholder:text-txt-muted focus:border-accent;
   }
 }
 
@@ -218,14 +202,61 @@ body {
   outline: none;
 }
 
-.thinking-dots,
+/*
+ * 思考中的动效：只让前置图标 360° 旋转。
+ *
+ * 演进说明：原来是 `loading` 转圈 + 标题里的点点点两个指示器同时动，
+ * 用户反馈「太繁琐」。现在只保留一处动效 —— Think 自带的图标持续旋转。
+ * 选择器出处：`@ant-design/x` 的 Think 用 `${prefixCls}-status-icon`
+ * 作为图标容器（node_modules/@ant-design/x/es/think/Think.js:101），
+ * 根节点上的 .thinking-streaming 由 Blocks.tsx 在流式时添加。
+ */
+.thinking-streaming .ant-think-status-icon {
+  display: inline-flex;
+  animation: thinking-spin 1.1s linear infinite;
+}
+
+@keyframes thinking-spin {
+  to { transform: rotate(360deg); }
+}
+
+/*
+ * 思考面板的展开/收起：可见性只由渲染层的 open 状态决定，不等折叠动画。
+ *
+ * 背景（真实 Electron 窗口实测）：`Think` 的折叠是 rc-motion 的高度动画 ——
+ * 点开后先给包装层写内联 `height: 0; opacity: 0`
+ * （class 为 `.ant-motion-collapse-enter`），要再等**两帧 requestAnimationFrame**
+ * 才切到内容高度；而流式期间渲染密集、rAF 会被明显推迟
+ * （实测 300ms 只跑到 1 帧，内联样式一直停在 `height: 0px; opacity: 0`），
+ * 用户看到的就是「箭头转了、状态是展开的，但里面空的」。
+ * 而且这条链没跑完时 `motionDeadline` 也不会挂上（它只在 STEP_ACTIVE 挂），
+ * 所以不是「慢一点」，是会一直空着。
+ *
+ * 因此：
+ * - 展开态直接按内容高度、不透明显示（内联样式必须用 !important 才能覆盖）；
+ * - 收起态的包装层立即 display: none，避免离场动画没跑完时留下空边框。
+ * 正文本身只在 open 时挂载（见 Blocks.tsx），两层合起来两个方向都不依赖动画。
+ * 选择器出处：`@ant-design/x/es/_util/motion.js:21`（motionName 为
+ * `${prefixCls}-motion-collapse`）、`es/think/Think.js:112`（CSSMotion 包装层），
+ * `.thinking-panel` 由 Blocks.tsx 加在 Think 根节点上。
+ */
+.thinking-panel .ant-motion-collapse-enter {
+  height: auto !important;
+  opacity: 1 !important;
+  transition: none !important;
+}
+
+.thinking-panel .ant-motion-collapse-leave {
+  display: none !important;
+}
+
+/* 等待回复的呼吸点（MessageItem 的 reply-dots 仍在用） */
 .reply-dots {
   display: inline-flex;
   align-items: center;
   gap: 3px;
 }
 
-.thinking-dots i,
 .reply-dots i {
   width: 4px;
   height: 4px;
@@ -234,12 +265,10 @@ body {
   animation: thinking-dot 1.1s ease-in-out infinite;
 }
 
-.thinking-dots i:nth-child(2),
 .reply-dots i:nth-child(2) {
   animation-delay: 0.15s;
 }
 
-.thinking-dots i:nth-child(3),
 .reply-dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
@@ -254,7 +283,7 @@ body {
  * 组件自身仍可通过 prefers-reduced-motion 做更细的处理。
  */
 @media (prefers-reduced-motion: reduce) {
-  .thinking-dots i,
+  .thinking-streaming .ant-think-status-icon,
   .reply-dots i {
     animation: none;
   }
@@ -337,7 +366,13 @@ body {
   padding: 0.1rem 0.35rem;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  /*
+   * 行内代码与正文同级（文档 4.2 / 8.3）。
+   * 改造前是 0.9em ≈ 12.6px，属于被清掉的小字号；
+   * 用等宽字体本身已经足够区分，不需要再缩小。
+   */
+  font-size: 14px;
+  line-height: 1.5;
 }
 .markdown pre {
   background: var(--code-block);

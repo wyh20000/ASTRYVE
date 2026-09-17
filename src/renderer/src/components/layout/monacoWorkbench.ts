@@ -27,14 +27,14 @@ export function configureMonacoTheme(): void {
     inherit: true,
     rules: [],
     colors: {
-      'editor.background': color('--bg-app', '#0d1117'),
+      'editor.background': color('--surface-app', '#0d1117'),
       'editor.foreground': color('--text-primary', '#d7deea'),
       'editorLineNumber.foreground': color('--text-muted', '#667085'),
       'editorLineNumber.activeForeground': color('--text-secondary', '#aab4c3'),
-      'editor.lineHighlightBackground': color('--bg-raised', '#141a24'),
+      'editor.lineHighlightBackground': color('--surface-raised', '#141a24'),
       'editor.selectionBackground': '#33427f66',
       'editor.inactiveSelectionBackground': '#33427f33',
-      'editorGutter.background': color('--bg-app', '#0d1117'),
+      'editorGutter.background': color('--surface-app', '#0d1117'),
       'diffEditor.insertedTextBackground': '#1f6f3d44',
       'diffEditor.removedTextBackground': '#8b2c3a44',
       'diffEditor.insertedLineBackground': '#163d2b55',
@@ -49,8 +49,13 @@ export const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions =
   automaticLayout: true,
   minimap: { enabled: false },
   fontFamily: '"JetBrains Mono", Consolas, "SF Mono", monospace',
-  fontSize: 12,
-  lineHeight: 20,
+  /*
+   * 编辑器正文与全局正文同级（文档 4.2：不允许 9~13px 业务文字）。
+   * 12px 是改造前的遗留值，会与文档 8.3「代码 14px / 1.5」冲突；
+   * 行高按 1.5 折算为 21px，取 22px 与全局行高令牌对齐。
+   */
+  fontSize: 14,
+  lineHeight: 22,
   lineNumbersMinChars: 3,
   padding: { top: 8, bottom: 16 },
   scrollBeyondLastLine: false,

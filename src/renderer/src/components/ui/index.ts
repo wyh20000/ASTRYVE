@@ -34,6 +34,9 @@ export type { ThemeModeCardsProps } from './ThemeModeCards'
 export { TagChip, ToggleSwitch } from './Toggle'
 export type { SwitchSize, TagChipProps, TagTone, ToggleSwitchProps } from './Toggle'
 
+export { Checkbox } from './Checkbox'
+export type { CheckboxProps } from './Checkbox'
+
 export { EmptyState, SkeletonLines } from './EmptyState'
 export type { EmptyStateProps, SkeletonLinesProps } from './EmptyState'
 

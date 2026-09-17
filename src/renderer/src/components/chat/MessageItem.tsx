@@ -129,10 +129,25 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
   const hasThinking = message.blocks?.some((block) => block.kind === 'thinking') ?? false
   const hasText = message.content.trim().length > 0
   const hasBlocks = (message.blocks?.length ?? 0) > 0
+  /*
+   * 思考面板的展开状态由这一层持有。
+   *
+   * 块列表在流式期间会被主进程整段重拼（重试、联网回退前还会清空），
+   * 期间 `Blocks` 子树可能被卸载重建；状态放在更上层，
+   * 用户手动点开的面板就不会因为这些重建而莫名其妙地收起来。
+   */
+  const [thinkingOpen, setThinkingOpen] = useState<Record<string, boolean>>({})
 
   let body: ReactNode
   if (hasBlocks) {
-    body = <Blocks blocks={message.blocks ?? []} status={message.status} />
+    body = (
+      <Blocks
+        blocks={message.blocks ?? []}
+        status={message.status}
+        thinkingOpen={thinkingOpen}
+        onToggleThinking={(key, next) => setThinkingOpen((s) => ({ ...s, [key]: next }))}
+      />
+    )
   } else if (message.status === 'error' && !hasText) {
     body = (
       <div className="max-w-[520px] rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-[14px] text-err">

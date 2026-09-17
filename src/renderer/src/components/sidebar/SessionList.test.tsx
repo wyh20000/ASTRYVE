@@ -8,6 +8,10 @@
  *  - 点击会话切换当前会话（select）；
  *  - 删除需要二次确认，确认后才调用 remove；
  *  - 搜索过滤与「今天/昨天/更早」分组保持不变。
+ *
+ * 阶段 C（文档 7.4）之后列表容器改为 Ant Design X 的 `Conversations`，
+ * 因此文件末尾额外锁定「迁移确实是 Conversations 驱动的」这组契约
+ * （组件类名、activeKey 映射、分组顺序），避免迁移退化成只改了外观。
  */
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -180,5 +184,64 @@ describe('会话列表 - 行内操作可访问性', () => {
     expect(deleteButton).toBeInTheDocument()
     // 嵌套 button 属于非法 HTML 且无法分别聚焦，两者必须是平级元素
     expect(rowButton.contains(deleteButton)).toBe(false)
+  })
+})
+
+/**
+ * 迁移契约（文档 7.4）。
+ *
+ * `Conversations` 的类名是本文件的**实现依据**，因此这里显式断言，
+ * 保证「items / activeKey / onActiveChange / 分组」真的走组件契约，
+ * 而不是替换成了一个只长得像的自制列表。
+ */
+describe('会话列表 - 由 Ant Design X Conversations 驱动', () => {
+  it('使用 Conversations 作为列表容器', () => {
+    sessionState.sessions = [session('a', '会话 A', NOW), session('b', '会话 B', NOW)]
+    const { container } = render(<SessionList />)
+
+    expect(container.querySelector('.ant-conversations')).not.toBeNull()
+    expect(container.querySelectorAll('.ant-conversations-item')).toHaveLength(2)
+  })
+
+  it('activeKey 映射到当前会话（-item-active）', () => {
+    sessionState.sessions = [session('a', '会话 A', NOW), session('b', '会话 B', NOW)]
+    sessionState.activeId = 'b'
+    const { container } = render(<SessionList />)
+
+    const activeItems = container.querySelectorAll('.ant-conversations-item-active')
+    expect(activeItems).toHaveLength(1)
+    expect(activeItems[0].textContent).toContain('会话 B')
+  })
+
+  it('一次点击只调用一次 select（行按钮与列表不重复处理）', async () => {
+    sessionState.sessions = [session('a', '会话 A', NOW)]
+    render(<SessionList />)
+
+    await userEvent.click(screen.getByText('会话 A'))
+    expect(sessionState.select).toHaveBeenCalledTimes(1)
+    expect(sessionState.select).toHaveBeenCalledWith('a')
+  })
+
+  it('点击行内空白区域（时间）同样切换会话', async () => {
+    sessionState.sessions = [session('a', '会话 A', NOW)]
+    render(<SessionList />)
+
+    // 时间文本是行内非按钮区域：验证整行可点，而不只是标题按钮可点
+    await userEvent.click(screen.getByText(/^\d{2}:\d{2}$/))
+    expect(sessionState.select).toHaveBeenCalledWith('a')
+  })
+
+  it('分组顺序保持今天 → 昨天 → 更早（不使用出现顺序）', () => {
+    sessionState.sessions = [
+      session('c', '更早的会话', NOW - 86400000 * 5),
+      session('b', '昨天的会话', NOW - 86400000),
+      session('a', '今天的会话', NOW)
+    ]
+    const { container } = render(<SessionList />)
+
+    const titles = Array.from(container.querySelectorAll('.ant-conversations-group-title')).map(
+      (el) => el.textContent
+    )
+    expect(titles).toEqual(['今天', '昨天', '更早'])
   })
 })

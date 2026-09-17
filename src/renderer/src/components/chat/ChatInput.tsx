@@ -8,11 +8,14 @@ import {
   type ChangeEvent
 } from 'react'
 import { App as AntdApp } from 'antd'
+import { Sender } from '@ant-design/x'
+import type { SenderRef } from '@ant-design/x/es/sender'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
 import type { ReasoningEffort, Attachment, UserInputRequest } from '@shared/types'
 import { supportsImageInput } from '@shared/modelCapabilities'
+import { IconButton } from '../ui'
 import { Icon } from '../ui/icons'
 import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -21,7 +24,12 @@ import { stepInputHistory, type InputHistoryState } from './inputHistory'
 import { useSkillStore } from '../../stores/skillStore'
 import { usePluginStore } from '../../stores/pluginStore'
 
-const MAX_H = 200
+/**
+ * 输入框最大高度约束。迁移前是 `max-h-[200px]` + 手动 autosize；
+ * Sender 用 `autoSize.maxRows` 表达行数，按 22px 行高折算 9 行 ≈ 198px，
+ * 因此这里保留 `MAX_ROWS` 与 `max-h-[200px]` 两道约束（文档 8.4）。
+ */
+const MAX_ROWS = 9
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
 const EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high']
 interface ProcessingFile {
@@ -37,6 +45,27 @@ function formatBytes(n?: number): string {
   return `${(n / 1024 / 1024).toFixed(1)}MB`
 }
 
+/**
+ * 输入区（阶段 C · 设计文档 7.3）。
+ *
+ * 输入框外壳迁移到 Ant Design X 的**受控** `Sender`：
+ *
+ * - `value` / `onChange` 仍由本组件持有，`onSubmit` 直接调用既有 `doSend`
+ *   （`doSend` 内部仍是 `chatStore.send(sessionId, content, attachments)`）；
+ * - Enter 发送 / Shift+Enter 换行交给 Sender 的 `submitType="enter"` 承担，
+ *   本组件**不再**自己处理 Enter，避免一次回车触发两次发送；
+ * - 发送/停止按钮改用 Sender 的 `SendButton` / `LoadingButton`，
+ *   它们的禁用与取消逻辑仍接到本组件：`disabled={!canSend}`、`onCancel=stop`；
+ * - 附件、解析中状态、插件 mention 走 `header` 插槽，
+ *   模型选择与附件入口走 `footer` 插槽 —— 位置与迁移前一致；
+ * - 仍然保留自定义能力：`/Skill` 与 `@插件` 菜单（带键盘导航）、
+ *   输入历史（↑/↓）、粘贴/拖拽文件、文件选择、用户补充问题卡片。
+ *
+ * 关键实现细节（依据 `@ant-design/x/es/sender/components/TextArea.js`）：
+ * Sender 内部的 Enter 提交只看 `onKeyDown` 的**返回值是否为 false**，
+ * 不看 `preventDefault()`。因此菜单里用 Enter 选中时，本组件必须
+ * `return false`，否则会同时触发一次发送。
+ */
 export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
   const [value, setValue] = useState('')
@@ -54,7 +83,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const inputHistory = useChatStore((state) => (state.messages[sessionId] ?? [])
     .filter((message) => message.role === 'user' && message.content.trim())
     .map((message) => message.content))
-  const taRef = useRef<HTMLTextAreaElement>(null)
+  const senderRef = useRef<SenderRef>(null)
   const historyState = useRef<InputHistoryState>({ index: null, draft: '' })
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
@@ -123,7 +152,9 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     if (!slashMenuOpen) return
     const dismissOutside = (event: PointerEvent): void => {
       const target = event.target as Node | null
-      if (target && target !== taRef.current && !slashMenuRef.current?.contains(target)) setSlashDismissed(true)
+      // 点击输入框本身不关闭菜单（与迁移前一致，便于继续输入过滤）
+      const input = senderRef.current?.inputElement as unknown as Node | undefined
+      if (target && target !== input && !slashMenuRef.current?.contains(target)) setSlashDismissed(true)
     }
     document.addEventListener('pointerdown', dismissOutside)
     return () => document.removeEventListener('pointerdown', dismissOutside)
@@ -133,7 +164,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     if (!pluginMenuOpen) return
     const dismissOutside = (event: PointerEvent): void => {
       const target = event.target as Node | null
-      if (target && target !== taRef.current && !pluginMenuRef.current?.contains(target)) setPluginDismissed(true)
+      const input = senderRef.current?.inputElement as unknown as Node | undefined
+      if (target && target !== input && !pluginMenuRef.current?.contains(target)) setPluginDismissed(true)
     }
     document.addEventListener('pointerdown', dismissOutside)
     return () => document.removeEventListener('pointerdown', dismissOutside)
@@ -190,19 +222,26 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     setValue('')
     historyState.current = { index: null, draft: '' }
     setAttachments([])
-    if (taRef.current) taRef.current.style.height = 'auto'
+  }
+
+  /** 菜单选中后把光标放回输入框末尾（迁移前由 autosize + setSelectionRange 完成） */
+  const focusInputAtEnd = (next: string): void => {
+    requestAnimationFrame(() => {
+      const input = senderRef.current?.inputElement as HTMLTextAreaElement | undefined
+      if (!input) return
+      input.focus()
+      input.setSelectionRange(next.length, next.length)
+    })
   }
 
   const chooseSlashSkill = (index: number): void => {
     const skill = slashSkills[index]
     if (!skill) return
-    setValue(`/${skill.name} `)
+    const next = `/${skill.name} `
+    setValue(next)
     setSlashDismissed(true)
-    historyState.current = { index: null, draft: `/${skill.name} ` }
-    requestAnimationFrame(() => {
-      autosize()
-      taRef.current?.focus()
-    })
+    historyState.current = { index: null, draft: next }
+    focusInputAtEnd(next)
   }
 
   const choosePlugin = (index: number): void => {
@@ -213,7 +252,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     setValue(next)
     setPluginDismissed(true)
     historyState.current = { index: null, draft: next }
-    requestAnimationFrame(() => { autosize(); taRef.current?.focus() })
+    focusInputAtEnd(next)
   }
 
   const removePlugin = (id: string): void => {
@@ -223,38 +262,48 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     historyState.current = { index: null, draft: next }
   }
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+  /**
+   * 只处理「菜单键盘导航」与「输入历史」。
+   *
+   * Enter 发送已交给 Sender 的 `submitType="enter"`；这里唯一需要
+   * 干预的是菜单打开时的 Enter/Tab：必须 `return false`，
+   * 否则 Sender 会在选中菜单项的同一次回车里再发一次消息。
+   */
+  const onKeyDown = (e: KeyboardEvent): void | false => {
     if (slashMenuOpen) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         setSlashIndex((current) => moveSlashSelection(current, slashSkills.length, e.key === 'ArrowDown' ? 1 : -1))
-        return
+        return false
       }
       if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
         e.preventDefault()
         chooseSlashSkill(slashIndex)
-        return
+        return false
       }
       if (e.key === 'Escape') {
         e.preventDefault()
         setSlashDismissed(true)
-        return
+        return false
       }
     }
     if (pluginMenuOpen) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         setPluginIndex((current) => moveSlashSelection(current, mentionPlugins.length, e.key === 'ArrowDown' ? 1 : -1))
-        return
+        return false
       }
       if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
-        e.preventDefault(); choosePlugin(pluginIndex); return
+        e.preventDefault()
+        choosePlugin(pluginIndex)
+        return false
       }
-      if (e.key === 'Escape') { e.preventDefault(); setPluginDismissed(true); return }
+      if (e.key === 'Escape') { e.preventDefault(); setPluginDismissed(true); return false }
     }
-    const atFirstLine = e.currentTarget.selectionStart <= value.indexOf('\n') || !value.includes('\n')
+    const input = e.currentTarget as HTMLTextAreaElement
+    const atFirstLine = input.selectionStart <= value.indexOf('\n') || !value.includes('\n')
     const lastBreak = value.lastIndexOf('\n')
-    const atLastLine = e.currentTarget.selectionEnd > lastBreak
+    const atLastLine = input.selectionEnd > lastBreak
     if (!e.altKey && !e.ctrlKey && !e.metaKey &&
         ((e.key === 'ArrowUp' && atFirstLine) || (e.key === 'ArrowDown' && atLastLine))) {
       const direction = e.key === 'ArrowUp' ? 'previous' : 'next'
@@ -263,18 +312,10 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
         e.preventDefault()
         historyState.current = next.state
         setValue(next.value)
-        requestAnimationFrame(() => {
-          autosize()
-          const textarea = taRef.current
-          if (textarea) textarea.setSelectionRange(textarea.value.length, textarea.value.length)
-        })
+        focusInputAtEnd(next.value)
       }
-      return
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      void doSend()
-    }
+    return undefined
   }
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
@@ -297,12 +338,73 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     e.target.value = ''
   }
 
-  const autosize = (): void => {
-    const el = taRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`
-  }
+  /* 附件、解析中状态与插件 mention：Sender 的 header 插槽（文档 7.3） */
+  const headerNode = (selectedPlugins.length > 0 || images.length > 0 || files.length > 0 || processingFiles.length > 0) ? (
+    <div className="space-y-2 px-2 pt-2">
+      {selectedPlugins.length > 0 && <div className="flex flex-wrap gap-1.5">
+        {selectedPlugins.map((plugin) => <span key={plugin.id}
+          className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-accent/30 bg-accent-dim/15 px-2 py-1 text-[14px] text-txt-secondary">
+          <Icon.Brain size={11} className="shrink-0 text-accent" />
+          <span className="truncate">{plugin.name}</span>
+          <button type="button" aria-label={`移除插件 ${plugin.name}`} onClick={() => removePlugin(plugin.id)}
+            className="ml-0.5 text-txt-muted hover:text-txt-primary"><Icon.X size={10} /></button>
+        </span>)}
+      </div>}
+      {(images.length > 0 || files.length > 0 || processingFiles.length > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {processingFiles.map((file) => (
+            <div
+              key={file.id}
+              className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
+              aria-live="polite"
+            >
+              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent" />
+              <span className="min-w-0 truncate text-[14px] text-txt-secondary" title={file.name}>
+                {file.name}
+              </span>
+              <span className="shrink-0 text-[14px] text-txt-muted">
+                {file.kind === 'image' ? '压缩中' : '读取中'}
+              </span>
+            </div>
+          ))}
+          {images.map((a) => (
+            <div
+              key={a.id}
+              className="relative h-16 w-16 overflow-hidden rounded-md border border-border bg-bg-raised"
+            >
+              <img src={a.dataRef} alt={a.name} className="h-full w-full object-cover" />
+              <button
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                title="移除"
+                onClick={() => removeAttachment(a.id)}
+              >
+                <Icon.X size={10} />
+              </button>
+            </div>
+          ))}
+          {files.map((a) => (
+            <div
+              key={a.id}
+              className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
+            >
+              <Icon.File size={14} className="shrink-0 text-accent" />
+              <span className="min-w-0 flex-1 truncate text-[14px] text-txt-secondary" title={a.name}>
+                {a.name}
+              </span>
+              <span className="shrink-0 text-[14px] text-txt-muted">{formatBytes(a.meta?.sizeBytes as number | undefined)}</span>
+              <button
+                className="shrink-0 text-txt-muted hover:text-txt-primary"
+                title="移除"
+                onClick={() => removeAttachment(a.id)}
+              >
+                <Icon.X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null
 
   return (
     <div className="shrink-0 px-4 pb-2 pt-3" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -310,155 +412,109 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
         {inputRequest && <UserInputCard request={inputRequest} onResolved={() => {
           clearInputRequest(sessionId, inputRequest.id)
         }} />}
-        <div className="rounded-xl border border-border bg-bg-panel focus-within:border-accent">
-          {selectedPlugins.length > 0 && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
-            {selectedPlugins.map((plugin) => <span key={plugin.id}
-              className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-accent/30 bg-accent-dim/15 px-2 py-1 text-[14px] text-txt-secondary">
-              <Icon.Brain size={11} className="shrink-0 text-accent" />
-              <span className="truncate">{plugin.name}</span>
-              <button type="button" aria-label={`移除插件 ${plugin.name}`} onClick={() => removePlugin(plugin.id)}
-                className="ml-0.5 text-txt-muted hover:text-txt-primary"><Icon.X size={10} /></button>
-            </span>)}
-          </div>}
-          {(images.length > 0 || files.length > 0 || processingFiles.length > 0) && (
-            <div className="flex flex-wrap gap-2 px-3 pt-2.5">
-              {processingFiles.map((file) => (
-                <div
-                  key={file.id}
-                  className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
-                  aria-live="polite"
-                >
-                  <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent" />
-                  <span className="min-w-0 truncate text-[14px] text-txt-secondary" title={file.name}>
-                    {file.name}
-                  </span>
-                  <span className="shrink-0 text-[14px] text-txt-muted">
-                    {file.kind === 'image' ? '压缩中' : '读取中'}
-                  </span>
-                </div>
-              ))}
-              {images.map((a) => (
-                <div
-                  key={a.id}
-                  className="relative h-16 w-16 overflow-hidden rounded-md border border-border bg-bg-raised"
-                >
-                  <img src={a.dataRef} alt={a.name} className="h-full w-full object-cover" />
-                  <button
-                    className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
-                    title="移除"
-                    onClick={() => removeAttachment(a.id)}
-                  >
-                    <Icon.X size={10} />
-                  </button>
-                </div>
-              ))}
-              {files.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex max-w-[220px] items-center gap-2 rounded-md border border-border bg-bg-raised px-2 py-1.5"
-                >
-                  <Icon.File size={14} className="shrink-0 text-accent" />
-                  <span className="min-w-0 flex-1 truncate text-[14px] text-txt-secondary" title={a.name}>
-                    {a.name}
-                  </span>
-                  <span className="shrink-0 text-[14px] text-txt-muted">{formatBytes(a.meta?.sizeBytes as number | undefined)}</span>
-                  <button
-                    className="shrink-0 text-txt-muted hover:text-txt-primary"
-                    title="移除"
-                    onClick={() => removeAttachment(a.id)}
-                  >
-                    <Icon.X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <textarea
-            ref={taRef}
-            rows={1}
+        {/*
+          描边与焦点态留在外层容器上：Sender 自身的 `-main` 只提供内边距与
+          布局，把边框/背景/焦点色放在这里可以完全复用既有令牌，
+          不必和组件库的 CSS-in-JS 规则比优先级（文档第 13 节的风险应对）。
+        */}
+        <div className="rounded-xl border border-border bg-bg-panel transition-colors focus-within:border-accent">
+          <Sender
+            ref={senderRef}
             value={value}
-            onChange={(e) => {
-              setValue(e.target.value)
+            onChange={(next) => {
+              setValue(next)
               setSlashDismissed(false)
               setSlashIndex(0)
               setPluginDismissed(false)
               setPluginIndex(0)
-              historyState.current = { index: null, draft: e.target.value }
-              autosize()
+              historyState.current = { index: null, draft: next }
             }}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
+            onSubmit={() => void doSend()}
+            onCancel={() => void stop(sessionId)}
+            loading={sending}
             disabled={Boolean(inputRequest)}
             placeholder={inputRequest ? '请先回答上方问题…' : '向 AI Agent 发送消息...'}
-            className="chat-input-textarea block max-h-[200px] w-full resize-none bg-transparent px-3 pt-2.5 text-[14px] leading-[22px] text-txt-primary outline-none placeholder:text-txt-muted"
-            style={{ height: 'auto' }}
+            /* Enter 发送 / Shift+Enter 换行由 Sender 承担，与迁移前规则一致 */
+            submitType="enter"
+            autoSize={{ minRows: 1, maxRows: MAX_ROWS }}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            header={headerNode}
+            /* suffix=false：默认操作区藏掉，发送/停止放在 footer 的工具条里 */
+            suffix={false}
+            classNames={{
+              root: 'chat-input-sender',
+              input:
+                'chat-input-textarea max-h-[200px] text-[14px] leading-[22px] text-txt-primary placeholder:text-txt-muted'
+            }}
+            /* Sender 自带的边框/阴影由外层容器统一接管 */
+            styles={{
+              root: {
+                border: 'none',
+                boxShadow: 'none',
+                background: 'transparent'
+              }
+            }}
+            footer={(_actionNode, { components }) => (
+              <div className="chat-input-toolbar flex min-w-0 items-center gap-1.5">
+                <ModelSelector />
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <IconButton
+                    icon={<Icon.Paperclip size={16} />}
+                    label="附件（PDF/Word/Excel/CSV）"
+                    onClick={() => docRef.current?.click()}
+                  />
+                  <IconButton
+                    icon={<Icon.Image size={16} />}
+                    label="图片（粘贴 / 拖拽 / 选择）"
+                    onClick={() => imgRef.current?.click()}
+                  />
+                  {sending ? (
+                    <components.LoadingButton aria-label="停止生成" />
+                  ) : (
+                    <components.SendButton aria-label="发送" disabled={!canSend} />
+                  )}
+                </div>
+              </div>
+            )}
           />
-          {slashMenuOpen && (
-            <div ref={slashMenuRef} role="listbox" aria-label="Skill 快捷指令"
-              className="absolute bottom-[48px] left-2 right-2 z-40 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
-              <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">快捷指令 · 选择 Skill</div>
-              {slashSkills.map((skill, index) => (
-                <button key={skill.id} type="button" role="option" aria-selected={index === slashIndex}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === slashIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
-                  onMouseEnter={() => setSlashIndex(index)} onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => chooseSlashSkill(index)}>
-                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-medium text-txt-primary">/{skill.name}</span>
-                    <span className="block truncate text-[14px] text-txt-muted">{skill.displayName} · {skill.description}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          {pluginMenuOpen && (
-            <div ref={pluginMenuRef} role="listbox" aria-label="插件快捷选择"
-              className="absolute bottom-[48px] left-2 right-2 z-40 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
-              <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">@ 插件 · 仅本次任务使用</div>
-              {mentionPlugins.map((plugin, index) => (
-                <button key={plugin.id} type="button" role="option" aria-selected={index === pluginIndex}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === pluginIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
-                  onMouseEnter={() => setPluginIndex(index)} onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => choosePlugin(index)}>
-                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-medium text-txt-primary">@{plugin.id}</span>
-                    <span className="block truncate text-[14px] text-txt-muted">{plugin.name}{plugin.version ? ` · ${plugin.version}` : ''} · {plugin.description}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="chat-input-toolbar flex min-w-0 items-center gap-1.5 px-2.5 pb-2 pt-1">
-            <ModelSelector />
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <button className="btn-icon" title="附件（PDF/Word/Excel/CSV）" onClick={() => docRef.current?.click()}>
-                <Icon.Paperclip size={16} />
-              </button>
-              <button className="btn-icon" title="图片（粘贴 / 拖拽 / 选择）" onClick={() => imgRef.current?.click()}>
-                <Icon.Image size={16} />
-              </button>
-              {sending ? (
-                <button
-                  onClick={() => void stop(sessionId)}
-                  className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
-                  title="停止生成"
-                >
-                  <span className="h-2.5 w-2.5 rounded-[2px] bg-white" />
-                </button>
-              ) : (
-                <button
-                  disabled={!canSend}
-                  onClick={() => void doSend()}
-                  className="btn h-8 w-8 shrink-0 rounded-full bg-accent text-white hover:bg-accent/80"
-                  title="发送"
-                >
-                  <Icon.SendRound size={15} />
-                </button>
-              )}
-            </div>
-          </div>
         </div>
+        {slashMenuOpen && (
+          <div ref={slashMenuRef} role="listbox" aria-label="Skill 快捷指令"
+            className="absolute bottom-full left-2 right-2 z-40 mb-2 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
+            <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">快捷指令 · 选择 Skill</div>
+            {slashSkills.map((skill, index) => (
+              <button key={skill.id} type="button" role="option" aria-selected={index === slashIndex}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === slashIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
+                onMouseEnter={() => setSlashIndex(index)} onMouseDown={(event) => event.preventDefault()}
+                onClick={() => chooseSlashSkill(index)}>
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-medium text-txt-primary">/{skill.name}</span>
+                  <span className="block truncate text-[14px] text-txt-muted">{skill.displayName} · {skill.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {pluginMenuOpen && (
+          <div ref={pluginMenuRef} role="listbox" aria-label="插件快捷选择"
+            className="absolute bottom-full left-2 right-2 z-40 mb-2 overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
+            <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">@ 插件 · 仅本次任务使用</div>
+            {mentionPlugins.map((plugin, index) => (
+              <button key={plugin.id} type="button" role="option" aria-selected={index === pluginIndex}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === pluginIndex ? 'bg-bg-active' : 'hover:bg-bg-active'}`}
+                onMouseEnter={() => setPluginIndex(index)} onMouseDown={(event) => event.preventDefault()}
+                onClick={() => choosePlugin(index)}>
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-dim/25 text-accent"><Icon.Brain size={13} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-medium text-txt-primary">@{plugin.id}</span>
+                  <span className="block truncate text-[14px] text-txt-muted">{plugin.name}{plugin.version ? ` · ${plugin.version}` : ''} · {plugin.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mt-2 text-center text-[14px] text-txt-muted">
           AI 生成的内容可能不准确，请注意甄别
         </div>

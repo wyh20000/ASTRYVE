@@ -117,6 +117,16 @@ export function appendTaskReport(
   })
 }
 
+/**
+ * 结算最后一段思考。
+ *
+ * 消息结束时最后一段思考后面可能没有文本或工具块 —— 不补这一刀它就永远
+ * 不会变成 `done`，界面上会一直停在「思考中」。
+ */
+export function settleToolTimeline(state: ToolTimelineState): void {
+  finishThinking(state)
+}
+
 function finishThinking(state: ToolTimelineState): void {
   const last = state.blocks.at(-1)
   if (last?.kind === 'thinking') last.done = true

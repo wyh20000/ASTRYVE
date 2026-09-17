@@ -6,6 +6,7 @@ import {
   appendToolTimelineText,
   appendToolTimelineThinking,
   createToolTimeline,
+  settleToolTimeline,
   updateToolTimeline
 } from './toolTimeline'
 
@@ -46,6 +47,41 @@ describe('tool activity timeline', () => {
         { kind: 'thinking', content: '先读取文件。', done: true },
         { kind: 'thinking', content: '已经定位问题，运行测试。', done: true }
       ])
+  })
+
+  it('settles a trailing reasoning block when the message ends', () => {
+    // 最后一段思考后面可能没有文本/工具块，消息结束时要补上 done，
+    // 否则界面会一直停在「思考中」
+    const state = createToolTimeline()
+    appendToolTimelineThinking(state, '正在分析。')
+    settleToolTimeline(state)
+    expect(state.blocks[0]).toEqual({ kind: 'thinking', content: '正在分析。', done: true })
+  })
+
+  it('settling twice and settling after text are both harmless', () => {
+    const state = createToolTimeline()
+    appendToolTimelineThinking(state, '先读取文件。')
+    appendToolTimelineText(state, '入口没有问题。')
+    settleToolTimeline(state)
+    settleToolTimeline(state)
+    expect(state.blocks).toEqual([
+      { kind: 'thinking', content: '先读取文件。', done: true },
+      { kind: 'text', content: '入口没有问题。' }
+    ])
+  })
+
+  it('keeps appending to an open reasoning block and starts a new one once it is closed', () => {
+    const state = createToolTimeline()
+    appendToolTimelineThinking(state, '第一段。')
+    appendToolTimelineThinking(state, '第二段。')
+    expect(state.blocks).toEqual([{ kind: 'thinking', content: '第一段。第二段。' }])
+
+    appendToolTimelineText(state, '结束。')
+    appendToolTimelineThinking(state, '第三段。')
+    expect(state.blocks.map((block) => block.kind)).toEqual(['thinking', 'text', 'thinking'])
+    expect(state.blocks[0]).toEqual({ kind: 'thinking', content: '第一段。第二段。', done: true })
+    // 新落下的思考段还没结束，不能提前带上 done
+    expect(state.blocks[2]).toEqual({ kind: 'thinking', content: '第三段。' })
   })
 
   it('retains structured command output for the task workspace', () => {

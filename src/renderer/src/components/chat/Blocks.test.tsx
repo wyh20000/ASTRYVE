@@ -32,12 +32,17 @@ describe('Blocks', () => {
     expect(html).toContain('https://platform.kimi.com/docs')
   })
 
-  it('流式思考展示思考中状态', () => {
+  it('流式思考展示思考中状态，且只有一个动效（前置图标旋转）', () => {
     const html = renderToStaticMarkup(
       <Blocks status="streaming" blocks={[{ kind: 'thinking', content: '分析问题' }]} />
     )
     expect(html).toContain('思考中')
-    expect(html).toContain('thinking-dots')
+    // 旋转动画挂在根节点类上，由 global.css 选中 Think 的前置图标
+    expect(html).toContain('thinking-streaming')
+    // 点点点与 loading 圈都已移除（用户反馈两个指示器太繁琐）
+    expect(html).not.toContain('thinking-dots')
+    expect(html).not.toContain('anticon-loading')
+    expect(html).not.toContain('ant-think-motion-blink')
     expect(html).not.toContain('分析问题')
   })
 

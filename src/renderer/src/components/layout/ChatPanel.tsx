@@ -3,6 +3,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { MessageList } from '../chat/MessageList'
 import { ChatInput } from '../chat/ChatInput'
 import { Icon } from '../ui/icons'
+import { IconButton } from '../ui'
 import { WorkspacePicker } from '../chat/WorkspacePicker'
 import { useUiStore } from '../../stores/uiStore'
 
@@ -42,9 +43,7 @@ export default function ChatPanel(): JSX.Element {
         </span>
         <div className="flex shrink-0 items-center gap-2">
           {active && <WorkspacePicker sessionId={active.id} projectPath={active.projectPath} />}
-          {active?.projectPath && <button className="btn-icon" title="切换任务工作区" onClick={toggleWorkspace}>
-            <Icon.Layout size={15} />
-          </button>}
+          {active?.projectPath && <IconButton icon={<Icon.Layout size={15} />} label="切换任务工作区" onClick={toggleWorkspace} />}
         </div>
       </div>
 

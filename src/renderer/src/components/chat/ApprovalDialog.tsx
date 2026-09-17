@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ApprovalScope } from '@shared/agent'
 import type { ApprovalUiRequest } from '@shared/types'
 import { useChatStore } from '../../stores/chatStore'
+import { Button } from '../ui'
 import { Icon } from '../ui/icons'
 
 export default function ApprovalDialog(): JSX.Element | null {
@@ -82,22 +83,23 @@ export function ApprovalDialogView({ request, onClear }: {
       </div>
 
       <footer className="flex flex-wrap justify-end gap-2 border-t border-border bg-bg-raised/50 px-4 py-3">
-        <button type="button" disabled={Boolean(submitting)} onClick={() => void respond()}
-          className="rounded-lg border border-border px-3 py-2 text-[14px] text-txt-secondary hover:bg-bg-active disabled:opacity-50">
+        {/*
+          * 文档 8.7：浮层里的操作统一用全局 Button。
+          * 页脚只保留一个主操作（仅批准本次 = primary），其余范围按钮同权重 ——
+          * 范围宽度已经由按钮文案说明，不需要再用三种边框/底色去区分。
+          */}
+        <Button disabled={Boolean(submitting)} onClick={() => void respond()}>
           {submitting === 'deny' ? '拒绝中…' : '拒绝'}
-        </button>
-        {request.scopeOptions.includes('task-prefix') && <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('task-prefix')}
-          className="rounded-lg border border-border-strong px-3 py-2 text-[14px] text-txt-primary hover:bg-bg-active disabled:opacity-50">
+        </Button>
+        {request.scopeOptions.includes('task-prefix') && <Button disabled={Boolean(submitting)} onClick={() => void respond('task-prefix')}>
           {submitting === 'task-prefix' ? '批准中…' : '本任务允许相同命令'}
-        </button>}
-        {request.scopeOptions.includes('site') && <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('site')}
-          className="rounded-lg border border-border bg-bg-raised px-3 py-2 text-[14px] text-txt-secondary hover:bg-bg-active hover:text-txt-primary">
+        </Button>}
+        {request.scopeOptions.includes('site') && <Button disabled={Boolean(submitting)} onClick={() => void respond('site')}>
           {submitting === 'site' ? '保存中…' : '始终允许读取此网站'}
-        </button>}
-        <button type="button" disabled={Boolean(submitting)} onClick={() => void respond('once')}
-          className="rounded-lg bg-accent px-3.5 py-2 text-[14px] font-medium text-white hover:bg-accent/85 disabled:opacity-50">
+        </Button>}
+        <Button variant="primary" disabled={Boolean(submitting)} onClick={() => void respond('once')}>
           {submitting === 'once' ? '批准中…' : '仅批准本次'}
-        </button>
+        </Button>
       </footer>
     </section>
   </div>

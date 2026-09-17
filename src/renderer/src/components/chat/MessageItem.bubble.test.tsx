@@ -213,6 +213,31 @@ describe('Agent 消息 - 保持 borderless 内容流', () => {
   })
 })
 
+describe('Agent 消息 - 思考面板展开状态', () => {
+  const thinking: Message = {
+    id: 'm3',
+    sessionId: 's1',
+    role: 'assistant',
+    content: '',
+    status: 'streaming',
+    timestamp: 1,
+    blocks: [{ kind: 'thinking', content: '先读取文件。' }]
+  }
+
+  it('整条消息短暂没有块（重试/回退前清空）后重新出现，面板仍是展开的', async () => {
+    const view = render(wrap(<MessageItem message={thinking} />))
+    await userEvent.click(screen.getByRole('button', { name: /思考/ }))
+    expect(screen.getByText('先读取文件。')).toBeInTheDocument()
+
+    // 主进程在重试前会清空 reasoning/content，这一帧没有任何块
+    view.rerender(wrap(<MessageItem message={{ ...thinking, blocks: undefined }} />))
+    view.rerender(wrap(<MessageItem message={thinking} />))
+
+    expect(screen.getByRole('button', { name: /思考/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('先读取文件。')).toBeInTheDocument()
+  })
+})
+
 describe('排版约束不回退', () => {
   it('用户消息内不存在小于 14px 的字号', () => {
     const { container } = render(wrap(<MessageItem message={userMessage()} />))

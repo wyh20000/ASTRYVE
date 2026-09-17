@@ -7,8 +7,9 @@
  * - `antdTheme.ts`   负责令牌 → Ant Design ThemeConfig（强类型校验）；
  * - `systemTheme.ts` 负责系统深浅色读取与订阅。
  *
- * 旧变量名（--bg-app / --border / --ok / --warn / --err 等）在本阶段继续输出，
- * 保证未迁移的业务组件外观不回归。
+ * 阶段 E 清理：`--bg-*` / `--border` / `--ok` / `--warn` / `--err` 这批
+ * 阶段 A 的兼容别名已删除 —— 唯一还在读它们的 monacoWorkbench 已改用
+ * `--surface-app` / `--surface-raised`，CSS 与 TS 里都不再有引用。
  */
 import type { ResolvedTheme } from './tokens'
 
@@ -73,27 +74,10 @@ export const THEME_VAR_NAMES = {
   motionFast: '--motion-fast',
   motionBase: '--motion-base',
   motionSlow: '--motion-slow',
-  motionEase: '--motion-ease',
-
-  /* ---- 旧变量别名（阶段 A 兼容，阶段 E 清理） ---- */
-  legacyBgApp: '--bg-app',
-  legacyBgPanel: '--bg-panel',
-  legacyBgRaised: '--bg-raised',
-  legacyBgActive: '--bg-active',
-  legacyBorder: '--border',
-  legacyOk: '--ok',
-  legacyWarn: '--warn',
-  legacyErr: '--err'
+  motionEase: '--motion-ease'
 } as const
 
-/**
- * 解析后的令牌 → CSS 变量。
- *
- * 旧变量别名映射到新语义令牌：
- * - `--bg-panel` 指向 surface.sidebar，与阶段 A 之前的 `--bg-panel` 取值一致，
- *   避免侧栏等未迁移区域出现色差；
- * - `--border` 指向 border.default。
- */
+/** 解析后的令牌 → CSS 变量。 */
 export function toCssVariables(theme: ResolvedTheme): Record<string, string> {
   const { color, font, radius, shadow, motion } = theme
   return {
@@ -156,17 +140,7 @@ export function toCssVariables(theme: ResolvedTheme): Record<string, string> {
     [THEME_VAR_NAMES.motionFast]: motion.fast,
     [THEME_VAR_NAMES.motionBase]: motion.base,
     [THEME_VAR_NAMES.motionSlow]: motion.slow,
-    [THEME_VAR_NAMES.motionEase]: motion.ease,
-
-    // 旧变量别名：保持既有组件外观不变
-    [THEME_VAR_NAMES.legacyBgApp]: color.surface.app,
-    [THEME_VAR_NAMES.legacyBgPanel]: color.surface.sidebar,
-    [THEME_VAR_NAMES.legacyBgRaised]: color.surface.raised,
-    [THEME_VAR_NAMES.legacyBgActive]: color.surface.active,
-    [THEME_VAR_NAMES.legacyBorder]: color.border.default,
-    [THEME_VAR_NAMES.legacyOk]: color.status.success,
-    [THEME_VAR_NAMES.legacyWarn]: color.status.warning,
-    [THEME_VAR_NAMES.legacyErr]: color.status.error
+    [THEME_VAR_NAMES.motionEase]: motion.ease
   }
 }
 

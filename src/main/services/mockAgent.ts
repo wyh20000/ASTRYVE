@@ -20,8 +20,7 @@ export function buildMockReply(sessionId: string): MockStep[] {
 
   const thinking: MessageBlock = {
     kind: 'thinking',
-    content: '已深度思考（用时12.3s）',
-    seconds: 12.3
+    content: '已深度思考：先确认登录链路的前后端边界，再决定验证码的存储方式。'
   }
   const opening: MessageBlock = {
     kind: 'text',

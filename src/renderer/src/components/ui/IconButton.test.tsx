@@ -93,4 +93,9 @@ describe('IconButton - 尺寸与键盘', () => {
     await userEvent.keyboard('{Enter}')
     expect(onClick).toHaveBeenCalledTimes(1)
   })
+
+  it('autoFocus 让弹层关闭按钮在挂载后立即获得焦点', () => {
+    render(<IconButton icon={icon} label="关闭插件详情" autoFocus />)
+    expect(screen.getByRole('button', { name: '关闭插件详情' })).toHaveFocus()
+  })
 })

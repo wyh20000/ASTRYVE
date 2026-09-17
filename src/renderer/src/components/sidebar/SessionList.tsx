@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { Conversations } from '@ant-design/x'
+import type { ConversationItemType } from '@ant-design/x'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
 import { groupKey, groupLabel, itemTime, fullTime, type GroupKey } from '../../lib/time'
@@ -8,15 +10,25 @@ import { Icon } from '../ui/icons'
 const GROUP_ORDER: GroupKey[] = ['today', 'yesterday', 'earlier']
 
 /**
- * 会话列表。
+ * 会话列表（阶段 C · 设计文档 7.4）。
  *
- * 设计约束（文档 8.2）：
- * - 会话行目标高度 40~44px；选中态使用浅背景 + 细强调标记，不做高饱和整块填充；
- * - 时间与操作图标保持 14px，靠颜色弱化而不是把字号缩到 10~11px；
- * - 会话行必须是真正的可聚焦控件，支持键盘 Enter/Space 切换。
+ * 迁移方式：列表容器改用 Ant Design X 的 `Conversations`，
+ * `items` / `activeKey` / `onActiveChange` / 分组全部走组件契约：
  *
- * 结构说明：会话行是 <button>，删除入口是其**同级**元素而不是子元素
- * —— 嵌套 button 属于非法 HTML，且无法用键盘分别聚焦。
+ * - `items` 由 `sessionStore.sessions` 映射（保留「今天 / 昨天 / 更早」三组，
+ *   组顺序仍由 GROUP_ORDER 决定，不使用组件默认的按出现顺序）；
+ * - `activeKey` 绑定 `sessionStore.activeId`，`onActiveChange` 调用现有 `select`；
+ * - 搜索仍由 `uiStore.searchQuery` 驱动，没有把搜索状态搬进组件内部；
+ * - 删除仍是「先点删除、再确认」的两步流程，仍调用现有 `remove`。
+ *
+ * 行内容走 `label` 自定义渲染（文档 11 第 13 节明确允许：
+ * 「Conversations 无法完整表达现有分组/确认时，使用自定义 label/menu 渲染」）。
+ * 这么做的原因是**可访问性不能回退**：
+ * - `Conversations` 的行是 `<li onClick>`，本身不可聚焦；
+ *   因此行内保留真正的 `<button>`，Tab 可聚焦、Enter/Space 可激活
+ *   （点击事件冒泡到 `<li>`，由 `onActiveChange` 统一处理，不重复调用 select）；
+ * - 删除入口是行按钮的**平级**元素（嵌套 `<button>` 属非法 HTML 且无法分别聚焦）；
+ * - 点击删除/确认不会连带切换会话（对冒泡做 stopPropagation）。
  */
 export default function SessionList(): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions)
@@ -37,75 +49,106 @@ export default function SessionList(): JSX.Element {
     )
   }, [sessions, searchQuery])
 
-  return (
-    <div className="flex-1 overflow-y-auto px-2 py-2" onBlur={() => setConfirmId(null)}>
-      {grouped.length === 0 && (
-        <div className="px-3 py-6 text-center text-[14px] text-txt-muted">暂无会话</div>
-      )}
-      {grouped.map((g) => (
-        <div key={g.key} className="mb-1">
-          <div className="px-3 py-1 text-[14px] font-medium text-txt-muted">{g.label}</div>
-          {g.items.map((s) => {
-            const active = s.id === activeId
-            const confirming = s.id === confirmId
-            const title = s.title || '新对话'
-            return (
-              <div key={s.id} className="group relative flex items-center">
-                <button
-                  type="button"
-                  aria-current={active ? 'true' : undefined}
-                  title={`${title} · ${fullTime(s.updatedAt)}`}
-                  onClick={() => select(s.id)}
-                  className={[
-                    'flex h-[42px] min-w-0 flex-1 items-center gap-2 rounded-md py-2 pl-3 text-left text-[14px] transition-colors',
-                    confirming ? 'pr-24' : 'pr-14',
-                    active
-                      ? 'bg-bg-active text-txt-primary'
-                      : 'text-txt-secondary hover:bg-bg-raised hover:text-txt-primary'
-                  ].join(' ')}
-                  /* 选中态用「浅背景 + 左侧细强调标记」表达，符合文档 8.2 */
-                  style={active ? { boxShadow: 'inset 2px 0 0 var(--accent)' } : undefined}
-                >
-                  <span className="min-w-0 flex-1 truncate">{title}</span>
-                </button>
+  /*
+   * 保持分组顺序：按 GROUP_ORDER 展开，组名使用与界面一致的 label，
+   * 由 `groupable.label` 渲染成项目自己的分组标题样式。
+   */
+  const items: ConversationItemType[] = grouped.flatMap((g) =>
+    g.items.map((s) => {
+      const active = s.id === activeId
+      const confirming = s.id === confirmId
+      const title = s.title || '新对话'
+      return {
+        key: s.id,
+        group: g.label,
+        // `group` 类供行内 hover 显示操作按钮使用（li 是 hover 的宿主元素）
+        className: [
+          'group',
+          active ? '!bg-bg-active' : 'hover:!bg-bg-raised'
+        ].join(' '),
+        // 选中态 = 浅背景 + 左侧细强调标记（文档 8.2），不使用高饱和整块填充
+        style: active ? { boxShadow: 'inset 2px 0 0 var(--accent)' } : undefined,
+        label: (
+          <span className="flex w-full min-w-0 items-center gap-1">
+            <button
+              type="button"
+              aria-current={active ? 'true' : undefined}
+              title={`${title} · ${fullTime(s.updatedAt)}`}
+              /*
+               * 不在这里调 select：点击会冒泡到 Conversations 的 <li>，
+               * 由 onActiveChange 统一触发，避免同一次点击调用两次 store。
+               */
+              className={[
+                'flex h-[42px] min-w-0 flex-1 items-center gap-2 text-left text-[14px] transition-colors',
+                active ? 'text-txt-primary' : 'text-txt-secondary hover:text-txt-primary'
+              ].join(' ')}
+            >
+              <span className="min-w-0 flex-1 truncate">{title}</span>
+            </button>
 
-                {/* 时间与操作固定在行右侧，不参与按钮的点击区域 */}
-                <div className="pointer-events-none absolute right-2 flex items-center gap-1">
-                  {confirming ? (
-                    <span className="pointer-events-auto">
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        aria-label={`确认删除 ${title}`}
-                        onClick={() => {
-                          void remove(s.id)
-                          setConfirmId(null)
-                        }}
-                      >
-                        删除
-                      </Button>
-                    </span>
-                  ) : (
-                    <>
-                      <span className="text-[14px] text-txt-muted">{itemTime(s.updatedAt)}</span>
-                      <span className="pointer-events-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                        <IconButton
-                          size="sm"
-                          danger
-                          icon={<Icon.Trash size={14} />}
-                          label="删除会话"
-                          hideTooltip
-                          onClick={() => setConfirmId(s.id)}
-                        />
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ))}
+            {/* 时间与操作固定在行右侧，不参与会话按钮的点击区域 */}
+            <span className="flex shrink-0 items-center gap-1">
+              {confirming ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  aria-label={`确认删除 ${title}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void remove(s.id)
+                    setConfirmId(null)
+                  }}
+                >
+                  删除
+                </Button>
+              ) : (
+                <>
+                  <span className="text-[14px] text-txt-muted">{itemTime(s.updatedAt)}</span>
+                  <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <IconButton
+                      size="sm"
+                      danger
+                      icon={<Icon.Trash size={14} />}
+                      label="删除会话"
+                      hideTooltip
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setConfirmId(s.id)
+                      }}
+                    />
+                  </span>
+                </>
+              )}
+            </span>
+          </span>
+        )
+      }
+    })
+  )
+
+  if (items.length === 0) {
+    return (
+      <div className="flex-1 overflow-y-auto px-2 py-2">
+        <div className="px-3 py-6 text-center text-[14px] text-txt-muted">暂无会话</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-0 flex-1" onBlur={() => setConfirmId(null)}>
+      <Conversations
+        className="h-full"
+        items={items}
+        activeKey={activeId ?? undefined}
+        onActiveChange={(key) => select(String(key))}
+        groupable={{
+          label: (group) => (
+            <span className="text-[14px] font-medium text-txt-muted">{group}</span>
+          )
+        }}
+        // 会话行目标高度 40~44px（文档 8.2）；行内自带左右留白
+        styles={{ item: { height: 42, minHeight: 42, padding: '0 8px' } }}
+      />
     </div>
   )
 }

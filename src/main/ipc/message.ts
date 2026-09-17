@@ -64,6 +64,7 @@ import {
   appendTaskReport,
   createToolTimeline,
   resetToolTimeline,
+  settleToolTimeline,
   updateToolTimeline
 } from '../services/agent/toolTimeline'
 import {
@@ -418,8 +419,12 @@ async function runModelReply(
       name: skill.name, displayName: skill.displayName, source: skill.source, version: skill.version
     })) })
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
-    if (!agentTaskId && thinking) blocks.push({ kind: 'thinking', content: thinking })
+    if (!agentTaskId && thinking) {
+      blocks.push({ kind: 'thinking', content: thinking, done: status !== 'streaming' })
+    }
     if (agentTaskId) {
+      // 最后一段思考后面可能没有文本/工具块，消息结束时补结算
+      if (status !== 'streaming') settleToolTimeline(timeline)
       blocks.push(...timeline.blocks)
       if (activity) blocks.push({ kind: 'thinking', content: activity })
     }

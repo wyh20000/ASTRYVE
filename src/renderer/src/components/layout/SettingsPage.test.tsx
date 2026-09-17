@@ -171,6 +171,9 @@ describe('Extensions settings page', () => {
     expect(html).toContain('Community Tools')
     expect(html).not.toContain('>本地<')
     expect(html).toContain('aria-label="禁用 Acme Browser"')
+    // 启用态是标准开关语义，不是自绘图标按钮
+    expect(html).toContain('role="switch"')
+    expect(html).toContain('aria-checked="true"')
     expect(html).not.toContain('尚未安装插件')
     expect(filterPlugins(pluginState.items, 'browser')).toHaveLength(1)
     expect(filterPlugins(pluginState.items, 'missing')).toHaveLength(0)
@@ -188,7 +191,23 @@ describe('Extensions settings page', () => {
     expect(html).toContain('checked=""')
     expect(html).toContain('受管')
     expect(html).toContain('aria-label="禁用 Managed Tools"')
-    expect(html).not.toContain('title="卸载"')
+    /*
+     * 卸载入口迁移到 IconButton 后不再有 title 属性，
+     * 因此改断言它的可访问名称 —— 否则这条「受管插件不可卸载」的约束会因为
+     * 属性改名而变成永远成立的空断言。
+     */
+    expect(html).not.toContain('aria-label="卸载"')
+  })
+
+  it('非受管插件仍然提供可访问的卸载与历史版本入口', () => {
+    pluginState.items = [{
+      id: 'plain.tools', name: 'Plain Tools', version: '1.0.0', description: 'Plain',
+      source: 'installed', sourceFormat: 'native', enabled: true, status: 'ready',
+      permissions: [], capabilities: [], components: ['tools'], errors: []
+    }]
+    const html = renderToStaticMarkup(<PluginSection />)
+    expect(html).toContain('aria-label="卸载"')
+    expect(html).toContain('aria-label="历史版本"')
   })
 
   it('offers explicit keep-data and clear-data uninstall choices', () => {
@@ -207,6 +226,8 @@ describe('Extensions settings page', () => {
     expect(html).toContain('清单无效')
     expect(html).toContain('插件清单不是有效 JSON')
     expect(html).toContain('disabled=""')
+    // 不可用的插件开关必须同时是「关闭 + 禁用」，读屏能读出状态
+    expect(html).toContain('aria-checked="false"')
   })
 
   it('renders pending, connected, failed, and restricted MCP actions without exposing credentials', () => {

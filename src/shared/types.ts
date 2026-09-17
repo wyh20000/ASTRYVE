@@ -95,7 +95,7 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error'
 /** 结构化消息块（用于呈现思考态 / 执行计划 / 文件列表等） */
 export type MessageBlock =
   | { kind: 'text'; content: string }
-  | { kind: 'thinking'; content: string; seconds?: number; done?: boolean }
+  | { kind: 'thinking'; content: string; done?: boolean }
   | { kind: 'plan'; items: PlanItem[] }
   | { kind: 'files'; files: GeneratedFile[] }
   | { kind: 'code'; language: string; code: string; filename?: string }

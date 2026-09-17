@@ -55,17 +55,17 @@ describe('toCssVariables', () => {
     }
   })
 
-  it('旧变量别名指向新语义令牌，保证未迁移组件不回归', () => {
+  it('不再输出阶段 A 的兼容别名（阶段 E 清理）', () => {
     const vars = toCssVariables(DARK)
-    expect(vars['--bg-app']).toBe(DARK.color.surface.app)
-    expect(vars['--bg-panel']).toBe(DARK.color.surface.sidebar)
-    expect(vars['--bg-raised']).toBe(DARK.color.surface.raised)
-    expect(vars['--bg-active']).toBe(DARK.color.surface.active)
-    expect(vars['--border']).toBe(DARK.color.border.default)
-    expect(vars['--text-primary']).toBe(DARK.color.text.primary)
-    expect(vars['--ok']).toBe(DARK.color.status.success)
-    expect(vars['--warn']).toBe(DARK.color.status.warning)
-    expect(vars['--err']).toBe(DARK.color.status.error)
+    const legacy = ['--bg-app', '--bg-panel', '--bg-raised', '--bg-active', '--border', '--ok', '--warn', '--err']
+    for (const name of legacy) {
+      expect(vars[name], `${name} 不应再输出`).toBeUndefined()
+    }
+    // 语义令牌本身仍然齐全
+    expect(vars['--surface-app']).toBe(DARK.color.surface.app)
+    expect(vars['--surface-sidebar']).toBe(DARK.color.surface.sidebar)
+    expect(vars['--border-default']).toBe(DARK.color.border.default)
+    expect(vars['--status-success']).toBe(DARK.color.status.success)
   })
 
   it('字号与字体变量带单位且符合规范', () => {
@@ -87,7 +87,7 @@ describe('applyThemeToRoot', () => {
     applyThemeToRoot(DARK)
 
     expect(root.style.props['--surface-app']).toBe(DARK.color.surface.app)
-    expect(root.style.props['--bg-app']).toBe(DARK.color.surface.app)
+    expect(root.style.props['--bg-app']).toBeUndefined()
     expect(root.style.colorScheme).toBe('dark')
     expect(root.classes.has('dark')).toBe(true)
     expect(root.dataset.themeMode).toBe('dark')

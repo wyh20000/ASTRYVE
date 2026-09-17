@@ -4,10 +4,10 @@
  * ChatInput 的行为与排版约束。
  *
  * 迁移策略说明（对应文档第 10 节「不破坏逻辑的迁移约束」）：
- * ChatInput 的输入框是自定义的 autosize textarea，Skill / 插件菜单是带
- * 键盘导航的自定义 listbox。文档 7.3 明确：组件库无法无损表达现有能力时，
- * 保留现有组件、只统一视觉。因此这里**不替换结构**，
- * 只做排版（14px）与控件可访问性（IconButton）层面的约束。
+ * 输入区外壳已迁移到 Ant Design X 的**受控** `Sender`（文档 7.3），
+ * 但以下能力必须原样保留，因此这里逐条锁定：
+ * `/Skill` 与 `@插件` 菜单（含键盘导航）、输入历史、附件与解析状态、
+ * 发送/停止链路、Enter 与 Shift+Enter 规则。
  *
  * 先给关键交互补行为测试，再改动展示层。
  */
@@ -148,6 +148,16 @@ describe('ChatInput 发送行为', () => {
     expect(Array.isArray(chatState.send.mock.calls[0][2])).toBe(true)
   })
 
+  it('一次回车只发送一次（Sender 与本组件不重复提交）', async () => {
+    render(wrap(<ChatInput sessionId="s1" />))
+    await userEvent.type(screen.getByPlaceholderText('向 AI Agent 发送消息...'), '你好{Enter}')
+
+    await waitFor(() => expect(chatState.send).toHaveBeenCalledTimes(1))
+    // 再放一拍，确认没有延迟的第二次调用
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(chatState.send).toHaveBeenCalledTimes(1)
+  })
+
   it('Shift+Enter 换行而不发送', async () => {
     render(wrap(<ChatInput sessionId="s1" />))
     const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
@@ -187,7 +197,7 @@ describe('ChatInput 附件与工具区可访问性', () => {
     expect(screen.getByRole('button', { name: /图片/ })).toBeInTheDocument()
   })
 
-  it('发送与停止按钮共享同一尺寸与位置', () => {
+  it('发送与停止按钮由同一组 Sender 操作按钮渲染（尺寸与形状一致）', () => {
     const { unmount } = render(wrap(<ChatInput sessionId="s1" />))
     const send = screen.getByRole('button', { name: '发送' })
     const sendClass = send.getAttribute('class') ?? ''
@@ -198,9 +208,86 @@ describe('ChatInput 附件与工具区可访问性', () => {
     const stop = screen.getByRole('button', { name: '停止生成' })
     const stopClass = stop.getAttribute('class') ?? ''
 
-    for (const token of ['h-8', 'w-8', 'rounded-full']) {
+    /*
+     * 迁移后两者都由 @ant-design/x 的 SendButton / LoadingButton 渲染，
+     * 因此共享同一套操作按钮类与圆形形状（同一尺寸、同一位置、同一反馈），
+     * 不再是各自写死 h-8 w-8 的自制按钮。
+     */
+    for (const token of ['ant-sender-actions-btn', 'ant-btn-circle']) {
       expect(sendClass).toContain(token)
       expect(stopClass).toContain(token)
     }
+  })
+})
+
+/**
+ * 迁移契约（文档 7.3）。
+ *
+ * `Sender` 的类名与提交契约是本文件的实现依据，因此显式断言，
+ * 避免「看起来换成了 Sender，实际还是自制 textarea」。
+ */
+describe('ChatInput 由 Ant Design X Sender 驱动', () => {
+  it('使用 Sender 作为输入外壳', () => {
+    const { container } = render(wrap(<ChatInput sessionId="s1" />))
+    expect(container.querySelector('.ant-sender')).not.toBeNull()
+    expect(container.querySelector('textarea.ant-sender-input')).not.toBeNull()
+  })
+
+  it('Skill 菜单里回车只补齐指令，不会同时发送消息', async () => {
+    skillState.items = [
+      {
+        id: 'sk1',
+        name: 'demo',
+        displayName: 'Demo',
+        description: '示例技能',
+        active: true,
+        enabled: true,
+        errors: []
+      }
+    ]
+    render(wrap(<ChatInput sessionId="s1" />))
+    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    await userEvent.type(textarea, '/dem')
+
+    expect(screen.getByRole('listbox', { name: 'Skill 快捷指令' })).toBeInTheDocument()
+    await userEvent.keyboard('{Enter}')
+
+    expect(chatState.send).not.toHaveBeenCalled()
+    expect(textarea).toHaveValue('/demo ')
+  })
+
+  it('@插件菜单里回车只补齐 mention，不会同时发送消息', async () => {
+    pluginState.items = [
+      {
+        id: 'plug',
+        name: 'Plug',
+        version: '1.0.0',
+        description: '插件',
+        enabled: true,
+        status: 'ready',
+        components: ['tools']
+      }
+    ]
+    render(wrap(<ChatInput sessionId="s1" />))
+    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    await userEvent.type(textarea, '@pl')
+
+    expect(screen.getByRole('listbox', { name: '插件快捷选择' })).toBeInTheDocument()
+    await userEvent.keyboard('{Enter}')
+
+    expect(chatState.send).not.toHaveBeenCalled()
+    expect(textarea).toHaveValue('@plug ')
+  })
+
+  it('输入历史仍可用：↑ 取回上一条用户消息', async () => {
+    chatState.messages = { s1: [{ role: 'user', content: '上一条消息' }] }
+    render(wrap(<ChatInput sessionId="s1" />))
+    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+
+    await userEvent.click(textarea)
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(textarea).toHaveValue('上一条消息')
+    expect(chatState.send).not.toHaveBeenCalled()
   })
 })

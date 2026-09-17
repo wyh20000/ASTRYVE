@@ -29,6 +29,12 @@ export interface IconButtonProps {
   danger?: boolean
   /** 是否禁用 Tooltip（例如已在别处展示文案） */
   hideTooltip?: boolean
+  /**
+   * 挂载后自动聚焦。
+   * 用于弹层/抽屉的关闭按钮：打开即把焦点交给它，键盘用户可以立刻退出，
+   * 也让焦点永远落在弹层内部（配合上层焦点陷阱）。
+   */
+  autoFocus?: boolean
   className?: string
   'aria-expanded'?: boolean
   'aria-pressed'?: boolean
@@ -43,6 +49,7 @@ export function IconButton({
   disabled = false,
   danger = false,
   hideTooltip = false,
+  autoFocus = false,
   className,
   ...aria
 }: IconButtonProps): JSX.Element {
@@ -55,6 +62,7 @@ export function IconButton({
       aria-pressed={aria['aria-pressed'] ?? (active ? true : undefined)}
       aria-expanded={aria['aria-expanded']}
       disabled={disabled}
+      autoFocus={autoFocus}
       onClick={onClick}
       className={[
         'inline-flex shrink-0 items-center justify-center rounded-md transition-colors',

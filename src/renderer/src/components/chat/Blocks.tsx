@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import hljs from 'highlight.js'
+import { Sources, Think } from '@ant-design/x'
 import type { MessageBlock, MessageStatus, PatchDiffBlock, PatchDiffFile, SourceCitation } from '@shared/types'
 import MarkdownRenderer from './MarkdownRenderer'
 import { Button, IconButton } from '../ui'
@@ -37,20 +38,83 @@ export function RichText({ text }: { text: string }): JSX.Element {
   )
 }
 
-export function Blocks({ blocks, status }: { blocks: MessageBlock[]; status: MessageStatus }): JSX.Element {
+/**
+ * 块列表。
+ *
+ * 两个刻意的设计：
+ *
+ * 1. **key 用「同类序号」而不是数组下标**。列表是流式重建的（主进程每来一个
+ *    delta 就重拼一次 `blocks`，工具轮次/联网回退还可能整段换掉），
+ *    下标做 key 会让「同一位置的组件」在块种类变化时被 React 复用/重建，
+ *    用户的展开状态就随之中断。用 `thinking-0` / `plan-1` 这类稳定标识，
+ *    追加与插入都不会影响已有块。
+ * 2. **思考面板的展开状态放在这里（或更上层），而不是块组件内部**。块组件会随
+ *    列表重建而重挂载（例如末尾的 activity 思考块在 `ev.content` 到达时被移除、
+ *    下一轮工具调用再出现），状态放在块内部就会被重置成「收起」。
+ *    调用方（`MessageItem`）传 `thinkingOpen` 时状态归调用方所有，
+ *    这样连整条消息短暂没有块（重试/联网回退前的清空）也不会丢；
+ *    不传则本组件自持，便于单独使用与测试。
+ */
+export function Blocks({
+  blocks,
+  status,
+  thinkingOpen,
+  onToggleThinking
+}: {
+  blocks: MessageBlock[]
+  status: MessageStatus
+  /** key 为 `${kind}-${同类序号}` */
+  thinkingOpen?: Record<string, boolean>
+  onToggleThinking?: (key: string, next: boolean) => void
+}): JSX.Element {
+  const [localOpen, setLocalOpen] = useState<Record<string, boolean>>({})
+  const open = thinkingOpen ?? localOpen
+  const toggle = (key: string, next: boolean): void => {
+    if (onToggleThinking) onToggleThinking(key, next)
+    else setLocalOpen((s) => ({ ...s, [key]: next }))
+  }
+  const counters = new Map<string, number>()
   return (
     <div className="space-y-3">
-      {blocks.map((b, i) => (
-        <Block key={i} block={b} status={status} />
-      ))}
+      {blocks.map((b) => {
+        const ordinal = counters.get(b.kind) ?? 0
+        counters.set(b.kind, ordinal + 1)
+        const key = `${b.kind}-${ordinal}`
+        return (
+          <Block
+            key={key}
+            block={b}
+            status={status}
+            open={open[key] ?? false}
+            onToggle={(next) => toggle(key, next)}
+          />
+        )
+      })}
     </div>
   )
 }
 
-function Block({ block, status }: { block: MessageBlock; status: MessageStatus }): JSX.Element | null {
+function Block({
+  block,
+  status,
+  open,
+  onToggle
+}: {
+  block: MessageBlock
+  status: MessageStatus
+  open: boolean
+  onToggle: (next: boolean) => void
+}): JSX.Element | null {
   switch (block.kind) {
     case 'thinking':
-      return <ThinkingBlock content={block.content} seconds={block.seconds} status={block.done ? 'done' : status} />
+      return (
+        <ThinkingBlock
+          content={block.content}
+          status={block.done ? 'done' : status}
+          open={open}
+          onToggle={onToggle}
+        />
+      )
     case 'text':
       return <RichText text={block.content} />
     case 'plan':
@@ -252,25 +316,54 @@ const copyText: CopyFn = async (text) => {
   }
 }
 
+/**
+ * 思考过程（阶段 C · 设计文档 7.5）。
+ *
+ * 外壳迁移到 Ant Design X 的 `Think`：状态图标、展开/收起动画由组件提供。
+ * 展开状态是**受控**的：`Think` 只负责渲染与回调，状态由 `Blocks` 持有
+ * （与官方 `expanded` + `onExpand` 示例一致），这样块列表在流式期间重建时
+ * 不会把用户刚点开的面板重置掉。
+ *
+ * 用户实测反馈后的三条约定：
+ *
+ * 1. **不做「思考结束自动收起」**。原来 `finished` 一变就 `setOpen(false)`，
+ *    而思考段落随时可能被工具调用结束掉（`finishThinking`），
+ *    结果就是「流式期间点开，有时看得到、有时立刻就没了」。
+ *    面板初始是收起的，任何展开都是用户主动点的，不该被抢走。
+ * 2. **展开/收起的可见性只由 `open` 决定，不依赖 `Think` 的折叠动画**。
+ *    `Think` 的折叠走 rc-motion 的高度动画：点开后先写内联
+ *    `height: 0; opacity: 0`（`.ant-motion-collapse-enter`），再等**两帧 rAF**
+ *    才切到内容高度；流式期间渲染密集、rAF 被推迟（真实窗口实测 300ms 才
+ *    跑到 1 帧），这期间就是「箭头转了、内容被裁成 0 高度且全透明」，
+ *    即用户反馈的「展开了但里面空的」；更糟的是这条链没跑完时
+ *    `motionDeadline` 也不会挂上（它只在 STEP_ACTIVE 才挂），所以不是
+ *    「慢一点」，而会一直空着。因此正文只在 `open` 时挂载，
+ *    `global.css` 再把展开态定成内容高度、收起态包装层直接 `display: none`。
+ * 3. **思考中只保留前置图标 360° 旋转**。原来 `loading`（转圈）+ 标题里的
+ *    点点点同时动，两个指示器重复且嘈杂；现在由 `.thinking-streaming`
+ *    驱动 Think 自己的图标旋转，文字不再闪烁。
+ *
+ * 一个刻意保留的细节：`Think` 的标题行是 `<div onClick>`，本身不可聚焦，
+ * 若直接使用会导致键盘用户无法展开思考过程（迁移前是 `<button>`）。
+ * 因此标题内容仍是一个真正的 `<button>`：点击冒泡到 `Think` 的标题行触发
+ * 切换，键盘 Enter/Space 同样有效，并用 `aria-expanded` 暴露当前状态。
+ *
+ * 其余能力保持原样：流式「回到底部」、展开后的滚动容器、14px 正文。
+ */
 function ThinkingBlock({
   content,
-  seconds,
-  status
+  status,
+  open,
+  onToggle
 }: {
   content: string
-  seconds?: number
   status: MessageStatus
+  open: boolean
+  onToggle: (next: boolean) => void
 }): JSX.Element {
-  const finished = status === 'done' || status === 'error'
   const streaming = status === 'streaming'
-  const [open, setOpen] = useState(false)
   const [stick, setStick] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
-
-  // 思考结束后自动收起，用户可点击展开
-  useEffect(() => {
-    if (finished) setOpen(false)
-  }, [finished])
 
   useEffect(() => {
     if (!open || !streaming || !stick) return
@@ -279,98 +372,95 @@ function ThinkingBlock({
   }, [content, open, stick, streaming])
 
   return (
-    <div>
-      {open ? (
-        <div className="overflow-hidden rounded-md border border-border bg-bg-app">
-          <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-            <Icon.Brain size={14} className={streaming ? 'animate-pulse text-accent' : 'text-accent'} />
-            <span className="text-[14px] font-medium text-txt-secondary">
-              {streaming ? '思考中' : '思考过程'}
-            </span>
-            {streaming && <span className="thinking-dots" aria-label="思考中"><i /><i /><i /></span>}
-            {finished && seconds != null && <span className="text-[14px] text-txt-muted">{seconds}s</span>}
-            <span className="ml-auto">
-              <IconButton
-                icon={<Icon.ChevronDown size={14} className="rotate-180" />}
-                label="收起思考过程"
-                onClick={() => setOpen(false)}
-              />
-            </span>
-          </div>
-          <div
-            ref={scrollRef}
-            className="relative max-h-72 overflow-y-auto px-3 py-2"
-            onScroll={(event) => {
-              const element = event.currentTarget
-              setStick(element.scrollHeight - element.scrollTop - element.clientHeight < 48)
-            }}
-          >
-            <div className="selectable whitespace-pre-wrap break-words text-[14px] leading-[22px] text-txt-secondary">
-              {content}
-            </div>
-            {!stick && streaming && <button
-              type="button"
-              onClick={() => {
-                setStick(true)
-                const element = scrollRef.current
-                if (element) element.scrollTop = element.scrollHeight
-              }}
-              className="sticky bottom-1 left-1/2 mt-2 -translate-x-1/2 rounded-full border border-border bg-bg-raised px-2.5 py-1 text-[14px] text-txt-secondary shadow-lg hover:text-txt-primary"
-            >
-              回到底部
-            </button>}
-          </div>
-        </div>
-      ) : (
+    <Think
+      expanded={open}
+      onExpand={onToggle}
+      /* 不再传 loading：避免与图标旋转重复；图标动画见 global.css 的 .thinking-streaming */
+      classNames={{
+        root: streaming ? 'thinking-panel max-w-[720px] thinking-streaming' : 'thinking-panel max-w-[720px]',
+        content: 'rounded-md bg-bg-app py-2 pr-3'
+      }}
+      title={
         <button
-          onClick={() => setOpen(true)}
-          className="flex w-fit items-center gap-1.5 rounded-full bg-bg-raised px-2.5 py-1 text-[14px] text-txt-secondary hover:bg-bg-active"
+          type="button"
+          aria-expanded={open}
+          /* 不自己调用 onToggle：点击冒泡到 Think 的标题行，由它统一处理 */
+          className="flex items-center gap-1.5 border-0 bg-transparent p-0 text-left text-[14px] font-medium text-txt-secondary"
         >
-          <Icon.Brain size={13} className="text-accent" />
           {streaming ? '思考中' : '思考过程'}
-          {streaming && <span className="thinking-dots" aria-label="思考中"><i /><i /><i /></span>}
-          {finished && seconds != null && <span className="text-txt-muted">{seconds}s</span>}
-          <Icon.ChevronDown size={13} />
         </button>
+      }
+    >
+      {/*
+       * 正文只在展开时挂载：展开/收起的可见性完全由这个状态决定，
+       * 不再依赖 `Think` 的折叠动画（原因见下面 `open` 的注释与
+       * global.css 里的 .thinking-panel 规则）。
+       */}
+      {open && (
+        <div
+          ref={scrollRef}
+          className="relative max-h-72 overflow-y-auto px-3 pb-1 pt-2"
+          onScroll={(event) => {
+            const element = event.currentTarget
+            setStick(element.scrollHeight - element.scrollTop - element.clientHeight < 48)
+          }}
+        >
+          <div className="selectable whitespace-pre-wrap break-words text-[14px] leading-[22px] text-txt-secondary">
+            {content}
+          </div>
+          {!stick && streaming && <button
+            type="button"
+            onClick={() => {
+              setStick(true)
+              const element = scrollRef.current
+              if (element) element.scrollTop = element.scrollHeight
+            }}
+            className="sticky bottom-1 left-1/2 mt-2 -translate-x-1/2 rounded-full border border-border bg-bg-raised px-2.5 py-1 text-[14px] text-txt-secondary shadow-lg hover:text-txt-primary"
+          >
+            回到底部
+          </button>}
+        </div>
       )}
-    </div>
+    </Think>
   )
 }
 
+/**
+ * 引用来源（阶段 C · 设计文档 7.5）。
+ *
+ * 迁移到 Ant Design X 的 `Sources`：条目结构（`items` + `<a target="_blank">`）
+ * 与折叠动画由组件提供，调用方只做数据映射。
+ *
+ * 与思考过程同样的处理：`Sources` 的标题行是 `<div onClick>`，
+ * 因此标题内容仍用真正的 `<button>`（`aria-expanded` 暴露展开状态），
+ * 保证键盘可操作；`expanded` / `onExpand` 仍由本组件受控，行为与迁移前一致。
+ */
 function SourcesBlock({ sources }: { sources: SourceCitation[] }): JSX.Element | null {
   const [open, setOpen] = useState(true)
   if (sources.length === 0) return null
   return (
-    <div className="max-w-[680px] overflow-hidden rounded-md border border-border bg-bg-panel">
-      <button
-        className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[14px] font-medium text-txt-primary hover:bg-bg-raised"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-      >
-        <Icon.Link size={14} className="text-accent" />
-        引用来源
-        <span className="text-[14px] font-normal text-txt-muted">{sources.length}</span>
-        <Icon.ChevronDown size={13} className={`ml-auto text-txt-muted transition-transform ${open ? '' : '-rotate-90'}`} />
-      </button>
-      {open && (
-        <ol className="space-y-1 px-3 py-2">
-          {sources.map((source, index) => (
-            <li key={source.url} className="flex min-w-0 items-start gap-2 text-[14px]">
-              <span className="shrink-0 text-txt-muted">{index + 1}.</span>
-              <a
-                href={source.url}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 truncate text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
-                title={source.url}
-              >
-                {source.title}
-              </a>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
+    <Sources
+      className="max-w-[680px]"
+      expanded={open}
+      onExpand={setOpen}
+      items={sources.map((source) => ({
+        key: source.url,
+        title: source.title,
+        url: source.url
+      }))}
+      title={
+        <button
+          type="button"
+          aria-expanded={open}
+          /* 同上：点击冒泡到 Sources 的标题行，由 onExpand 统一处理 */
+          className="flex items-center gap-1.5 border-0 bg-transparent p-0 text-left text-[14px] font-medium text-txt-primary"
+        >
+          <Icon.Link size={14} className="text-accent" />
+          引用来源
+          <span className="text-[14px] font-normal text-txt-muted">{sources.length}</span>
+        </button>
+      }
+    />
   )
 }
 

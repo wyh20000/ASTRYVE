@@ -6,12 +6,15 @@ import { normalizeHexColor, type ThemeMode } from '@shared/themePreferences'
 import { resolveTheme } from '../../theme/tokens'
 import {
   Button,
+  Checkbox,
   FormSection,
   IconButton,
   SearchInput,
   SegmentedControl,
+  SelectControl,
   SettingRow,
   TagChip,
+  TextArea,
   TextInput,
   ThemeModeCards,
   ToggleSwitch
@@ -50,9 +53,7 @@ export default function SettingsPage(): JSX.Element {
     <div className="flex min-h-0 flex-1 bg-bg-app text-txt-primary">
       <div className="flex w-[164px] shrink-0 flex-col border-r border-border bg-bg-panel sm:w-[200px]">
         <div className="flex h-12 items-center gap-2 px-3">
-          <button className="btn-icon" title="返回" onClick={closeSettings}>
-            <Icon.X size={15} />
-          </button>
+          <IconButton icon={<Icon.X size={15} />} label="返回" onClick={closeSettings} />
           <span className="text-[14px] font-semibold text-txt-primary">设置</span>
         </div>
         <div className="px-3 pb-2">
@@ -185,13 +186,15 @@ export function PluginSection(): JSX.Element {
       <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
         <h2 className="text-[14px] font-semibold text-txt-primary">已安装</h2>
         <span className="text-[14px] tabular-nums text-txt-muted">{items.length}</span>
-        <label title="仅限同一来源和发布者、没有新增权限的更高版本；应用启动时检查" className="ml-auto flex cursor-pointer items-center gap-2 text-[14px] text-txt-muted">
-          <input type="checkbox" checked={preferences.autoUpdate} onChange={(event) => void setAutoUpdate(event.target.checked)} />
-          自动安装安全更新
-        </label>
+        {/* title 挂在外层：Checkbox 内部会把 title 落到 input 上，光悬停文字不会提示 */}
+        <span className="ml-auto" title="仅限同一来源和发布者、没有新增权限的更高版本；应用启动时检查">
+          <Checkbox checked={preferences.autoUpdate} onChange={(next) => void setAutoUpdate(next)} className="text-[14px] text-txt-muted">
+            自动安装安全更新
+          </Checkbox>
+        </span>
       </div>
       {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin}
-        onToggle={() => void setEnabled(plugin.id, !plugin.enabled)}
+        onToggle={(next) => void setEnabled(plugin.id, next)}
         onRecover={() => void recover(plugin.id)} />)}
       {!loading && !filtered.length && <div className="flex min-h-[220px] flex-col items-center justify-center px-4 text-center">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-raised text-txt-muted">
@@ -307,8 +310,8 @@ function MarketActionButton({ entry, installed, releases, mutating, onOpen }: {
 }): JSX.Element {
   const risk = describePluginInstallRisk(entry, installed, releases)
   const label = entry.installable === false ? '待支持' : risk.mode === 'installed' ? '已安装' : risk.mode === 'older' ? '版本较旧' : risk.mode === 'update' ? '更新' : '安装'
-  return <button type="button" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'installed' || risk.mode === 'older' || mutating}
-    onClick={(event) => onOpen(entry, event.currentTarget)} className="rounded-full bg-bg-raised px-3 py-1.5 text-[14px] text-txt-secondary disabled:text-txt-muted">{label}</button>
+  return <Button size="sm" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'installed' || risk.mode === 'older' || mutating}
+    onClick={(event) => onOpen(entry, event.currentTarget)}>{label}</Button>
 }
 
 interface DialogFocusEvent { key: string; shiftKey: boolean; target: unknown; preventDefault: () => void }
@@ -341,7 +344,7 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
       className="h-full w-full max-w-[560px] overflow-y-auto border-l border-border bg-bg-panel p-5 shadow-2xl sm:p-7">
       <div className="flex items-start gap-4"><SkillGlyph /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
         <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.version}</p></div>
-        <button type="button" autoFocus aria-label="关闭插件详情" onClick={onClose} className="btn-icon text-lg text-txt-muted">×</button></div>
+        <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭插件详情" onClick={onClose} /></div>
       <p className="mt-5 text-[14px] leading-6 text-txt-secondary">{entry.description}</p>
       <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
         <DetailField label="来源">{sourceKindLabel(entry.sourceKind)}{entry.verified ? ' · 已验证' : ' · 未验证'}</DetailField>
@@ -364,8 +367,8 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
       {entry.sha256 && <p className="mt-5 break-all font-mono text-[14px] text-txt-muted">SHA-256 {entry.sha256}</p>}
       {entry.repository && <p className="mt-2 break-all font-mono text-[14px] text-txt-muted">固定版本 {entry.repository.ref.slice(0, 12)}</p>}
       <p className="mt-5 text-[14px] leading-5 text-txt-muted">安装或更新会校验内容，完成后插件保持禁用，需由你检查后启用。</p>
-      <div className="sticky bottom-0 mt-7 flex justify-end gap-2 border-t border-border bg-bg-panel py-4"><button type="button" className="btn px-3 text-[14px]" onClick={onClose}>取消</button>
-        <button type="button" disabled={mutating || entry.installable === false || risk.mode === 'installed' || risk.mode === 'older'} className="btn bg-accent px-3 text-[14px] text-white disabled:opacity-50" onClick={onConfirm}>{mutating ? '处理中…' : action}</button></div>
+      <div className="sticky bottom-0 mt-7 flex justify-end gap-2 border-t border-border bg-bg-panel py-4"><Button onClick={onClose}>取消</Button>
+        <Button variant="primary" disabled={mutating || entry.installable === false || risk.mode === 'installed' || risk.mode === 'older'} onClick={onConfirm}>{mutating ? '处理中…' : action}</Button></div>
     </aside>
   </div>
 }
@@ -406,20 +409,24 @@ function PluginSourcesView(): JSX.Element {
   return <section className="mt-7">
     <div className="rounded-xl border border-border bg-bg-panel p-4">
       <div className="flex flex-col gap-2 sm:flex-row">
-        <input aria-label="市场源名称" className="input h-9 sm:w-40" value={name} onChange={(event) => setName(event.target.value)} placeholder="市场源名称" />
-        <input aria-label="市场源地址" className="input h-9 min-w-0 flex-1" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…/index.json" />
-        <button className="btn bg-bg-raised px-3 text-[14px]" disabled={!name.trim() || !url.trim() || Boolean(keyId.trim()) !== Boolean(publicKey.trim())} onClick={() => void addSource(name, url, keyId.trim() || undefined, publicKey.trim() || undefined).then((ok) => { if (ok) { setName(''); setUrl(''); setKeyId(''); setPublicKey('') } })}>添加</button>
+        <div className="sm:w-40"><TextInput aria-label="市场源名称" value={name} onChange={(event) => setName(event.target.value)} placeholder="市场源名称" block /></div>
+        <div className="min-w-0 flex-1"><TextInput aria-label="市场源地址" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…/index.json" block /></div>
+        <Button disabled={!name.trim() || !url.trim() || Boolean(keyId.trim()) !== Boolean(publicKey.trim())} onClick={() => void addSource(name, url, keyId.trim() || undefined, publicKey.trim() || undefined).then((ok) => { if (ok) { setName(''); setUrl(''); setKeyId(''); setPublicKey('') } })}>添加</Button>
       </div>
       <details className="mt-3 text-[14px] text-txt-muted"><summary className="cursor-pointer">可选：固定发布者签名公钥</summary>
-        <div className="mt-2 grid gap-2"><input aria-label="签名密钥标识" className="input h-8" value={keyId} onChange={(event) => setKeyId(event.target.value)} placeholder="密钥标识（与公钥同时填写）" />
-          <textarea aria-label="Ed25519 签名公钥" className="input min-h-24 resize-y font-mono text-[14px]" value={publicKey} onChange={(event) => setPublicKey(event.target.value)} placeholder="-----BEGIN PUBLIC KEY-----" /></div>
+        <div className="mt-2 grid gap-2"><TextInput aria-label="签名密钥标识" value={keyId} onChange={(event) => setKeyId(event.target.value)} placeholder="密钥标识（与公钥同时填写）" block />
+          <TextArea aria-label="Ed25519 签名公钥" rows={4} autoSize={false} className="min-h-24 resize-y font-mono" value={publicKey} onChange={(event) => setPublicKey(event.target.value)} placeholder="-----BEGIN PUBLIC KEY-----" /></div>
       </details>
     </div>
     <div className="mt-4 border-t border-border">{sources.map((source) => <article key={source.id} className="flex flex-wrap items-center gap-3 border-b border-border py-3">
       <div className="min-w-[180px] flex-1"><div className="text-[14px] text-txt-primary">{source.name} <span className="text-[14px] text-txt-muted">{source.kind}</span>{source.verified && <span className="ml-1 text-[14px] text-accent">已验证</span>}{source.signingKeyId && <span className="ml-1 text-[14px] text-accent">签名已固定</span>}</div><div className="truncate text-[14px] text-txt-muted">{source.url}</div>{source.error && <div className="text-[14px] text-red-300">{source.error}</div>}</div>
-      <button className="text-[14px] text-txt-secondary" onClick={() => void syncSource(source.id)}>同步</button>
-      {source.kind !== 'official' && <button className="text-[14px] text-txt-secondary" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</button>}
-      {source.kind !== 'official' && <button className="text-[14px] text-red-300" onClick={() => void removeSource(source.id)}>删除</button>}
+      <Button size="sm" variant="text" onClick={() => void syncSource(source.id)}>同步</Button>
+      {source.kind !== 'official' && <Button size="sm" variant="text" onClick={() => void setSourceEnabled(source.id, !source.enabled)}>{source.enabled ? '禁用' : '启用'}</Button>}
+      {/*
+        * 文档 8.7：危险操作要有明确的 danger 语义，不能只靠红字。
+        * Button variant="danger" 同时提供危险态样式与语义，点击区域也回到控件级尺寸。
+        */}
+      {source.kind !== 'official' && <Button size="sm" variant="danger" onClick={() => void removeSource(source.id)}>删除</Button>}
     </article>)}</div>
     {!sources.length && <EmptySkills label="还没有市场源；添加 HTTPS 索引地址后可手动同步" />}
   </section>
@@ -432,7 +439,7 @@ export function filterPlugins(items: PluginMetadata[], query: string): PluginMet
 }
 
 function PluginRow({ plugin, onToggle, onRecover }: {
-  plugin: PluginMetadata; onToggle: () => void; onRecover: () => void
+  plugin: PluginMetadata; onToggle: (next: boolean) => void; onRecover: () => void
 }): JSX.Element {
   const badges = plugin.permissions.slice(0, 2).map(pluginPermissionLabel)
   const uninstall = usePluginStore((state) => state.uninstall)
@@ -463,18 +470,14 @@ function PluginRow({ plugin, onToggle, onRecover }: {
       {!!badges.length && <div className="mt-1 flex flex-wrap gap-1.5">{badges.map((badge) =>
         <span key={badge} className="rounded bg-bg-raised px-1.5 py-0.5 text-[14px] text-txt-muted">{badge}</span>)}</div>}
     </div>
-    {plugin.status === 'quarantined' ? <button type="button" onClick={onRecover}
-      className="shrink-0 rounded-md border border-border px-2 py-1 text-[14px] text-txt-secondary hover:bg-bg-active">
-      恢复
-    </button> : <button type="button" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
-      disabled={plugin.status !== 'ready'} onClick={onToggle}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${plugin.enabled ? 'text-txt-secondary' : 'text-txt-muted'} disabled:opacity-40`}>
-      {plugin.enabled ? <Icon.Check size={14} /> : <span className="h-3 w-3 rounded-full border border-border-strong" />}
-    </button>}
-    {!plugin.managed && (!confirmRemove ? <button type="button" title="卸载" className="btn-icon shrink-0 text-txt-muted hover:text-red-300" onClick={() => setConfirmRemove(true)}><Icon.Trash size={13} /></button>
+    {plugin.status === 'quarantined' ? <Button size="sm" className="shrink-0" onClick={onRecover}>恢复</Button>
+      : /* 启用与否是标准开关语义：角色 switch + aria-checked，不再用图标自绘 */
+      <ToggleSwitch className="shrink-0" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
+        checked={plugin.enabled} disabled={plugin.status !== 'ready'} onChange={onToggle} />}
+    {!plugin.managed && (!confirmRemove ? <IconButton className="shrink-0" danger icon={<Icon.Trash size={14} />} label="卸载" onClick={() => setConfirmRemove(true)} />
       : <PluginUninstallChoices onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />)}
-    <button type="button" title="历史版本" className="btn-icon shrink-0 text-txt-muted" onClick={() => void showBackups()}><Icon.ChevronDown size={12} /></button>
-  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><button className="text-txt-secondary" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</button></div>) : '没有可回滚版本'}</div>}
+    <IconButton className="shrink-0" icon={<Icon.ChevronDown size={14} />} label="历史版本" onClick={() => void showBackups()} />
+  </div>{backups && <div className="ml-12 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><Button size="sm" variant="text" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</Button></div>) : '没有可回滚版本'}</div>}
     {!!connection?.servers.length && <div className="ml-12 mt-2 space-y-2">{connection.servers.map((server) =>
       <PluginConnectionPanel key={server.id} pluginId={plugin.id} server={server} mutating={mutatingConnection}
         onConnect={connectMcp} onReauthorize={reauthorizeMcp} onRetry={retryMcp} onDisconnect={disconnectMcp} />)}</div>}
@@ -516,27 +519,35 @@ export function PluginConnectionPanel({ pluginId, server, mutating, onConnect, o
     {server.accountLabel && <p className="mt-1 text-txt-muted">账号：{server.accountLabel}</p>}
     {server.state === 'restricted' && <p className="mt-2 text-amber-300">启用插件并授予联网权限后才能连接</p>}
     {server.state === 'failed' && <div className="mt-2 flex items-center justify-between gap-3"><span className="text-red-300">连接失败{server.errorCode ? `（${mcpErrorLabel(server.errorCode)}）` : ''}</span>
-      <button type="button" disabled={mutating} className="text-txt-secondary disabled:opacity-50" onClick={() => void onRetry(target)}>重试</button></div>}
+      <Button size="sm" variant="text" disabled={mutating} onClick={() => void onRetry(target)}>重试</Button></div>}
     {server.state === 'pending' && !server.connectionId && <div className="mt-2 grid gap-2">
-      {!!server.compatibleConnections.length && <select aria-label="绑定已有连接" className="input h-8" value={existingId} onChange={(event) => setExistingId(event.target.value)}>
-        <option value="">创建新连接</option>{server.compatibleConnections.map((item) => <option key={item.id} value={item.id}>{item.accountLabel ?? item.serverOrigin}</option>)}
-      </select>}
-      {!existingId && server.auth === 'api-key' && <input type="password" aria-label="API Key" autoComplete="off" className="input h-8" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="API Key" />}
-      {!existingId && <input aria-label="账号标签（可选）" className="input h-8" value={accountLabel} onChange={(event) => setAccountLabel(event.target.value)} placeholder="账号标签（可选）" />}
-      <button type="button" disabled={mutating || (!existingId && server.auth === 'api-key' && !credential)} className="btn justify-self-start bg-accent px-3 text-white disabled:opacity-50" onClick={() => void submit()}>{mutating ? '连接中…' : server.auth === 'oauth2' ? '在浏览器中授权' : existingId ? '绑定连接' : '连接账号'}</button>
+      {!!server.compatibleConnections.length && <SelectControl
+        aria-label="绑定已有连接"
+        value={existingId || undefined}
+        onChange={(value) => setExistingId(value == null ? '' : String(value))}
+        placeholder="创建新连接"
+        options={[
+          { value: '', label: '创建新连接' },
+          ...server.compatibleConnections.map((item) => ({ value: item.id, label: item.accountLabel ?? item.serverOrigin }))
+        ]}
+        block
+      />}
+      {!existingId && server.auth === 'api-key' && <TextInput type="password" aria-label="API Key" autoComplete="off" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="API Key" block />}
+      {!existingId && <TextInput aria-label="账号标签（可选）" value={accountLabel} onChange={(event) => setAccountLabel(event.target.value)} placeholder="账号标签（可选）" block />}
+      <Button className="justify-self-start" variant="primary" disabled={mutating || (!existingId && server.auth === 'api-key' && !credential)} onClick={() => void submit()}>{mutating ? '连接中…' : server.auth === 'oauth2' ? '在浏览器中授权' : existingId ? '绑定连接' : '连接账号'}</Button>
     </div>}
     {server.state === 'pending' && server.connectionId && <div className="mt-2 grid gap-2">
       <p className="text-amber-300">需要重新授权</p>
-      {server.auth === 'api-key' && <input type="password" aria-label="新的 API Key" autoComplete="off" className="input h-8" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="新的 API Key" />}
-      <button type="button" disabled={mutating || (server.auth === 'api-key' && !credential)} className="btn justify-self-start px-3 disabled:opacity-50" onClick={() => void submit(true)}>{server.auth === 'oauth2' ? '在浏览器中重新授权' : '重新授权'}</button>
+      {server.auth === 'api-key' && <TextInput type="password" aria-label="新的 API Key" autoComplete="off" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="新的 API Key" block />}
+      <Button className="justify-self-start" disabled={mutating || (server.auth === 'api-key' && !credential)} onClick={() => void submit(true)}>{server.auth === 'oauth2' ? '在浏览器中重新授权' : '重新授权'}</Button>
     </div>}
     {server.state === 'connected' && server.auth !== 'none' && <div className="mt-2 flex flex-wrap justify-end gap-3">
       <details className="text-right"><summary className="cursor-pointer list-none text-txt-secondary [&::-webkit-details-marker]:hidden">重新授权</summary>
-        <div className="mt-2 flex flex-wrap justify-end gap-2">{server.auth === 'api-key' && <input type="password" aria-label="新的 API Key" autoComplete="off" className="input h-8 w-52" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="新的 API Key" />}
-          <button type="button" disabled={mutating || (server.auth === 'api-key' && !credential)} className="btn px-3 disabled:opacity-50" onClick={() => void submit(true)}>{server.auth === 'oauth2' ? '在浏览器中重新授权' : '确认重新授权'}</button></div></details></div>}
-    {server.connectionId && <div className="mt-2 flex flex-wrap justify-end gap-3">
-      {!confirmDisconnect ? <button type="button" className="text-red-300" onClick={() => setConfirmDisconnect(true)}>断开</button>
-        : <span className="flex items-center gap-2"><span className="text-txt-muted">将同时断开共享此账号的插件</span><button type="button" disabled={mutating || !server.connectionId} className="text-red-300" onClick={() => server.connectionId && void onDisconnect({ connectionId: server.connectionId })}>确认断开</button><button type="button" className="text-txt-muted" onClick={() => setConfirmDisconnect(false)}>取消</button></span>}
+        <div className="mt-2 flex flex-wrap justify-end gap-2">{server.auth === 'api-key' && <div className="w-52"><TextInput type="password" aria-label="新的 API Key" autoComplete="off" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="新的 API Key" block /></div>}
+          <Button disabled={mutating || (server.auth === 'api-key' && !credential)} onClick={() => void submit(true)}>{server.auth === 'oauth2' ? '在浏览器中重新授权' : '确认重新授权'}</Button></div></details></div>}
+    {server.connectionId && <div className="mt-2 flex flex-wrap items-center justify-end gap-3">
+      {!confirmDisconnect ? <Button size="sm" variant="danger" onClick={() => setConfirmDisconnect(true)}>断开</Button>
+        : <span className="flex items-center gap-2"><span className="text-txt-muted">将同时断开共享此账号的插件</span><Button size="sm" variant="danger" disabled={mutating || !server.connectionId} onClick={() => server.connectionId && void onDisconnect({ connectionId: server.connectionId })}>确认断开</Button><Button size="sm" variant="text" onClick={() => setConfirmDisconnect(false)}>取消</Button></span>}
     </div>}
   </section>
 }
@@ -555,11 +566,12 @@ export function PluginUninstallChoices({ onChoose, onCancel }: {
   onChoose: (dataDisposition: 'keep' | 'clear') => void
   onCancel: () => void
 }): JSX.Element {
-  return <span className="flex max-w-[260px] shrink-0 flex-wrap justify-end gap-x-2 gap-y-1 text-[14px]">
+  return <span className="flex max-w-[260px] shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[14px]">
     <span className="w-full text-right text-txt-muted">审计记录会保留</span>
-    <button type="button" className="text-txt-secondary" onClick={() => onChoose('keep')}>卸载并保留数据</button>
-    <button type="button" className="text-red-300" onClick={() => onChoose('clear')}>卸载并清除数据</button>
-    <button type="button" className="text-txt-muted" onClick={onCancel}>取消</button>
+    <Button size="sm" variant="text" onClick={() => onChoose('keep')}>卸载并保留数据</Button>
+    {/* 清除数据不可撤销（文档 8.7）：用 danger 语义而不是红字 */}
+    <Button size="sm" variant="danger" onClick={() => onChoose('clear')}>卸载并清除数据</Button>
+    <Button size="sm" variant="text" onClick={onCancel}>取消</Button>
   </span>
 }
 
@@ -605,9 +617,9 @@ export function SecuritySection(): JSX.Element {
           <div className="text-[14px] font-medium text-txt-primary">操作审计</div>
           <p className="mt-1 max-w-[480px] text-[14px] leading-5 text-txt-muted">仅保存操作类型、结果和脱敏后的目标摘要，用于排查权限与执行问题。</p>
         </div>
-        <button type="button" className="btn shrink-0 border border-border px-3 py-2 text-[14px] text-txt-secondary hover:bg-bg-active" disabled={clearing} onClick={() => void clearAudit()}>
+        <Button className="shrink-0" disabled={clearing} onClick={() => void clearAudit()}>
           {clearing ? '清除中…' : '清除审计记录'}
-        </button>
+        </Button>
       </div>
       {message && <p role="status" className="mt-3 text-[14px] text-txt-secondary">{message}</p>}
       <div className="mt-4 border-t border-border pt-3">
@@ -695,7 +707,12 @@ export function SkillsSection(): JSX.Element {
         <p className="mt-1 text-[14px] text-txt-muted">通过任务专用技能扩展 AI 的能力</p>
       </div>
       <details className="group relative z-20">
-        <summary className="btn flex cursor-pointer list-none items-center gap-1 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] text-txt-secondary hover:bg-bg-active [&::-webkit-details-marker]:hidden">
+        {/*
+          * 这里是原生 <details>/<summary>（展开行为由浏览器提供），
+          * 不能换成 Button：按钮放进 summary 会破坏原生开合语义与键盘操作。
+          * 因此保留 summary，只把 .btn 工具类摊开成等价工具类，去掉旧类依赖。
+          */}
+        <summary className="inline-flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] font-medium text-txt-secondary transition-colors hover:bg-bg-active focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
           添加 <Icon.ChevronDown size={12} className="transition-transform group-open:rotate-180" />
         </summary>
         <div className="absolute right-0 top-full mt-1.5 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-panel p-2 shadow-2xl">
@@ -707,12 +724,12 @@ export function SkillsSection(): JSX.Element {
           <div className="my-1 border-t border-border" />
           <div className="px-3 py-1 text-[14px] text-txt-muted">从 GitHub 地址添加</div>
           <div className="flex gap-1.5 px-1 pb-1">
-            <input className="input h-8 min-w-0 flex-1 text-[14px]" value={githubUrl} onChange={(event) => setGithubUrl(event.target.value)}
-              placeholder="https://github.com/owner/repo" />
-            <button className="btn shrink-0 rounded-md bg-accent px-3 text-[14px] text-white disabled:opacity-40"
+            <div className="min-w-0 flex-1"><TextInput aria-label="GitHub 地址" value={githubUrl} onChange={(event) => setGithubUrl(event.target.value)}
+              placeholder="https://github.com/owner/repo" block /></div>
+            <Button className="shrink-0" variant="primary"
               disabled={mutating || !githubUrl.trim()} onClick={() => void install(githubUrl.trim()).then((ok) => { if (ok) setGithubUrl('') })}>
               {mutating ? '添加中…' : '添加'}
-            </button>
+            </Button>
           </div>
         </div>
       </details>
@@ -722,21 +739,25 @@ export function SkillsSection(): JSX.Element {
       <button className={`-mb-px border-b-2 pb-2.5 text-[14px] font-medium ${tab === 'market' ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`} onClick={() => setTab('market')}>技能市场</button>
     </div>
     <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-      <div className="relative min-w-0 flex-1">
-        <Icon.Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-txt-muted" />
-        <input className="input h-9 rounded-full border-border bg-bg-raised pl-9 text-[14px]" value={query}
-          onChange={(event) => setQuery(event.target.value)} placeholder="搜索技能" />
+      <div className="min-w-0 flex-1">
+        <TextInput aria-label="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索技能" prefix={<Icon.Search size={14} className="text-txt-muted" />} allowClear className="rounded-full bg-bg-raised" block />
       </div>
-      {tab === 'installed' && <select aria-label="筛选 Skill 来源" className="input h-9 w-full rounded-full bg-bg-raised px-3 text-[14px] sm:w-[124px]"
-        value={source} onChange={(event) => setSource(event.target.value as 'all' | SkillSource)}>
-        <option value="all">全部来源</option>
-        <option value="project">项目</option>
-        <option value="installed">应用安装</option>
-        <option value="codex">Codex</option>
-        <option value="agents">Agents</option>
-        <option value="plugin">插件</option>
-        <option value="builtin">内置</option>
-      </select>}
+      {tab === 'installed' && <div className="w-full sm:w-[124px]"><SelectControl<string>
+        aria-label="筛选 Skill 来源"
+        value={source}
+        onChange={(value) => setSource(value as 'all' | SkillSource)}
+        options={[
+          { value: 'all', label: '全部来源' },
+          { value: 'project', label: '项目' },
+          { value: 'installed', label: '应用安装' },
+          { value: 'codex', label: 'Codex' },
+          { value: 'agents', label: 'Agents' },
+          { value: 'plugin', label: '插件' },
+          { value: 'builtin', label: '内置' }
+        ]}
+        block
+      /></div>}
     </div>
     {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[14px] text-red-300">{error}</div>}
     {tab === 'installed' ? <section className="mt-7">
@@ -747,7 +768,7 @@ export function SkillsSection(): JSX.Element {
       <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
         {visibleItems.map((skill) => <InstalledSkillRow key={skill.id} skill={skill} expanded={expandedId === skill.id}
           mutating={mutating} onExpand={() => setExpandedId((current) => current === skill.id ? undefined : skill.id)}
-          onToggle={() => void setEnabled(skill.id, !skill.enabled)} onUpdate={() => void install(skill.installUrl!)}
+          onToggle={(next) => void setEnabled(skill.id, next)} onUpdate={() => void install(skill.installUrl!)}
           onUninstall={() => void uninstall(skill.id)} />)}
       </div>
       {!loading && !visibleItems.length && <EmptySkills label="没有找到已安装的 Skill" />}
@@ -773,7 +794,7 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
   expanded: boolean
   mutating: boolean
   onExpand: () => void
-  onToggle: () => void
+  onToggle: (next: boolean) => void
   onUpdate: () => void
   onUninstall: () => void
 }): JSX.Element {
@@ -789,11 +810,8 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
           <span className="mt-0.5 block line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</span>
         </span>
       </button>
-      <button type="button" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${skill.enabled ? 'text-txt-secondary' : 'text-txt-muted hover:bg-bg-raised'}`}
-        disabled={Boolean(skill.errors.length)} onClick={onToggle}>
-        {skill.enabled ? <Icon.Check size={14} /> : <span className="h-3 w-3 rounded-full border border-border-strong" />}
-      </button>
+      <ToggleSwitch className="shrink-0" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
+        checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
     </div>
     {expanded && <div className="ml-9 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] leading-5 text-txt-muted">
       <div>{skillSourceLabel(skill.source)} · {skill.invocation === 'user' ? '仅快捷指令' : '可自动触发'}</div>
@@ -804,8 +822,8 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
       {skill.resources.map((resource) => <div key={resource}>资源：{resource}</div>)}
       {skill.errors.map((message) => <div key={message} className="text-red-300">{message}</div>)}
       {skill.source === 'installed' && <div className="mt-2 flex gap-2">
-        {skill.installUrl && <button className="text-txt-secondary hover:text-txt-primary" disabled={mutating} onClick={onUpdate}>检查更新</button>}
-        <button className="text-red-300/80 hover:text-red-300" disabled={mutating} onClick={onUninstall}>卸载</button>
+        {skill.installUrl && <Button size="sm" variant="text" disabled={mutating} onClick={onUpdate}>检查更新</Button>}
+        <Button size="sm" variant="danger" disabled={mutating} onClick={onUninstall}>卸载</Button>
       </div>}
     </div>}
   </article>
@@ -822,8 +840,9 @@ function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogIte
       <p className="mt-0.5 line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</p>
       <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{skill.publisher}</span>
     </div>
-    <button className={`flex h-7 shrink-0 items-center justify-center rounded-full px-2.5 text-[14px] ${skill.installed ? 'text-txt-muted' : 'bg-bg-raised text-txt-secondary hover:bg-bg-active hover:text-txt-primary'}`}
-      disabled={mutating || skill.installed} onClick={onInstall}>{skill.installed ? <Icon.Check size={13} /> : '添加'}</button>
+    {/* 已安装时不再只显示一个无名图标：文案 + 勾一起表达状态（文档 6 可访问名称） */}
+    <Button size="sm" className="shrink-0" disabled={mutating || skill.installed} icon={skill.installed ? <Icon.Check size={14} /> : undefined}
+      onClick={onInstall}>{skill.installed ? '已添加' : '添加'}</Button>
   </article>
 }
 
