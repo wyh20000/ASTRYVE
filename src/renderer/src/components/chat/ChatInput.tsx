@@ -77,6 +77,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [pluginDismissed, setPluginDismissed] = useState(false)
   const [pluginIndex, setPluginIndex] = useState(0)
   const send = useChatStore((s) => s.send)
+  const consumePendingPrompt = useUiStore((s) => s.consumePendingPrompt)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
   const inputRequest = useChatStore((s) => s.inputRequests[sessionId])
@@ -86,6 +87,15 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     .map((message) => message.content))
   const senderRef = useRef<SenderRef>(null)
   const historyState = useRef<InputHistoryState>({ index: null, draft: '' })
+
+  /*
+   * 消费「待填充文本」（例如技能详情的「立即试用」）。
+   * 依赖 sessionId：跳转会切换/新建会话，届时也要把文本填进去。
+   */
+  useEffect(() => {
+    const pending = consumePendingPrompt()
+    if (pending) setValue(pending)
+  }, [sessionId, consumePendingPrompt])
   const imgRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)

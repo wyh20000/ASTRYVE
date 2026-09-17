@@ -18,7 +18,13 @@ import { PluginConnectionPanel, PluginMarketDetails, PluginUninstallChoices, Ski
 
 const skillState = vi.hoisted(() => ({
   items: [] as SkillMetadata[], catalog: [] as SkillCatalogItem[], loading: false, mutating: false, error: undefined as string | undefined,
-  load: vi.fn(), loadCatalog: vi.fn(), install: vi.fn(), importLocal: vi.fn(), uninstall: vi.fn(), setEnabled: vi.fn()
+  load: vi.fn(),
+  loadCatalog: vi.fn(),
+  // 与 store 契约一致：这两个动作返回 Promise<boolean>
+  install: vi.fn(async () => true),
+  importLocal: vi.fn(),
+  uninstall: vi.fn(async () => true),
+  setEnabled: vi.fn(async () => undefined)
 }))
 
 vi.mock('../../stores/skillStore', () => ({
@@ -163,14 +169,15 @@ describe('技能页 - 迁移到全局组件后行为不变', () => {
     ]
     render(<SkillsSection />)
 
-    expect(screen.getByLabelText('禁用 Review')).toBeInTheDocument()
-    expect(screen.getByLabelText('禁用 Broken')).toBeInTheDocument()
+    // 开关已移入详情弹窗：列表用行本身作为存在性探针
+    expect(screen.getByLabelText('查看技能 Review 详情')).toBeInTheDocument()
+    expect(screen.getByLabelText('查看技能 Broken 详情')).toBeInTheDocument()
 
     await userEvent.click(screen.getByLabelText('筛选 Skill 来源'))
     await userEvent.click(await screen.findByText('项目'))
 
-    expect(screen.getByLabelText('禁用 Review')).toBeInTheDocument()
-    expect(screen.queryByLabelText('禁用 Broken')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('查看技能 Review 详情')).toBeInTheDocument()
+    expect(screen.queryByLabelText('查看技能 Broken 详情')).not.toBeInTheDocument()
   })
 
   it('搜索框仍按名称过滤列表', async () => {
@@ -182,8 +189,8 @@ describe('技能页 - 迁移到全局组件后行为不变', () => {
 
     await userEvent.type(screen.getByLabelText('搜索技能'), 'broken')
 
-    expect(screen.queryByLabelText('禁用 Review')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('禁用 Broken')).toBeInTheDocument()
+    expect(screen.queryByLabelText('查看技能 Review 详情')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('查看技能 Broken 详情')).toBeInTheDocument()
   })
 
   it('GitHub 导入入口在地址为空时不可提交', async () => {
@@ -251,11 +258,13 @@ describe('卸载插件的数据处置 - 危险分支必须有 danger 语义（�
 })
 
 describe('技能行内操作 - 迁移到全局 Button 后仍能触达 store', () => {
-  it('技能启用开关是标准 switch，点一下把目标状态交给 store', async () => {
+  it('技能启用开关在详情弹窗内，是标准 switch 且把目标状态交给 store', async () => {
     skillState.items = [skill({ id: 'project:review', displayName: 'Review', enabled: true })]
     render(<SkillsSection />)
 
-    const toggle = screen.getByRole('switch', { name: '禁用 Review' })
+    // 列表行只负责打开详情，开关按 Codex 放在弹窗右上角
+    await userEvent.click(screen.getByLabelText('查看技能 Review 详情'))
+    const toggle = await screen.findByRole('switch', { name: '禁用 Review' })
     expect(toggle).toBeChecked()
 
     await userEvent.click(toggle)
@@ -263,11 +272,12 @@ describe('技能行内操作 - 迁移到全局 Button 后仍能触达 store', ()
     expect(skillState.setEnabled).toHaveBeenCalledWith('project:review', false)
   })
 
-  it('清单有错的技能开关禁用，避免改坏加载失败的 Skill', () => {
+  it('清单有错的技能开关禁用，避免改坏加载失败的 Skill', async () => {
     skillState.items = [skill({ id: 'codex:broken', displayName: 'Broken', source: 'codex', errors: ['无法解析 frontmatter'] })]
     render(<SkillsSection />)
 
-    expect(screen.getByRole('switch', { name: '禁用 Broken' })).toBeDisabled()
+    await userEvent.click(screen.getByLabelText('查看技能 Broken 详情'))
+    expect(await screen.findByRole('switch', { name: '禁用 Broken' })).toBeDisabled()
   })
 
   it('展开已安装技能后可检查更新与卸载，卸载带 danger 语义', async () => {
@@ -277,8 +287,7 @@ describe('技能行内操作 - 迁移到全局 Button 后仍能触达 store', ()
     })]
     render(<SkillsSection />)
 
-    // 行首展开按钮的可访问名称就是整行文本
-    await userEvent.click(screen.getByText('Build'))
+    await userEvent.click(screen.getByLabelText('查看技能 Build 详情'))
 
     const update = await screen.findByRole('button', { name: '检查更新' })
     const uninstall = screen.getByRole('button', { name: '卸载' })
@@ -290,8 +299,8 @@ describe('技能行内操作 - 迁移到全局 Button 后仍能触达 store', ()
     await userEvent.click(uninstall)
     expect(skillState.uninstall).toHaveBeenCalledWith('installed:build')
 
-    // 再点一次收起，展开态由行首按钮独占控制
-    await userEvent.click(screen.getByText('Build'))
+    // 卸载成功后弹窗自动关闭（与插件卸载同一约定），技术元数据随之不可见
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.queryByRole('button', { name: '卸载' })).not.toBeInTheDocument()
   })
 

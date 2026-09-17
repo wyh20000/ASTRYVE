@@ -35,9 +35,13 @@ interface UiState {
   openSettings: () => void
   closeSettings: () => void
   setSearchQuery: (q: string) => void
+  /** 待填入对话输入框的文本；消费一次后清空 */
+  pendingPrompt?: string
+  setPendingPrompt: (text: string) => void
+  consumePendingPrompt: () => string | undefined
 }
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   sidebarOpen: true,
   sidebarWidth: readWidth(),
   settingsOpen: false,
@@ -60,5 +64,12 @@ export const useUiStore = create<UiState>((set) => ({
   },
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
-  setSearchQuery: (q) => set({ searchQuery: q })
+  setSearchQuery: (q) => set({ searchQuery: q }),
+  pendingPrompt: undefined,
+  setPendingPrompt: (text) => set({ pendingPrompt: text }),
+  consumePendingPrompt: () => {
+    const text = get().pendingPrompt
+    if (text !== undefined) set({ pendingPrompt: undefined })
+    return text
+  }
 }))

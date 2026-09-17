@@ -115,12 +115,15 @@ describe('Skills settings page', () => {
     }]
     const html = renderToStaticMarkup(<SkillsSection />)
     expect(html).toContain('审查项目代码')
-    expect(html).toContain('aria-label="禁用 Review"')
-    expect(html).toContain('aria-label="禁用 Broken"')
+    // 启用开关与展开内容都移入详情弹窗，折叠态只保留图标/名称/描述
+    expect(html).toContain('aria-label="查看技能 Review 详情"')
+    expect(html).toContain('aria-label="查看技能 Broken 详情"')
     expect(html).not.toContain('声明 1 个工具，仍受权限审批')
     expect(html).not.toContain('references/checklist.md')
     expect(html).not.toContain('已被高优先级同名项覆盖')
     expect(html).not.toContain('Skill frontmatter 未闭合')
+    // 详情弹窗未打开时不应渲染 dialog（技术元数据不外泄）
+    expect(html).not.toContain('role="dialog"')
   })
 })
 

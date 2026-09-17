@@ -816,6 +816,9 @@ export function SkillsSection(): JSX.Element {
   const importLocal = useSkillStore((state) => state.importLocal)
   const uninstall = useSkillStore((state) => state.uninstall)
   const setEnabled = useSkillStore((state) => state.setEnabled)
+  const createSession = useSessionStore((state) => state.create)
+  const closeSettings = useUiStore((state) => state.closeSettings)
+  const setPendingPrompt = useUiStore((state) => state.setPendingPrompt)
   const [tab, setTab] = useState<'installed' | 'market'>('installed')
   const [query, setQuery] = useState('')
   const [source, setSource] = useState<'all' | SkillSource>('all')
@@ -834,6 +837,20 @@ export function SkillsSection(): JSX.Element {
     const timer = setTimeout(() => { void loadCatalog(query) }, 250)
     return () => clearTimeout(timer)
   }, [tab, query, loadCatalog])
+  /*
+   * 「立即试用」：新建（或复用空）会话 → 回到对话页 → 预填 /技能名。
+   * 技能在本项目里就是用 /名称 调用的，因此预填与既有调用方式一致；
+   * 刻意不自动发送，避免「点一下就替用户发消息」。
+   */
+  const trySkill = (skill: SkillMetadata): void => {
+    const command = `/${skill.name} `
+    setExpandedId(undefined)
+    setPendingPrompt(command)
+    closeSettings()
+    void createSession()
+  }
+
+  const activeSkill = items.find((skill) => skill.id === expandedId)
   const visibleItems = items.filter((skill) => (source === 'all' || skill.source === source) &&
     (!query || `${skill.name} ${skill.displayName} ${skill.description}`.toLowerCase().includes(query.toLowerCase())))
   return <div>
@@ -901,19 +918,23 @@ export function SkillsSection(): JSX.Element {
         <h2 className="text-[14px] font-semibold text-txt-primary">已安装</h2>
         <span className="text-[14px] tabular-nums text-txt-muted">{visibleItems.length}</span>
       </div>
-      <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
-        {visibleItems.map((skill) => <InstalledSkillRow key={skill.id} skill={skill} expanded={expandedId === skill.id}
-          mutating={mutating} onExpand={() => setExpandedId((current) => current === skill.id ? undefined : skill.id)}
-          onToggle={(next) => void setEnabled(skill.id, next)} onUpdate={() => void install(skill.installUrl!)}
-          onUninstall={() => void uninstall(skill.id)} />)}
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-x-4">
+        {visibleItems.map((skill) => <InstalledSkillRow key={skill.id} skill={skill}
+          onExpand={() => setExpandedId(skill.id)} />)}
       </div>
       {!loading && !visibleItems.length && <EmptySkills label="没有找到已安装的 Skill" />}
+      {activeSkill && <SkillDetails skill={activeSkill} mutating={mutating}
+        onClose={() => setExpandedId(undefined)}
+        onToggle={(next) => void setEnabled(activeSkill.id, next)}
+        onUpdate={() => { if (activeSkill.installUrl) void install(activeSkill.installUrl) }}
+        onUninstall={() => void uninstall(activeSkill.id).then((ok) => { if (ok) setExpandedId(undefined) })}
+        onTry={() => trySkill(activeSkill)} />}
     </section> : <section className="mt-7">
       <div className="mb-2 flex items-center gap-2">
         <h2 className="text-[14px] font-semibold text-txt-primary">技能市场</h2>
         <span className="text-[14px] tabular-nums text-txt-muted">{catalog.length}</span>
       </div>
-      <div className="grid grid-cols-1 border-t border-border sm:grid-cols-2 sm:gap-x-8">
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-x-4">
         {catalog.map((skill) => <MarketSkillRow key={skill.id} skill={skill} mutating={mutating}
           onInstall={() => void install(skill.installUrl)} />)}
       </div>
@@ -925,48 +946,100 @@ export function SkillsSection(): JSX.Element {
   </div>
 }
 
-function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUpdate, onUninstall }: {
+/**
+ * 技能详情弹窗。
+ *
+ * 说明：Codex 的详情里还包含技能正文（完整指令），但本项目的
+ * `SkillMetadata` 只暴露 description 等元数据，正文未走 IPC，
+ * 因此这里只呈现真实可用的字段，不展示占位或编造内容。
+ */
+function SkillDetails({ skill, mutating, onClose, onToggle, onUpdate, onUninstall, onTry }: {
   skill: SkillMetadata
-  expanded: boolean
   mutating: boolean
-  onExpand: () => void
+  onClose: () => void
   onToggle: (next: boolean) => void
   onUpdate: () => void
   onUninstall: () => void
+  onTry: () => void
 }): JSX.Element {
-  return <article className={`border-b border-border py-2.5 transition-colors hover:bg-bg-active ${skill.errors.length ? 'text-red-300' : ''}`}>
-    <div className="flex min-h-[42px] items-center gap-2.5">
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={onExpand}>
+  const dialog = useRef<HTMLDivElement | null>(null)
+  const sourceLabel = skillSourceLabel(skill.source)
+  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onMouseDown={onClose}>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="skill-detail-title" tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose()
+        else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot)
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+      className="w-full max-w-[560px] rounded-xl border border-border bg-bg-panel p-5 shadow-2xl">
+      <div className="flex items-start gap-3">
         <SkillGlyph muted={!skill.active} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
-            {skill.invocation === 'user' && <span className="shrink-0 text-[14px] text-txt-muted">/{skill.name}</span>}
-          </span>
-          <span className="mt-0.5 block truncate text-[14px] leading-4 text-txt-muted">{skill.description}</span>
-        </span>
-      </button>
-      <ToggleSwitch size="small" className="shrink-0" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
-        checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
+        <div className="min-w-0 flex-1">
+          <h2 id="skill-detail-title" className="text-[17px] font-semibold text-txt-primary">{skill.displayName} Skill</h2>
+          <p className="mt-1 text-[14px] leading-5 text-txt-secondary">{skill.description}</p>
+        </div>
+        {/* 启用开关：按 Codex 放在右上角 */}
+        <ToggleSwitch size="small" className="shrink-0"
+          aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
+          checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
+        <IconButton icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
+      </div>
+      <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
+        <DetailField label="来源">{sourceLabel}</DetailField>
+        <DetailField label="触发方式">{skill.invocation === 'user' ? '仅快捷指令' : '可自动触发'}</DetailField>
+        <DetailField label="工具策略">{skill.toolPolicy === 'inherit' ? '沿用任务工具' : `声明 ${skill.allowedTools.length} 个工具`}</DetailField>
+        <DetailField label="状态">{skill.errors.length ? '加载失败' : skill.enabled ? '已启用' : '已禁用'}</DetailField>
+        {skill.version && <DetailField label="版本">{skill.version.slice(0, 12)}</DetailField>}
+        {skill.repository && <DetailField label="仓库">{skill.repository}</DetailField>}
+      </div>
+      {!!skill.allowedTools.length && <section className="mt-4">
+        <h3 className="text-[14px] font-medium text-txt-secondary">可用工具</h3>
+        <div className="mt-2 flex flex-wrap gap-1.5">{skill.allowedTools.map((tool) => <span key={tool} className="rounded bg-bg-raised px-2 py-0.5 font-mono text-[14px] text-txt-muted">{tool}</span>)}</div>
+      </section>}
+      {!!skill.resources.length && <section className="mt-4">
+        <h3 className="text-[14px] font-medium text-txt-secondary">资源</h3>
+        <div className="mt-2 space-y-1">{skill.resources.map((resource) => <p key={resource} className="break-all text-[14px] text-txt-muted">{resource}</p>)}</div>
+      </section>}
+      {skill.shadowedBy && <p className="mt-4 text-[14px] text-warn">已被高优先级同名项覆盖</p>}
+      {skill.errors.map((message) => <p key={message} className="mt-4 text-[14px] text-err">{message}</p>)}
+      <p className="mt-4 text-[14px] leading-5 text-txt-muted">第三方 Skill 不会自动执行脚本，也不能提升工具权限。</p>
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+        {skill.source === 'installed' && skill.installUrl && <Button size="sm" variant="text" disabled={mutating} onClick={onUpdate}>检查更新</Button>}
+        {skill.source === 'installed' && <Button size="sm" variant="danger" disabled={mutating} onClick={onUninstall}>卸载</Button>}
+        <Button size="sm" variant="primary" onClick={onTry}>立即试用</Button>
+      </div>
     </div>
-    {expanded && <div className="ml-9 mt-2 rounded-lg bg-bg-raised px-3 py-2 text-[14px] leading-5 text-txt-muted">
-      <div>{skillSourceLabel(skill.source)} · {skill.invocation === 'user' ? '仅快捷指令' : '可自动触发'}</div>
-      <div>{skill.toolPolicy === 'inherit' ? '沿用任务工具，仍受权限审批' : `声明 ${skill.allowedTools.length} 个工具，仍受权限审批`}</div>
-      {skill.repository && <div>{skill.repository}{skill.version ? ` @ ${skill.version.slice(0, 8)}` : ''}</div>}
-      {skill.shadowedBy && <div className="text-warn">已被高优先级同名项覆盖</div>}
-      {skill.allowedTools.map((tool) => <div key={tool} className="font-mono">{tool}</div>)}
-      {skill.resources.map((resource) => <div key={resource}>资源：{resource}</div>)}
-      {skill.errors.map((message) => <div key={message} className="text-red-300">{message}</div>)}
-      {skill.source === 'installed' && <div className="mt-2 flex gap-2">
-        {skill.installUrl && <Button size="sm" variant="text" disabled={mutating} onClick={onUpdate}>检查更新</Button>}
-        <Button size="sm" variant="danger" disabled={mutating} onClick={onUninstall}>卸载</Button>
-      </div>}
-    </div>}
+  </div>
+}
+
+/**
+ * 已安装技能行：整行即按钮，点击打开详情弹窗（对齐 Codex）。
+ *
+ * 行上刻意不放启用开关或技术元数据：
+ * - 启用状态在详情弹窗右上角（Codex 的做法）；
+ * - 工具、资源、错误等只在弹窗里出现，列表保持纯浏览。
+ */
+function InstalledSkillRow({ skill, onExpand }: {
+  skill: SkillMetadata
+  onExpand: () => void
+}): JSX.Element {
+  return <article className={`rounded-lg transition-colors hover:bg-bg-active ${skill.errors.length ? 'text-err' : ''}`}>
+    <button type="button" className="flex min-h-[46px] w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left"
+      aria-label={`查看技能 ${skill.displayName} 详情`} onClick={onExpand}>
+      <SkillGlyph muted={!skill.active} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
+          {skill.invocation === 'user' && <span className="shrink-0 text-[14px] text-txt-muted">/{skill.name}</span>}
+        </span>
+        <span className="mt-0.5 block truncate text-[14px] leading-4 text-txt-muted">{skill.description}</span>
+      </span>
+    </button>
   </article>
 }
 
 function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogItem; mutating: boolean; onInstall: () => void }): JSX.Element {
-  return <article className="flex min-h-[52px] items-center gap-2.5 border-b border-border py-2.5 transition-colors hover:bg-bg-active">
+  return <article className="flex min-h-[52px] items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-bg-active">
     <SkillGlyph />
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-1.5">
