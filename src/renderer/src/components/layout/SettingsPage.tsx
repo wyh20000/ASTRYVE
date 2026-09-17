@@ -970,14 +970,14 @@ function MarketSkillDetails({ skill, mutating, onClose, onInstall }: {
   onInstall: () => void
 }): JSX.Element {
   const dialog = useRef<HTMLDivElement | null>(null)
-  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onMouseDown={onClose}>
+  return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onMouseDown={onClose}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="market-skill-title" tabIndex={-1}
       onKeyDown={(event) => {
         if (event.key === 'Escape') onClose()
         else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot)
       }}
       onMouseDown={(event) => event.stopPropagation()}
-      className="w-full max-w-[560px] rounded-xl border border-border bg-bg-panel p-5 shadow-2xl">
+      className="my-auto w-full max-w-[560px] rounded-xl border border-border bg-bg-panel p-5 shadow-2xl">
       <div className="flex items-center gap-3">
         <SkillGlyph />
         <div className="min-w-0 flex-1">
@@ -1024,14 +1024,14 @@ function SkillDetails({ skill, mutating, onClose, onToggle, onUpdate, onUninstal
 }): JSX.Element {
   const dialog = useRef<HTMLDivElement | null>(null)
   const sourceLabel = skillSourceLabel(skill.source)
-  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onMouseDown={onClose}>
+  return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onMouseDown={onClose}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="skill-detail-title" tabIndex={-1}
       onKeyDown={(event) => {
         if (event.key === 'Escape') onClose()
         else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot)
       }}
       onMouseDown={(event) => event.stopPropagation()}
-      className="w-full max-w-[560px] rounded-xl border border-border bg-bg-panel p-5 shadow-2xl">
+      className="my-auto w-full max-w-[560px] rounded-xl border border-border bg-bg-panel p-5 shadow-2xl">
       <div className="flex items-start gap-3">
         <SkillGlyph muted={!skill.active} />
         <div className="min-w-0 flex-1">
