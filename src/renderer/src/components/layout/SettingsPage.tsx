@@ -1042,7 +1042,7 @@ function SkillDetails({ skill, mutating, onClose, onToggle, onUpdate, onUninstal
         <ToggleSwitch size="small" className="mt-2 shrink-0"
           aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
           checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
-        <IconButton autoFocus className="mt-2" icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
+        <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
       </div>
       <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
         <DetailField label="来源">{sourceLabel}</DetailField>
