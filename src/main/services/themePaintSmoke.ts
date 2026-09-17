@@ -341,7 +341,15 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
       )
       if (pluginNav) {
         pluginNav.click()
-        await new Promise((r) => setTimeout(r, 1400))
+        await new Promise((r) => setTimeout(r, 1200))
+      }
+      // 切到「技能」顶层标签（与「插件」同级）
+      const skillTopTab = Array.from(document.querySelectorAll("button")).find(
+        (b) => (b.textContent || "").trim() === "技能"
+      )
+      if (skillTopTab) {
+        skillTopTab.click()
+        await new Promise((r) => setTimeout(r, 1200))
       }
       // 明确停在「已安装」标签，避免落在默认的市场页上
       const installedTab = Array.from(document.querySelectorAll('[role="tab"]')).find(

@@ -568,7 +568,7 @@ function PluginRow({ plugin, marketEntry, onToggle, onRecover }: {
          */}
         <p className="sr-only">{plugin.description}</p>
         {/* 错误必须可见（有测试锁定诊断信息） */}
-        {plugin.errors[0] && <p className="mt-0.5 line-clamp-1 text-[14px] leading-4 text-err">{plugin.errors[0]}</p>}
+        {plugin.errors[0] && <p className="mt-0.5 truncate text-[14px] leading-4 text-err">{plugin.errors[0]}</p>}
         {/* 权限与能力改为紧凑文本，替代原先一排 chip */}
         {!!badges.length && <p className="mt-0.5 truncate text-[14px] text-txt-muted">{badges.join(' · ')}</p>}
       </div>
@@ -934,7 +934,7 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
   onUpdate: () => void
   onUninstall: () => void
 }): JSX.Element {
-  return <article className={`border-b border-border py-3 ${skill.errors.length ? 'text-red-300' : ''}`}>
+  return <article className={`border-b border-border py-2.5 transition-colors hover:bg-bg-active ${skill.errors.length ? 'text-red-300' : ''}`}>
     <div className="flex min-h-[42px] items-center gap-2.5">
       <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={onExpand}>
         <SkillGlyph muted={!skill.active} />
@@ -943,7 +943,7 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
             <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
             {skill.invocation === 'user' && <span className="shrink-0 text-[14px] text-txt-muted">/{skill.name}</span>}
           </span>
-          <span className="mt-0.5 block line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</span>
+          <span className="mt-0.5 block truncate text-[14px] leading-4 text-txt-muted">{skill.description}</span>
         </span>
       </button>
       <ToggleSwitch size="small" className="shrink-0" aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
@@ -966,14 +966,14 @@ function InstalledSkillRow({ skill, expanded, mutating, onExpand, onToggle, onUp
 }
 
 function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogItem; mutating: boolean; onInstall: () => void }): JSX.Element {
-  return <article className="flex min-h-[64px] items-center gap-2.5 border-b border-border py-2.5">
+  return <article className="flex min-h-[52px] items-center gap-2.5 border-b border-border py-2.5 transition-colors hover:bg-bg-active">
     <SkillGlyph />
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-1.5">
         <strong className="truncate text-[14px] font-medium text-txt-primary">{skill.displayName}</strong>
         {skill.featured && <span className="text-[14px] text-accent">推荐</span>}
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[14px] leading-4 text-txt-muted">{skill.description}</p>
+      <p className="mt-0.5 truncate text-[14px] leading-4 text-txt-muted">{skill.description}</p>
       <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{skill.publisher}</span>
     </div>
     <IconButton size="sm" className="shrink-0" label={skill.installed ? '已添加' : '添加'} disabled={mutating || skill.installed}
@@ -982,7 +982,7 @@ function MarketSkillRow({ skill, mutating, onInstall }: { skill: SkillCatalogIte
 }
 
 function SkillGlyph({ muted = false }: { muted?: boolean }): JSX.Element {
-  return <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-raised ${muted ? 'opacity-55' : ''}`}>
+  return <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-raised ${muted ? 'opacity-55' : ''}`}>
     <span className="h-3.5 w-3.5 rotate-45 rounded-[3px] bg-gradient-to-br from-amber-300 via-rose-400 to-violet-500 shadow-sm" aria-hidden="true" />
   </span>
 }
