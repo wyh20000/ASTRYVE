@@ -312,13 +312,18 @@ function SettingsChoice({ title, description, options, value, disabled, onChange
         const selected = option.value === value
         return <button key={option.value} type="button" disabled={disabled || option.disabled}
           onClick={() => onChange(option.value)}
+          /*
+           * 完整描述放 title：Docker 不可用时这里会是一整段系统错误原文，
+           * 直接平铺会把卡片撑高并连带拉高整行网格（另一张卡出现大片空白）。
+           */
+          title={option.description}
           className={`flex min-h-[78px] items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${selected ? 'border-accent bg-accent-dim/10' : 'border-border bg-bg-app hover:border-border-strong'}`}>
           <span className={selected ? 'mt-0.5 text-accent' : 'mt-0.5 text-txt-muted'}>
             {icon === 'shield' ? <Icon.Shield size={15} /> : <Icon.Container size={15} />}
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1 text-[14px] text-txt-primary">{option.label}{selected && <Icon.Check size={12} className="text-accent" />}</span>
-            <span className="mt-1 block text-[14px] leading-[20px] text-txt-muted">{option.description}</span>
+            <span className="mt-1 line-clamp-3 block text-[14px] leading-[20px] text-txt-muted">{option.description}</span>
           </span>
         </button>
       })}

@@ -78,6 +78,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const [pluginIndex, setPluginIndex] = useState(0)
   const send = useChatStore((s) => s.send)
   const consumePendingPrompt = useUiStore((s) => s.consumePendingPrompt)
+  const pendingPrompt = useUiStore((s) => s.pendingPrompt)
   const stop = useChatStore((s) => s.stop)
   const sending = useChatStore((s) => s.sending[sessionId] ?? false)
   const inputRequest = useChatStore((s) => s.inputRequests[sessionId])
@@ -111,6 +112,12 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     void loadPlugins()
   }, [workspaceId, loadSkills, loadPlugins])
 
+  /*
+   * 会话切换时重置输入态。
+   *
+   * 注意顺序：这个 effect 必须排在下面的「待填文本」effect 之前，
+   * 否则切换会话时会把刚填好的内容清掉。
+   */
   useEffect(() => {
     historyState.current = { index: null, draft: '' }
     setValue('')
@@ -118,16 +125,19 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     setSlashIndex(0)
     setPluginDismissed(false)
     setPluginIndex(0)
-    /*
-     * 消费「待填充文本」（技能详情的「立即试用」）。
-     *
-     * 必须放在重置之后：该 effect 会在 sessionId 变化时清空输入框，
-     * 若消费逻辑单独成 effect 且排在前面，预填会被随后的重置覆盖
-     * （实测过：跳转后输入框是空的）。
-     */
+  }, [sessionId])
+
+  /*
+   * 消费「待填充文本」（技能详情的「立即试用」）。
+   *
+   * 依赖 pendingPrompt 本身而不是 sessionId：
+   * sessionStore.create() 会复用已激活的空会话，此时 sessionId 不变，
+   * 只依赖 sessionId 的话永远不会触发（实测过：输入框仍是空的）。
+   */
+  useEffect(() => {
     const pending = consumePendingPrompt()
     if (pending) setValue(pending)
-  }, [sessionId, consumePendingPrompt])
+  }, [sessionId, pendingPrompt, consumePendingPrompt])
 
   const images = attachments.filter((a) => a.kind === 'image')
   const files = attachments.filter((a) => a.kind === 'file')

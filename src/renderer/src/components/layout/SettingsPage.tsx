@@ -987,7 +987,7 @@ function MarketSkillDetails({ skill, mutating, onClose, onInstall }: {
           </h2>
           <p className="mt-1 text-[14px] leading-5 text-txt-secondary">{skill.description}</p>
         </div>
-        <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
+        <IconButton autoFocus className="mt-2" icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
       </div>
       <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
         <DetailField label="发布者">{skill.publisher || '未声明'}</DetailField>
@@ -1042,7 +1042,7 @@ function SkillDetails({ skill, mutating, onClose, onToggle, onUpdate, onUninstal
         <ToggleSwitch size="small" className="shrink-0"
           aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
           checked={skill.enabled} disabled={Boolean(skill.errors.length)} onChange={onToggle} />
-        <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
+        <IconButton autoFocus className="mt-2" icon={<Icon.X size={16} />} label="关闭技能详情" onClick={onClose} />
       </div>
       <div className="mt-5 grid gap-3 rounded-xl bg-bg-raised p-4 text-[14px] sm:grid-cols-2">
         <DetailField label="来源">{sourceLabel}</DetailField>
