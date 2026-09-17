@@ -230,14 +230,26 @@ export async function parseCodexMarketplaceIndex(
   if (!record(value) || !Array.isArray(value.plugins) || value.plugins.length > MAX_ENTRIES) {
     throw new Error('Codex 官方市场索引格式无效')
   }
-  const commitResponse = await fetcher(
-    `https://api.github.com/repos/${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}/commits/main`,
+  /*
+   * 取 main 分支当前提交 SHA，用于把清单与资源固定到不可变版本。
+   *
+   * 必须用 git/ref 端点而不是 commits/main：后者返回完整 commit 对象
+   * （实测约 475KB，含文件级 diff 元数据），会超过下面的 256KB 上限，
+   * 导致整个官方市场同步永久失败。git/ref 只返回 ref 对象（实测约 0.3KB），
+   * 两者的 sha 完全一致。
+   */
+  const refResponse = await fetcher(
+    `https://api.github.com/repos/${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}/git/ref/heads/main`,
     { headers: { Accept: 'application/vnd.github+json' }, redirect: 'error' }
   )
-  if (!commitResponse.ok) throw new Error(`读取 Codex 官方版本失败（HTTP ${commitResponse.status}）`)
-  const commitBody = await readResponseText(commitResponse, 256 * 1024, 'Codex 官方版本')
-  const commit = JSON.parse(commitBody) as unknown
-  const ref = record(commit) && typeof commit.sha === 'string' && /^[a-f0-9]{40}$/.test(commit.sha) ? commit.sha : undefined
+  if (!refResponse.ok) throw new Error(`读取 Codex 官方版本失败（HTTP ${refResponse.status}）`)
+  const refBody = await readResponseText(refResponse, 256 * 1024, 'Codex 官方版本')
+  const refPayload = JSON.parse(refBody) as unknown
+  let ref: string | undefined
+  if (record(refPayload) && record(refPayload.object)) {
+    const sha = refPayload.object['sha']
+    if (typeof sha === 'string' && /^[a-f0-9]{40}$/.test(sha)) ref = sha
+  }
   if (!ref) throw new Error('Codex 官方版本标识无效')
 
   const seen = new Set<string>()

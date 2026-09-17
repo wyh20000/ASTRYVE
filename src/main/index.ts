@@ -121,6 +121,18 @@ app.whenReady().then(async () => {
     }
     return
   }
+  if (process.env.AI_AGENT_MARKET_ICON_SMOKE === '1') {
+    try {
+      const { runMarketIconDiagnostics } = await import('./services/marketIconDiagnostics')
+      await runMarketIconDiagnostics()
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: market icon diagnostics', error)
+      app.exit(1)
+    }
+    return
+  }
+
   if (process.env.AI_AGENT_DOCKER_EXECUTION_SMOKE === '1') {
     try {
       const { runDockerExecutionSmoke } = await import('./services/agent/dockerExecutionSmoke')

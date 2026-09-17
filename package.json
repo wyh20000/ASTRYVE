@@ -25,7 +25,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:win": "electron-vite build && electron-builder --win",
-    "smoke:theme": "electron-vite build && node scripts/smoke-theme-paint.cjs"
+    "smoke:theme": "electron-vite build && node scripts/smoke-theme-paint.cjs",
+    "smoke:market": "electron-vite build && node scripts/smoke-market-icons.cjs"
   },
   "dependencies": {
     "@ant-design/x": "^2.9.0",

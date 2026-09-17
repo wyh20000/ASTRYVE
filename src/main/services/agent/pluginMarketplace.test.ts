@@ -117,7 +117,12 @@ describe('plugin marketplace', () => {
     }
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(catalog), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: commit }), { status: 200 }))
+      // 端点已由 commits/main 改为 git/ref/heads/main，响应结构为 { object: { sha } }
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ref: 'refs/heads/main', object: { sha: commit, type: 'commit' } }), {
+          status: 200
+        })
+      )
       .mockResolvedValueOnce(new Response(JSON.stringify(manifest), { status: 200 }))
     const market = new PluginMarketplace(root, fetcher)
     const snapshot = await market.snapshot()
