@@ -550,36 +550,36 @@ function PluginRow({ plugin, marketEntry, onToggle, onRecover }: {
     if (backups !== undefined) { setBackups(undefined); return }
     setBackups(await loadBackups(plugin.id))
   }
-  return <article className="border-b border-border py-3"><div className="flex min-h-[52px] items-center gap-2.5">
-    <PluginLogo entry={marketEntry} invalid={plugin.status !== 'ready'} />
-    <div className="min-w-0 flex-1">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <strong className="truncate text-[14px] font-medium text-txt-primary">{plugin.name}</strong>
-        {plugin.version && <span className="text-[14px] text-txt-muted">{plugin.version}</span>}
-        {plugin.status === 'invalid' && <span className="text-[14px] text-red-300">清单无效</span>}
-        {plugin.status === 'quarantined' && <span className="text-[14px] text-amber-300">已隔离</span>}
-        {plugin.managed && <span className="text-[14px] text-accent">受管</span>}<span className="text-[14px] text-txt-muted">{plugin.installOrigin?.sourceName ?? '来源未知'}</span>
+  return <article className="border-b border-border py-2.5">
+    <div className="flex min-h-[46px] items-center gap-2.5">
+      <PluginLogo entry={marketEntry} invalid={plugin.status !== 'ready'} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <strong className="truncate text-[14px] font-medium text-txt-primary">{plugin.name}</strong>
+          {plugin.version && <span className="text-[14px] tabular-nums text-txt-muted">{plugin.version}</span>}
+          {plugin.status === 'invalid' && <span className="text-[14px] text-err">清单无效</span>}
+          {plugin.status === 'quarantined' && <span className="text-[14px] text-warn">已隔离</span>}
+          {plugin.managed && <span className="text-[14px] text-accent">受管</span>}
+          <span className="text-[14px] text-txt-muted">{plugin.installOrigin?.sourceName ?? '来源未知'}</span>
+        </div>
+        {/*
+         * 描述对读屏与页面检索保持可读，但不再占用可见的两行高度 ——
+         * Codex 的已安装列表是紧凑图标行，长描述会显著拉高每一行。
+         */}
+        <p className="sr-only">{plugin.description}</p>
+        {/* 错误必须可见（有测试锁定诊断信息） */}
+        {plugin.errors[0] && <p className="mt-0.5 line-clamp-1 text-[14px] leading-4 text-err">{plugin.errors[0]}</p>}
+        {/* 权限与能力改为紧凑文本，替代原先一排 chip */}
+        {!!badges.length && <p className="mt-0.5 truncate text-[14px] text-txt-muted">{badges.join(' · ')}</p>}
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[14px] leading-4 text-txt-muted">{plugin.errors[0] ?? plugin.description}</p>
-      {!!badges.length && <div className="mt-1 flex flex-wrap gap-1.5">{badges.map((badge) =>
-        <span key={badge} className="rounded bg-bg-raised px-1.5 py-0.5 text-[14px] text-txt-muted">{badge}</span>)}</div>}
+      {plugin.status === 'quarantined' ? <Button size="sm" className="shrink-0" onClick={onRecover}>恢复</Button>
+        : /* 启用与否是标准开关语义：角色 switch + aria-checked，不再用图标自绘 */
+        <ToggleSwitch size="small" className="shrink-0" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
+          checked={plugin.enabled} disabled={plugin.status !== 'ready'} onChange={onToggle} />}
+      {!plugin.managed && <IconButton size="sm" className="shrink-0" danger active={confirmRemove} icon={<Icon.Trash size={14} />} label="卸载" onClick={() => setConfirmRemove((open) => !open)} />}
+      <IconButton size="sm" className="shrink-0" active={backups !== undefined} aria-expanded={backups !== undefined}
+        icon={<Icon.ChevronDown size={14} className={`transition-transform ${backups !== undefined ? 'rotate-180' : ''}`} />} label="历史版本" onClick={() => void toggleBackups()} />
     </div>
-    {plugin.status === 'quarantined' ? <Button size="sm" className="shrink-0" onClick={onRecover}>恢复</Button>
-      : /* 启用与否是标准开关语义：角色 switch + aria-checked，不再用图标自绘 */
-      <ToggleSwitch size="small" className="shrink-0" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
-        checked={plugin.enabled} disabled={plugin.status !== 'ready'} onChange={onToggle} />}
-    {!plugin.managed && <IconButton size="sm" className="shrink-0" danger active={confirmRemove} icon={<Icon.Trash size={14} />} label="卸载" onClick={() => setConfirmRemove((open) => !open)} />}
-    <IconButton size="sm" className="shrink-0" active={backups !== undefined} aria-expanded={backups !== undefined}
-      icon={<Icon.ChevronDown size={14} className={`transition-transform ${backups !== undefined ? 'rotate-180' : ''}`} />} label="历史版本" onClick={() => void toggleBackups()} />
-  </div>
-    {confirmRemove && <div style={{ backgroundColor: 'var(--surface-overlay)' }} className="ml-9 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border-strong px-3 py-2 text-[14px]">
-      <span className="mr-auto text-txt-muted">确认卸载 {plugin.name}？审计记录会保留。</span>
-      <PluginUninstallChoices showHint={false} onChoose={(dataDisposition) => void uninstall(plugin.id, dataDisposition)} onCancel={() => setConfirmRemove(false)} />
-    </div>}
-    {backups !== undefined && <div style={{ backgroundColor: 'var(--surface-overlay)' }} className="ml-9 mt-2 rounded-lg border border-border px-3 py-2 text-[14px] text-txt-muted">{backups.length ? backups.map((backup) => <div key={backup.version} className="flex items-center justify-between py-1"><span>{backup.version}</span><Button size="sm" variant="text" onClick={() => void rollback(plugin.id, backup.version).then((ok) => { if (ok) setBackups(undefined) })}>回滚</Button></div>) : '没有可回滚版本'}</div>}
-    {!!connection?.servers.length && <div className="ml-12 mt-2 space-y-2">{connection.servers.map((server) =>
-      <PluginConnectionPanel key={server.id} pluginId={plugin.id} server={server} mutating={mutatingConnection}
-        onConnect={connectMcp} onReauthorize={reauthorizeMcp} onRetry={retryMcp} onDisconnect={disconnectMcp} />)}</div>}
   </article>
 }
 

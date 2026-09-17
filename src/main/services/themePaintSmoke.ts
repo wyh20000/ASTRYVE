@@ -343,6 +343,14 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
         pluginNav.click()
         await new Promise((r) => setTimeout(r, 1400))
       }
+      // 明确停在「已安装」标签，避免落在默认的市场页上
+      const installedTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+        (b) => (b.textContent || "").trim() === "已安装"
+      )
+      if (installedTab) {
+        installedTab.click()
+        await new Promise((r) => setTimeout(r, 900))
+      }
       return "ok"
     })()`
   )
@@ -372,10 +380,17 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
   } catch (error) {
     failures.push(`主题缩略图检查失败: ${String(error)}`)
   }
-  // ---- 诊断：插件 logo 的明暗分布（评估去掉容器底色的可行性）----
-  const { runLogoContrastDiagnostics } = await import('./logoContrastDiagnostics')
-  const logoContrast = await runLogoContrastDiagnostics(win)
-  console.log("[theme-smoke] Logo 亮度:", logoContrast)
+  /*
+   * 诊断：插件 logo 的明暗分布。
+   *
+   * 注意它会把界面导航到「插件 → 插件市场」；截图模式下必须跳过，
+   * 否则会覆盖截图导航（曾导致截图恒为市场页）。
+   */
+  if (!skipDiagNav) {
+    const { runLogoContrastDiagnostics } = await import('./logoContrastDiagnostics')
+    const logoContrast = await runLogoContrastDiagnostics(win)
+    console.log("[theme-smoke] Logo 亮度:", logoContrast)
+  }
   // 截图供人工复核（文档要求的人工验收）
   try {
     const image = await win.webContents.capturePage()
