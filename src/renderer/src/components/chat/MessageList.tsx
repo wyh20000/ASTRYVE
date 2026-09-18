@@ -56,7 +56,13 @@ export function MessageList({ messages }: { messages: Message[] }): JSX.Element 
         ref={ref}
         className="h-full overflow-y-auto px-4 py-4"
         onPointerDown={() => setFollowing(false)}
-        onWheel={() => setFollowing(false)}
+        onWheel={(event) => {
+          const el = event.currentTarget
+          // 向下滚轮已经到达底部时不会改变阅读位置，不应显示“回到底部”。
+          if (el.scrollHeight <= el.clientHeight + 1) return
+          const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+          if (event.deltaY < 0 || distanceToBottom > 1) setFollowing(false)
+        }}
         onScroll={(e) => {
           const el = e.currentTarget
           if (stickRef.current && el.scrollHeight - el.scrollTop - el.clientHeight >= 80) {

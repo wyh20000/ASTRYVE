@@ -78,4 +78,14 @@ describe('MessageList 流式滚动', () => {
 
     expect(scroll.scrollTop).toBe(1400)
   })
+
+  it('已经在底部时向下滚轮不会显示回到底部按钮', () => {
+    const view = render(<MessageList messages={[message('m1')]} />)
+    const scroll = scrollElement(view.container)
+    setScrollMetrics(scroll, { scrollHeight: 1000, clientHeight: 400, scrollTop: 600 })
+
+    fireEvent.wheel(scroll, { deltaY: 240 })
+
+    expect(screen.queryByRole('button', { name: '回到底部' })).not.toBeInTheDocument()
+  })
 })

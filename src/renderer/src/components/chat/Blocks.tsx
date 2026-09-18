@@ -424,7 +424,13 @@ function ThinkingBlock({
           ref={scrollRef}
           className="relative max-h-72 overflow-y-auto px-3 pb-1 pt-2"
           onPointerDown={() => setFollowing(false)}
-          onWheel={() => setFollowing(false)}
+          onWheel={(event) => {
+            const element = event.currentTarget
+            // 到达底部后继续向下滚动不会改变位置，不应中断自动跟随。
+            if (element.scrollHeight <= element.clientHeight + 1) return
+            const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+            if (event.deltaY < 0 || distanceToBottom > 1) setFollowing(false)
+          }}
           onScroll={(event) => {
             const element = event.currentTarget
             if (stickRef.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 48) {
