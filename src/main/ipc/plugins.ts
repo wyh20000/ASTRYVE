@@ -17,6 +17,7 @@ import { uninstallPlugin } from '../services/agent/pluginUninstall'
 import { removePluginConnectionData } from '../services/agent/pluginCredentials'
 import { createInstalledPluginConnectionService } from '../services/agent/pluginMcpRuntime'
 import { getPluginConnectionManager } from '../services/agent/taskRuntimeManager'
+import { listPluginSkills } from '../services/agent/skillManager'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
@@ -43,6 +44,16 @@ export function registerPluginsIpc(): void {
       return ok(await listPlugins())
     } catch (error) {
       return err('PLUGIN_LIST_ERR', error instanceof Error ? error.message : '插件加载失败')
+    }
+  })
+
+  ipcMain.handle(IPC.plugins.listSkills, async (event, input?: PluginUninstallInput) => {
+    try {
+      assertTrustedIpcSender(event)
+      assertPluginId(input)
+      return ok(await listPluginSkills(input.id))
+    } catch (error) {
+      return err('PLUGIN_SKILLS_ERR', error instanceof Error ? error.message : '插件技能加载失败')
     }
   })
 

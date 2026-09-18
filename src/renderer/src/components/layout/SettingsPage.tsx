@@ -133,7 +133,8 @@ function ExtensionTabButton({ active, controls, onClick, children }: {
 
 export function PluginSection(): JSX.Element {
   const [query, setQuery] = useState('')
-  const [view, setView] = useState<'installed' | 'market' | 'sources' | 'developer'>('installed')
+  const [view, setView] = useState<'market' | 'sources' | 'developer'>('market')
+  const [selectedId, setSelectedId] = useState<string>()
   const items = usePluginStore((state) => state.items)
   const marketEntries = usePluginStore((state) => state.marketEntries ?? [])
   const loading = usePluginStore((state) => state.loading)
@@ -142,12 +143,22 @@ export function PluginSection(): JSX.Element {
   const load = usePluginStore((state) => state.load)
   const loadMarketplace = usePluginStore((state) => state.loadMarketplace)
   const importLocal = usePluginStore((state) => state.importLocal)
-  const setEnabled = usePluginStore((state) => state.setEnabled)
-  const recover = usePluginStore((state) => state.recover)
+  const setPluginEnabled = usePluginStore((state) => state.setEnabled)
   const preferences = usePluginStore((state) => state.preferences)
   const loadPreferences = usePluginStore((state) => state.loadPreferences)
   const setAutoUpdate = usePluginStore((state) => state.setAutoUpdate)
   const loadConnections = usePluginStore((state) => state.loadConnections)
+  const skillsByPlugin = usePluginStore((state) => state.skillsByPlugin ?? {})
+  const loadPluginSkills = usePluginStore((state) => state.loadPluginSkills)
+  const skillItems = useSkillStore((state) => state.items)
+  const loadSkills = useSkillStore((state) => state.load)
+  const setSkillEnabled = useSkillStore((state) => state.setEnabled)
+  const activeSessionId = useSessionStore((state) => state.activeId)
+  const projectPath = useSessionStore((state) => state.sessions.find((session) => session.id === activeSessionId)?.projectPath)
+  const workspaceId = useWorkspaceStore((state) => state.recent.find((workspace) => workspace.displayPath === projectPath)?.id)
+  const createSession = useSessionStore((state) => state.create)
+  const closeSettings = useUiStore((state) => state.closeSettings)
+  const setPendingPrompt = useUiStore((state) => state.setPendingPrompt)
   const [importMenuOpen, setImportMenuOpen] = useState(false)
   const importMenuRef = useRef<HTMLDetailsElement>(null)
   const closeImportMenu = (): void => {
@@ -155,9 +166,45 @@ export function PluginSection(): JSX.Element {
     setImportMenuOpen(false)
   }
   useDismissibleLayer(importMenuRef, importMenuOpen, closeImportMenu)
-  useEffect(() => { void load(); void loadPreferences(); void loadConnections(); if (loadMarketplace) void loadMarketplace() }, [load, loadConnections, loadMarketplace, loadPreferences])
+  useEffect(() => {
+    void load()
+    void loadPreferences()
+    void loadConnections()
+    void loadSkills(workspaceId)
+    if (loadMarketplace) void loadMarketplace()
+  }, [load, loadConnections, loadMarketplace, loadPreferences, loadSkills, workspaceId])
   const filtered = filterPlugins(items, query)
   const marketById = new Map(latestMarketplaceEntries(marketEntries).map((entry) => [entry.id, entry]))
+  const selectedPlugin = items.find((plugin) => plugin.id === selectedId)
+  const selectedEntry = selectedId ? marketById.get(selectedId) : undefined
+  useEffect(() => {
+    if (selectedPlugin) void loadPluginSkills(selectedPlugin.id)
+  }, [loadPluginSkills, selectedPlugin])
+  const tryPlugin = async (pluginId: string): Promise<void> => {
+    const session = await createSession()
+    if (!session) return
+    setPendingPrompt(`@${pluginId} `, session.id)
+    closeSettings()
+  }
+  if (selectedId && (selectedPlugin || selectedEntry)) {
+    return <PluginDetailsPage
+      entry={selectedEntry}
+      installed={selectedPlugin}
+      releases={marketEntries}
+      skills={selectedPlugin?.enabled
+        ? skillItems.filter((skill) => skill.pluginId === selectedId)
+        : skillsByPlugin[selectedId] ?? []}
+      mutating={mutating}
+      onBack={() => setSelectedId(undefined)}
+      onTry={() => void tryPlugin(selectedId)}
+      onPluginToggle={(id, enabled) => {
+        void setPluginEnabled(id, enabled).then(() => Promise.all([
+          loadSkills(workspaceId), loadPluginSkills(id)
+        ]))
+      }}
+      onSkillToggle={(id, enabled) => void setSkillEnabled(id, enabled)}
+    />
+  }
   return <div>
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
@@ -194,20 +241,20 @@ export function PluginSection(): JSX.Element {
       </details>
     </div>
     <div role="tablist" aria-label="插件页面" className="mt-6 flex gap-6 border-b border-border">
-      {([['installed', '已安装'], ['market', '插件市场'], ['sources', '市场源'], ['developer', '开发者']] as const).map(([id, label]) =>
+      {([['market', '插件市场'], ['sources', '市场源'], ['developer', '开发者']] as const).map(([id, label]) =>
         <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}
           className={`-mb-px border-b-2 pb-2.5 text-[14px] transition-colors ${view === id ? 'border-accent text-txt-primary' : 'border-transparent text-txt-muted hover:text-txt-secondary'}`}>{label}</button>)}
     </div>
-    <div className="mt-6">
+    {view === 'market' && <div className="mt-6">
       <SearchInput
         aria-label="搜索插件"
         value={query}
         onChange={setQuery}
         placeholder="搜索插件"
       />
-    </div>
+    </div>}
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-950/30 px-3 py-2 text-[14px] text-red-300">{error}</p>}
-    {view === 'installed' && <section className="mt-7">
+    {view === 'market' && <section className="mt-7">
       <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
         <h2 className="text-[14px] font-semibold text-txt-primary">已安装</h2>
         <span className="text-[14px] tabular-nums text-txt-muted">{items.length}</span>
@@ -218,12 +265,14 @@ export function PluginSection(): JSX.Element {
           </Checkbox>
         </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 sm:gap-x-8">
-        {filtered.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} marketEntry={marketById.get(plugin.id)}
-          onToggle={(next) => void setEnabled(plugin.id, next)}
-          onRecover={() => void recover(plugin.id)} />)}
+      <div className="flex min-h-[62px] flex-wrap items-center gap-4 py-4">
+        {filtered.map((plugin) => <button key={plugin.id} type="button" aria-label={`打开 ${plugin.name}`}
+          title={plugin.name} className="rounded-lg outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-accent"
+          onClick={() => setSelectedId(plugin.id)}>
+          <PluginLogo entry={marketById.get(plugin.id)} invalid={plugin.status !== 'ready'} size="lg" />
+        </button>)}
       </div>
-      {!loading && !filtered.length && <div className="flex min-h-[220px] flex-col items-center justify-center px-4 text-center">
+      {!loading && !filtered.length && <div className="flex min-h-[120px] flex-col items-center justify-center px-4 text-center">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-raised text-txt-muted">
           <Icon.FileDir size={18} />
         </span>
@@ -233,7 +282,8 @@ export function PluginSection(): JSX.Element {
         </p>
       </div>}
     </section>}
-    {view === 'market' && <PluginMarketView entries={marketEntries} installed={items} query={query} />}
+    {view === 'market' && <PluginMarketView entries={marketEntries} installed={items} query={query}
+      onOpen={(id) => setSelectedId(id)} onTry={(id) => void tryPlugin(id)} />}
     {view === 'sources' && <PluginSourcesView />}
     {view === 'developer' && <section className="mt-7 rounded-xl border border-border bg-bg-panel p-5">
       <h2 className="text-[14px] font-semibold">开发者</h2>
@@ -249,7 +299,7 @@ export function filterMarketplaceEntries(entries: PluginMarketEntry[], filter: M
   const query = filter.query.trim().toLocaleLowerCase()
   return entries.filter((entry) => {
     const matchesScope = filter.scope === 'all' ||
-      (filter.scope === 'recommended' && entry.sourceKind === 'official' && entry.recommended !== false) ||
+      (filter.scope === 'recommended' && entry.sourceKind === 'official' && entry.recommended === true) ||
       (filter.scope === 'official' && entry.sourceKind === 'official') ||
       (filter.scope === 'community' && entry.sourceKind !== 'official')
     const matchesCategory = filter.category === 'all' || entry.categories.includes(filter.category)
@@ -302,16 +352,17 @@ function latestMarketplaceEntries(entries: PluginMarketEntry[]): PluginMarketEnt
   return [...latest.values()]
 }
 
-function PluginMarketView({ entries, installed, query }: { entries: PluginMarketEntry[]; installed: PluginMetadata[]; query: string }): JSX.Element {
+function PluginMarketView({ entries, installed, query, onOpen, onTry }: {
+  entries: PluginMarketEntry[]
+  installed: PluginMetadata[]
+  query: string
+  onOpen: (id: string) => void
+  onTry: (id: string) => void
+}): JSX.Element {
   const install = usePluginStore((state) => state.installMarket)
   const mutating = usePluginStore((state) => state.mutating)
-  const [scope, setScope] = useState<MarketScope>('recommended')
-  const [pending, setPending] = useState<PluginMarketEntry>()
-  const opener = useRef<HTMLElement | null>(null)
-  // 分类筛选 UI 已移除，固定用 'all'；搜索仍覆盖 categories（见 filterMarketplaceEntries）
-  const visible = latestMarketplaceEntries(filterMarketplaceEntries(entries, { scope, category: 'all', query }))
-  const openDetails = (entry: PluginMarketEntry, element: HTMLElement): void => { opener.current = element; setPending(entry) }
-  const closeDetails = (): void => { setPending(undefined); queueMicrotask(() => opener.current?.focus()) }
+  const [installingKeys, setInstallingKeys] = useState<Set<string>>(() => new Set())
+  const visible = latestMarketplaceEntries(filterMarketplaceEntries(entries, { scope: 'all', category: 'all', query }))
   /*
    * 分组（对齐 Codex 的「热门 / 新品推荐 / 分类」区块）。
    * 重要：只用数据里已有的字段（recommended / categories），不虚构运营分组。
@@ -319,20 +370,24 @@ function PluginMarketView({ entries, installed, query }: { entries: PluginMarket
    */
   const groups = buildMarketGroups(visible, query)
   return <section className="mt-7">
-    <div className="flex flex-wrap gap-2" role="group" aria-label="市场范围">
-      {([['recommended', '推荐'], ['official', '官方'], ['community', '社区'], ['all', '全部']] as const).map(([id, label]) =>
-        <button key={id} type="button" aria-pressed={scope === id} onClick={() => setScope(id)} className={`rounded-full px-3 py-1.5 text-[14px] transition-colors ${scope === id ? 'bg-accent-dim text-accent' : 'bg-bg-raised text-txt-muted hover:text-txt-secondary'}`}>{label}</button>)}
-    </div>
-    {groups.map((group) => <div key={group.title} className="mt-6">
+    {groups.map((group, index) => <div key={group.title} className={index ? 'mt-8' : ''}>
       <h3 className="text-[14px] font-medium text-txt-secondary">{group.title}</h3>
       <div className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
         {group.entries.map((entry) => <MarketCard key={`${entry.sourceId}:${entry.id}:${entry.version}`} entry={entry}
-          installed={installed.find((item) => item.id === entry.id)} releases={entries} mutating={mutating} onOpen={openDetails} />)}
+          installed={installed.find((item) => item.id === entry.id)} releases={entries}
+          mutating={mutating} installing={installingKeys.has(`${entry.sourceId}:${entry.id}`)} onOpen={() => onOpen(entry.id)} onTry={() => onTry(entry.id)}
+          onInstall={() => {
+            const key = `${entry.sourceId}:${entry.id}`
+            setInstallingKeys((current) => new Set(current).add(key))
+            void install(entry.sourceId, entry.id, entry.version).finally(() => setInstallingKeys((current) => {
+              const next = new Set(current)
+              next.delete(key)
+              return next
+            }))
+          }} />)}
       </div>
     </div>)}
     {!visible.length && <EmptySkills label={entries.length ? '没有符合当前筛选条件的插件' : '正在同步 Codex 官方市场；也可以在“市场源”添加其他来源'} />}
-    {pending && <PluginMarketDetails entry={pending} installed={installed.find((item) => item.id === pending.id)} releases={entries}
-      mutating={mutating} onClose={closeDetails} onConfirm={() => void install(pending.sourceId, pending.id, pending.version).then((ok) => { if (ok) closeDetails() })} />}
   </section>
 }
 
@@ -340,28 +395,43 @@ function PluginMarketView({ entries, installed, query }: { entries: PluginMarket
  * 按现有字段把市场条目分成若干区块。
  *
  * 不使用任何虚构的运营数据：
- * - `recommended` 为 true 的进「推荐」区；
- * - 其余按 `categories[0]` 归类；无分类则进「其他」。
+ * - `recommended` 为 true 的进 Featured，同时仍保留在所属分类；
+ * - 其余按固定产品分类归组；未知或无分类进入 Other。
  * 搜索状态下不分组，直接返回单一列表。
  */
+const MARKET_GROUPS = [
+  'Productivity', 'Creativity', 'Developer Tools', 'Data & Analytics', 'Communication',
+  'Education & Research', 'Scientific Research', 'Security', 'Finance'
+] as const
+const OFFICIAL_FEATURED_PLUGIN_IDS = new Set(['computer-use', 'spreadsheets', 'presentations'])
+
+function normalizeMarketCategory(value: string): string {
+  const normalized = value.trim().toLocaleLowerCase()
+  if (normalized === 'scientfic research') return 'Scientific Research'
+  return MARKET_GROUPS.find((group) => group.toLocaleLowerCase() === normalized) ?? value.trim()
+}
+
 export function buildMarketGroups(
   entries: PluginMarketEntry[],
   query: string
 ): Array<{ title: string; entries: PluginMarketEntry[] }> {
   if (query.trim()) return entries.length ? [{ title: '搜索结果', entries }] : []
-  const recommended = entries.filter((entry) => entry.recommended)
-  const rest = entries.filter((entry) => !entry.recommended)
+  const recommended = entries.filter((entry) => entry.sourceKind === 'official'
+    ? OFFICIAL_FEATURED_PLUGIN_IDS.has(entry.id)
+    : entry.recommended)
   const byCategory = new Map<string, PluginMarketEntry[]>()
-  for (const entry of rest) {
-    const category = entry.categories[0]?.trim() || '其他'
+  for (const entry of entries) {
+    const normalized = entry.categories.map(normalizeMarketCategory)
+    const category = MARKET_GROUPS.find((group) => normalized.includes(group)) ?? 'Other'
     const bucket = byCategory.get(category)
     if (bucket) bucket.push(entry)
     else byCategory.set(category, [entry])
   }
   const groups: Array<{ title: string; entries: PluginMarketEntry[] }> = []
-  if (recommended.length) groups.push({ title: '推荐', entries: recommended })
-  for (const [title, categoryEntries] of [...byCategory.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))) {
-    groups.push({ title, entries: categoryEntries })
+  if (recommended.length) groups.push({ title: 'Featured', entries: recommended })
+  for (const title of [...MARKET_GROUPS, 'Other']) {
+    const categoryEntries = byCategory.get(title)
+    if (categoryEntries?.length) groups.push({ title, entries: categoryEntries })
   }
   return groups
 }
@@ -373,13 +443,15 @@ export function buildMarketGroups(
  * 这些信息在详情抽屉里完整呈现，卡片保持轻量更接近 Codex。
  * 卡片本身可点开详情（保留 aria-label），操作按钮独立可聚焦。
  */
-function MarketCard({ entry, installed, releases, mutating, onOpen }: {
-  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean
-  onOpen: (entry: PluginMarketEntry, element: HTMLElement) => void
+function MarketCard({ entry, installed, releases, mutating, installing, onOpen, onTry, onInstall }: {
+  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean; installing: boolean
+  onOpen: () => void
+  onTry: () => void
+  onInstall: () => void
 }): JSX.Element {
-  return <article className="group flex items-center gap-3 border-b border-border py-3 transition-colors hover:bg-bg-active">
+  return <article className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-bg-active">
     <PluginLogo entry={entry} />
-    <button type="button" className="min-w-0 flex-1 text-left" onClick={(event) => onOpen(entry, event.currentTarget)}
+    <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}
       aria-label={`查看 ${entry.name} 详情`}>
       <span className="flex flex-wrap items-baseline gap-1.5">
         <strong className="truncate text-[14px] text-txt-primary">{entry.name}</strong>
@@ -389,22 +461,61 @@ function MarketCard({ entry, installed, releases, mutating, onOpen }: {
       <span className="mt-0.5 block truncate text-[14px] text-txt-muted">{entry.description}</span>
       {entry.installable === false && <span className="mt-0.5 block truncate text-[14px] text-warn">{entry.unavailableReason}</span>}
     </button>
-    <MarketActionButton entry={entry} installed={installed} releases={releases} mutating={mutating} onOpen={onOpen} />
+    <MarketActionButton entry={entry} installed={installed} releases={releases} mutating={mutating} installing={installing}
+      onOpen={onOpen} onTry={onTry} onInstall={onInstall} />
   </article>
 }
-function MarketActionButton({ entry, installed, releases, mutating, onOpen }: {
-  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean
-  onOpen: (entry: PluginMarketEntry, element: HTMLElement) => void
+function MarketActionButton({ entry, installed, releases, mutating, installing, onOpen, onTry, onInstall }: {
+  entry: PluginMarketEntry; installed?: PluginMetadata; releases: PluginMarketEntry[]; mutating: boolean; installing: boolean
+  onOpen: () => void
+  onTry: () => void
+  onInstall: () => void
 }): JSX.Element {
   const risk = describePluginInstallRisk(entry, installed, releases)
   const label = entry.installable === false ? '待支持' : risk.mode === 'installed' ? '已安装' : risk.mode === 'older' ? '版本较旧' : risk.mode === 'update' ? '更新' : '安装'
-  if (risk.mode === 'install' || risk.mode === 'installed') {
-    return <IconButton size="sm" label={label} hideTooltip={false} disabled={entry.installable === false || risk.mode === 'installed' || mutating}
-      icon={risk.mode === 'installed' ? <Icon.Check size={14} /> : <Icon.Plus size={14} />}
-      onClick={(event) => onOpen(entry, event.currentTarget)} />
-  }
+  if (installed) return <PluginActionMenu plugin={installed} onTry={onTry} onManage={onOpen} />
+  if (risk.mode === 'install') return <Button size="sm" disabled={entry.installable === false || installing}
+    onClick={onInstall}>{installing ? '安装中…' : label}</Button>
   return <Button size="sm" title={entry.unavailableReason} disabled={entry.installable === false || risk.mode === 'older' || mutating}
-    onClick={(event) => onOpen(entry, event.currentTarget)}>{label}</Button>
+    onClick={onOpen}>{label}</Button>
+}
+
+function PluginActionMenu({ plugin, onTry, onManage }: {
+  plugin: PluginMetadata
+  onTry: () => void
+  onManage: () => void
+}): JSX.Element {
+  const uninstall = usePluginStore((state) => state.uninstall)
+  const [open, setOpen] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const root = useRef<HTMLDetailsElement>(null)
+  const close = (): void => {
+    if (root.current) root.current.open = false
+    setOpen(false)
+    setConfirmRemove(false)
+  }
+  useDismissibleLayer(root, open, close)
+  return <details ref={root} className="relative shrink-0" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary aria-label={`更多 ${plugin.name}`} aria-haspopup="menu" aria-expanded={open}
+      className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md text-txt-muted hover:bg-bg-active hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+      <Icon.More size={16} />
+    </summary>
+    {open && <div role="menu" style={{ backgroundColor: 'var(--surface-overlay)' }}
+      className="absolute right-0 top-full z-40 mt-1 min-w-[170px] rounded-lg border border-border-strong bg-surface-overlay p-1.5 shadow-overlay">
+      {!confirmRemove ? <>
+        <button type="button" role="menuitem" className="w-full rounded-md px-3 py-2 text-left text-[14px] text-txt-secondary hover:bg-bg-active disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={!plugin.enabled || plugin.status !== 'ready'}
+          onClick={() => { close(); onTry() }}>立即试用</button>
+        <button type="button" role="menuitem" className="w-full rounded-md px-3 py-2 text-left text-[14px] text-txt-secondary hover:bg-bg-active"
+          onClick={() => { close(); onManage() }}>管理</button>
+        {!plugin.managed && <button type="button" role="menuitem" className="w-full rounded-md px-3 py-2 text-left text-[14px] text-err hover:bg-bg-active"
+          onClick={() => setConfirmRemove(true)}>卸载</button>}
+      </> : <div className="w-[310px] p-1">
+        <PluginUninstallChoices showHint onCancel={() => setConfirmRemove(false)}
+          onChoose={(dataDisposition) => { close(); void uninstall(plugin.id, dataDisposition) }} />
+      </div>}
+    </div>}
+  </details>
 }
 
 interface DialogFocusEvent { key: string; shiftKey: boolean; target: unknown; preventDefault: () => void }
@@ -463,6 +574,155 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
       <div className="sticky bottom-0 mt-7 flex justify-end gap-2 border-t border-border bg-bg-panel py-4"><Button onClick={onClose}>取消</Button>
         <Button variant="primary" disabled={mutating || entry.installable === false || risk.mode === 'installed' || risk.mode === 'older'} onClick={onConfirm}>{mutating ? '处理中…' : action}</Button></div>
     </aside>
+  </div>
+}
+
+function PluginDetailsPage({ entry, installed, releases, skills, mutating, onBack, onTry, onPluginToggle, onSkillToggle }: {
+  entry?: PluginMarketEntry
+  installed?: PluginMetadata
+  releases: PluginMarketEntry[]
+  skills: SkillMetadata[]
+  mutating: boolean
+  onBack: () => void
+  onTry: () => void
+  onPluginToggle: (id: string, enabled: boolean) => void
+  onSkillToggle: (id: string, enabled: boolean) => void
+}): JSX.Element {
+  const install = usePluginStore((state) => state.installMarket)
+  const recover = usePluginStore((state) => state.recover)
+  const uninstall = usePluginStore((state) => state.uninstall)
+  const loadBackups = usePluginStore((state) => state.loadBackups)
+  const rollback = usePluginStore((state) => state.rollback)
+  const connection = usePluginStore((state) => state.connections.find((item) => item.pluginId === (installed?.id ?? entry?.id)))
+  const mutatingConnection = usePluginStore((state) => state.mutatingConnection)
+  const connectMcp = usePluginStore((state) => state.connectMcp)
+  const reauthorizeMcp = usePluginStore((state) => state.reauthorizeMcp)
+  const retryMcp = usePluginStore((state) => state.retryMcp)
+  const disconnectMcp = usePluginStore((state) => state.disconnectMcp)
+  const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const pluginId = installed?.id ?? entry?.id ?? ''
+  const name = installed?.name ?? entry?.name ?? pluginId
+  const description = installed?.description ?? entry?.description ?? ''
+  const risk = entry ? describePluginInstallRisk(entry, installed, releases) : undefined
+  const canInstall = entry && entry.installable !== false && risk?.mode !== 'installed' && risk?.mode !== 'older'
+  const declaresSkills = Boolean(installed?.components.includes('skills') || entry?.components?.includes('skills'))
+  const toggleBackups = async (): Promise<void> => {
+    if (!installed) return
+    if (backups !== undefined) { setBackups(undefined); return }
+    setBackups(await loadBackups(installed.id))
+  }
+  const confirmInstall = async (): Promise<void> => {
+    if (!entry || !canInstall) return
+    setInstalling(true)
+    try { await install(entry.sourceId, entry.id, entry.version) } finally { setInstalling(false) }
+  }
+  return <div className="pb-12">
+    <nav className="mb-7 flex items-center gap-2 text-[14px]" aria-label="插件详情路径">
+      <button type="button" className="text-txt-muted hover:text-txt-primary" onClick={onBack}>插件</button>
+      <Icon.ChevronRight size={13} className="text-txt-muted" />
+      <span className="text-txt-secondary">{name}</span>
+    </nav>
+
+    <header className="flex flex-wrap items-start gap-4">
+      <PluginLogo entry={entry} size="lg" invalid={installed?.status !== undefined && installed.status !== 'ready'} />
+      <div className="min-w-[220px] flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="selectable text-[20px] font-semibold text-txt-primary">{name}</h1>
+          {installed?.version && <span className="text-[14px] text-txt-muted">{installed.version}</span>}
+          {entry?.verified && <span className="text-[14px] text-accent">已验证</span>}
+          {installed?.managed && <span className="text-[14px] text-accent">受管</span>}
+        </div>
+        <p className="mt-1 text-[14px] text-txt-muted">{description}</p>
+        {(entry?.author || installed?.author) && <p className="mt-1 text-[14px] text-txt-muted">
+          {entry?.author ?? installed?.author} · {entry?.sourceName ?? installed?.installOrigin?.sourceName ?? '本地'}
+        </p>}
+      </div>
+      <div className="flex items-center gap-2">
+        {installed?.status === 'quarantined' && <Button onClick={() => void recover(installed.id)}>恢复</Button>}
+        {installed?.status === 'ready' && <ToggleSwitch size="small"
+          aria-label={installed.enabled ? `禁用 ${installed.name}` : `启用 ${installed.name}`}
+          checked={installed.enabled} onChange={(next) => onPluginToggle(installed.id, next)} />}
+        {installed?.status === 'ready' && <Button variant="primary" onClick={onTry}>立即试用</Button>}
+        {!installed && <Button variant="primary" disabled={!canInstall || installing} onClick={() => void confirmInstall()}>
+          {installing ? '安装中…' : entry?.installable === false ? '暂不可安装' : '安装插件'}
+        </Button>}
+      </div>
+    </header>
+
+    {installed?.errors[0] && <p role="alert" className="mt-5 rounded-lg bg-red-950/30 px-3 py-2 text-[14px] text-red-300">{installed.errors[0]}</p>}
+
+    {(declaresSkills || skills.length > 0) && <section className="mt-8">
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <h2 className="text-[16px] font-semibold text-txt-primary">技能</h2>
+        {installed && <span className="text-[14px] text-txt-muted">{skills.length}</span>}
+      </div>
+      {installed && !installed.enabled && skills.length > 0 &&
+        <p className="pt-4 text-[14px] text-txt-muted">插件已禁用；启用插件后可调整技能开关。</p>}
+      {skills.length ? <div>
+          {skills.map((skill) => <div key={skill.id} className="flex min-h-[58px] items-center gap-3 border-b border-border py-3">
+            <SkillGlyph muted={!skill.active} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-medium text-txt-primary">{skill.displayName}</div>
+              <div className="mt-0.5 truncate text-[14px] text-txt-muted">{skill.description}</div>
+              {skill.errors[0] && <div className="mt-0.5 text-[14px] text-err">{skill.errors[0]}</div>}
+            </div>
+            <ToggleSwitch size="small" checked={skill.enabled}
+              disabled={!installed?.enabled || Boolean(skill.errors.length)}
+              aria-label={skill.enabled ? `禁用 ${skill.displayName}` : `启用 ${skill.displayName}`}
+              onChange={(next) => onSkillToggle(skill.id, next)} />
+          </div>)}
+        </div> : <p className="py-5 text-[14px] text-txt-muted">
+          {installed ? '该插件没有可读取的技能清单。' : '安装后可查看和管理该插件包含的技能。'}
+        </p>}
+    </section>}
+
+    {connection && <section className="mt-8">
+      <h2 className="border-b border-border pb-3 text-[16px] font-semibold text-txt-primary">连接</h2>
+      <div className="mt-3 grid gap-3">{connection.servers.map((server) => <PluginConnectionPanel key={server.id}
+        pluginId={pluginId} server={server} mutating={mutatingConnection} onConnect={connectMcp}
+        onReauthorize={reauthorizeMcp} onRetry={retryMcp} onDisconnect={disconnectMcp} />)}</div>
+    </section>}
+
+    <section className="mt-8">
+      <h2 className="border-b border-border pb-3 text-[16px] font-semibold text-txt-primary">信息</h2>
+      <div className="mt-4 grid gap-x-8 gap-y-4 text-[14px] sm:grid-cols-2">
+        <DetailField label="来源">{entry ? `${sourceKindLabel(entry.sourceKind)}${entry.verified ? ' · 已验证' : ' · 未验证'}` : installed?.installOrigin?.sourceName ?? '本地导入'}</DetailField>
+        {entry && <DetailField label="兼容性">{compatibilityLabel(entry)}</DetailField>}
+        <DetailField label="组件">{(entry?.components ?? installed?.components ?? []).join('、') || '未声明'}</DetailField>
+        <DetailField label="能力">{(entry?.capabilities ?? installed?.capabilities ?? []).join('、') || '未声明'}</DetailField>
+        <DetailField label="权限">{(entry?.permissions ?? installed?.permissions ?? []).map(pluginPermissionLabel).join('、') || '无额外权限'}</DetailField>
+        {entry && <DetailField label="数据目标">{entry.dataTargets?.join('、') || inferDataTargets(entry.permissions)}</DetailField>}
+      </div>
+      {entry?.changelog && <div className="mt-6"><h3 className="text-[14px] font-semibold">更新记录</h3><p className="mt-2 whitespace-pre-wrap text-[14px] leading-5 text-txt-muted">{entry.changelog}</p></div>}
+      {risk?.mode === 'update' && <div className={`mt-5 rounded-lg border p-4 text-[14px] ${risk.requiresFreshApproval ? 'border-amber-500/40 bg-amber-950/20' : 'border-border'}`}>
+        <div className="font-medium">从 {installed?.version ?? '未知版本'} 更新</div>
+        {risk.addedPermissions.length > 0 && <p className="mt-2 text-amber-300">新增权限：{risk.addedPermissions.map(pluginPermissionLabel).join('、')}</p>}
+        {risk.sourceChanged && <p className="mt-2 text-amber-300">插件来源已变化</p>}
+        {risk.signingChanged && <p className="mt-2 text-amber-300">发布者签名已变化</p>}
+        {risk.publisherUnknown && <p className="mt-2 text-amber-300">无法确认已安装版本的发布者签名</p>}
+        <Button className="mt-3" disabled={mutating} onClick={confirmInstall}>{mutating ? '处理中…' : risk.requiresFreshApproval ? '更新并重新确认' : '更新'}</Button>
+      </div>}
+    </section>
+
+    {installed && <section className="mt-8">
+      <div className="flex items-center justify-between border-b border-border pb-3">
+        <h2 className="text-[16px] font-semibold text-txt-primary">版本与数据</h2>
+        <Button size="sm" variant="text" onClick={() => void toggleBackups()}>{backups === undefined ? '历史版本' : '收起历史版本'}</Button>
+      </div>
+      {backups !== undefined && <div className="py-3">
+        {backups.length ? backups.map((backup) => <div key={`${backup.pluginId}:${backup.version}`} className="flex items-center justify-between border-b border-border py-2 text-[14px]">
+          <span>{backup.version}</span><Button size="sm" disabled={mutating} onClick={() => void rollback(installed.id, backup.version)}>回滚</Button>
+        </div>) : <p className="text-[14px] text-txt-muted">没有可用的历史版本。</p>}
+      </div>}
+      {!installed.managed && <div className="mt-5 flex justify-end">
+        {!confirmRemove ? <Button variant="danger" onClick={() => setConfirmRemove(true)}>卸载</Button>
+          : <PluginUninstallChoices onCancel={() => setConfirmRemove(false)} onChoose={(dataDisposition) => {
+            void uninstall(installed.id, dataDisposition).then((ok) => { if (ok) onBack() })
+          }} />}
+      </div>}
+    </section>}
   </div>
 }
 
@@ -529,58 +789,6 @@ export function filterPlugins(items: PluginMetadata[], query: string): PluginMet
   const normalizedQuery = query.trim().toLocaleLowerCase()
   return items.filter((plugin) => !normalizedQuery ||
     `${plugin.name} ${plugin.description} ${plugin.author ?? ''}`.toLocaleLowerCase().includes(normalizedQuery))
-}
-
-function PluginRow({ plugin, marketEntry, onToggle, onRecover }: {
-  plugin: PluginMetadata; marketEntry?: PluginMarketEntry; onToggle: (next: boolean) => void; onRecover: () => void
-}): JSX.Element {
-  const badges = plugin.permissions.slice(0, 2).map(pluginPermissionLabel)
-  const uninstall = usePluginStore((state) => state.uninstall)
-  const loadBackups = usePluginStore((state) => state.loadBackups)
-  const rollback = usePluginStore((state) => state.rollback)
-  const connection = usePluginStore((state) => state.connections.find((item) => item.pluginId === plugin.id))
-  const mutatingConnection = usePluginStore((state) => state.mutatingConnection)
-  const connectMcp = usePluginStore((state) => state.connectMcp)
-  const reauthorizeMcp = usePluginStore((state) => state.reauthorizeMcp)
-  const retryMcp = usePluginStore((state) => state.retryMcp)
-  const disconnectMcp = usePluginStore((state) => state.disconnectMcp)
-  const [confirmRemove, setConfirmRemove] = useState(false)
-  const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
-  const toggleBackups = async (): Promise<void> => {
-    if (backups !== undefined) { setBackups(undefined); return }
-    setBackups(await loadBackups(plugin.id))
-  }
-  return <article className="border-b border-border py-2.5">
-    <div className="flex min-h-[46px] items-center gap-2.5">
-      <PluginLogo entry={marketEntry} invalid={plugin.status !== 'ready'} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <strong className="truncate text-[14px] font-medium text-txt-primary">{plugin.name}</strong>
-          {plugin.version && <span className="text-[14px] tabular-nums text-txt-muted">{plugin.version}</span>}
-          {plugin.status === 'invalid' && <span className="text-[14px] text-err">清单无效</span>}
-          {plugin.status === 'quarantined' && <span className="text-[14px] text-warn">已隔离</span>}
-          {plugin.managed && <span className="text-[14px] text-accent">受管</span>}
-          <span className="text-[14px] text-txt-muted">{plugin.installOrigin?.sourceName ?? '来源未知'}</span>
-        </div>
-        {/*
-         * 描述对读屏与页面检索保持可读，但不再占用可见的两行高度 ——
-         * Codex 的已安装列表是紧凑图标行，长描述会显著拉高每一行。
-         */}
-        <p className="sr-only">{plugin.description}</p>
-        {/* 错误必须可见（有测试锁定诊断信息） */}
-        {plugin.errors[0] && <p className="mt-0.5 truncate text-[14px] leading-4 text-err">{plugin.errors[0]}</p>}
-        {/* 权限与能力改为紧凑文本，替代原先一排 chip */}
-        {!!badges.length && <p className="mt-0.5 truncate text-[14px] text-txt-muted">{badges.join(' · ')}</p>}
-      </div>
-      {plugin.status === 'quarantined' ? <Button size="sm" className="shrink-0" onClick={onRecover}>恢复</Button>
-        : /* 启用与否是标准开关语义：角色 switch + aria-checked，不再用图标自绘 */
-        <ToggleSwitch size="small" className="shrink-0" aria-label={plugin.enabled ? `禁用 ${plugin.name}` : `启用 ${plugin.name}`}
-          checked={plugin.enabled} disabled={plugin.status !== 'ready'} onChange={onToggle} />}
-      {!plugin.managed && <IconButton size="sm" className="shrink-0" danger active={confirmRemove} icon={<Icon.Trash size={14} />} label="卸载" onClick={() => setConfirmRemove((open) => !open)} />}
-      <IconButton size="sm" className="shrink-0" active={backups !== undefined} aria-expanded={backups !== undefined}
-        icon={<Icon.ChevronDown size={14} className={`transition-transform ${backups !== undefined ? 'rotate-180' : ''}`} />} label="历史版本" onClick={() => void toggleBackups()} />
-    </div>
-  </article>
 }
 
 export function PluginConnectionPanel({ pluginId, server, mutating, onConnect, onReauthorize, onRetry, onDisconnect }: {
@@ -844,12 +1052,13 @@ export function SkillsSection(): JSX.Element {
    * 技能在本项目里就是用 /名称 调用的，因此预填与既有调用方式一致；
    * 刻意不自动发送，避免「点一下就替用户发消息」。
    */
-  const trySkill = (skill: SkillMetadata): void => {
+  const trySkill = async (skill: SkillMetadata): Promise<void> => {
     const command = `/${skill.name} `
+    const session = await createSession()
+    if (!session) return
     setExpandedId(undefined)
-    setPendingPrompt(command)
+    setPendingPrompt(command, session.id)
     closeSettings()
-    void createSession()
   }
 
   const activeSkill = items.find((skill) => skill.id === expandedId)
@@ -930,7 +1139,7 @@ export function SkillsSection(): JSX.Element {
         onToggle={(next) => void setEnabled(activeSkill.id, next)}
         onUpdate={() => { if (activeSkill.installUrl) void install(activeSkill.installUrl) }}
         onUninstall={() => void uninstall(activeSkill.id).then((ok) => { if (ok) setExpandedId(undefined) })}
-        onTry={() => trySkill(activeSkill)} />}
+        onTry={() => void trySkill(activeSkill)} />}
     </section> : <section className="mt-7">
       <div className="mb-2 flex items-center gap-2">
         <h2 className="text-[14px] font-semibold text-txt-primary">技能市场</h2>

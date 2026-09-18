@@ -13,8 +13,8 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PluginMarketEntry, PluginMcpConnectInput, PluginMcpServerView, SkillCatalogItem, SkillMetadata } from '@shared/types'
-import { PluginConnectionPanel, PluginMarketDetails, PluginUninstallChoices, SkillsSection } from './SettingsPage'
+import type { PluginMarketEntry, PluginMetadata, PluginMcpConnectInput, PluginMcpPluginView, PluginMcpServerView, SkillCatalogItem, SkillMetadata } from '@shared/types'
+import { PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SkillsSection } from './SettingsPage'
 
 const skillState = vi.hoisted(() => ({
   items: [] as SkillMetadata[], catalog: [] as SkillCatalogItem[], loading: false, mutating: false, error: undefined as string | undefined,
@@ -29,6 +29,39 @@ const skillState = vi.hoisted(() => ({
 
 vi.mock('../../stores/skillStore', () => ({
   useSkillStore: (selector: (state: typeof skillState) => unknown) => selector(skillState)
+}))
+
+const pluginState = vi.hoisted(() => ({
+  items: [] as PluginMetadata[], marketEntries: [] as PluginMarketEntry[], marketSources: [],
+  skillsByPlugin: {} as Record<string, SkillMetadata[]>, loadPluginSkills: vi.fn(async () => undefined),
+  loading: false, mutating: false, error: undefined as string | undefined,
+  load: vi.fn(), importLocal: vi.fn(), setEnabled: vi.fn(async () => undefined), recover: vi.fn(), loadMarketplace: vi.fn(),
+  addSource: vi.fn(), setSourceEnabled: vi.fn(), removeSource: vi.fn(), syncSource: vi.fn(),
+  installMarket: vi.fn(async () => true), uninstall: vi.fn(async () => undefined), loadBackups: vi.fn(async () => []), rollback: vi.fn(),
+  preferences: { autoUpdate: false }, setAutoUpdate: vi.fn(), loadPreferences: vi.fn(),
+  connections: [] as PluginMcpPluginView[], mutatingConnection: false, loadConnections: vi.fn(),
+  connectMcp: vi.fn(), reauthorizeMcp: vi.fn(), retryMcp: vi.fn(), disconnectMcp: vi.fn()
+}))
+
+vi.mock('../../stores/pluginStore', () => ({
+  usePluginStore: (selector: (state: typeof pluginState) => unknown) => selector(pluginState)
+}))
+
+const sessionState = vi.hoisted(() => ({
+  activeId: 'blank', sessions: [{ id: 'blank', title: '', projectPath: null, pinned: false, createdAt: 1, updatedAt: 1 }],
+  create: vi.fn(async () => ({ id: 'blank', title: '', projectPath: null, pinned: false, createdAt: 1, updatedAt: 1 }))
+}))
+vi.mock('../../stores/sessionStore', () => ({
+  useSessionStore: (selector: (state: typeof sessionState) => unknown) => selector(sessionState)
+}))
+
+const uiState = vi.hoisted(() => ({ closeSettings: vi.fn(), setPendingPrompt: vi.fn() }))
+vi.mock('../../stores/uiStore', () => ({
+  useUiStore: (selector: (state: typeof uiState) => unknown) => selector(uiState)
+}))
+
+vi.mock('../../stores/workspaceStore', () => ({
+  useWorkspaceStore: (selector: (state: { recent: never[] }) => unknown) => selector({ recent: [] })
 }))
 
 const marketEntry: PluginMarketEntry = {
@@ -72,6 +105,144 @@ beforeEach(() => {
   skillState.loading = false
   skillState.mutating = false
   skillState.error = undefined
+  pluginState.items = []
+  pluginState.marketEntries = []
+  pluginState.skillsByPlugin = {}
+  pluginState.loading = false
+  pluginState.mutating = false
+  pluginState.error = undefined
+})
+
+function installedPlugin(overrides: Partial<PluginMetadata> = {}): PluginMetadata {
+  return {
+    id: 'acme.browser', name: 'Acme Browser', version: '2.0.0', description: '审查当前浏览器页面',
+    author: 'Acme', source: 'installed', sourceFormat: 'native', enabled: true, status: 'ready',
+    permissions: ['browser.read'], capabilities: ['Inspect'], components: ['skills', 'tools'], errors: [],
+    ...overrides
+  }
+}
+
+describe('插件市场与同页详情', () => {
+  it('已下载插件只显示图标，点击后进入详情并可返回', async () => {
+    pluginState.items = [installedPlugin()]
+    pluginState.marketEntries = [{ ...marketEntry, categories: ['Productivity'] }]
+    skillState.items = [skill({ id: 'plugin:review', source: 'plugin', pluginId: 'acme.browser', displayName: 'Browser Review' })]
+    render(<PluginSection />)
+
+    expect(screen.getByRole('button', { name: '打开 Acme Browser' })).toBeInTheDocument()
+    const installed = screen.getByRole('heading', { name: '已安装' }).closest('section') as HTMLElement
+    expect(within(installed).queryByText('审查当前浏览器页面')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '打开 Acme Browser' }))
+    expect(screen.getByRole('heading', { name: 'Acme Browser' })).toBeInTheDocument()
+    expect(screen.getByText('审查当前浏览器页面')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: '禁用 Browser Review' })).toBeChecked()
+    expect(screen.getByRole('button', { name: '历史版本' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '插件' }))
+    expect(screen.getByRole('button', { name: '打开 Acme Browser' })).toBeInTheDocument()
+  })
+
+  it('插件技能开关复用既有技能启停动作', async () => {
+    pluginState.items = [installedPlugin()]
+    pluginState.marketEntries = [marketEntry]
+    skillState.items = [skill({ id: 'plugin:review', source: 'plugin', pluginId: 'acme.browser', displayName: 'Browser Review' })]
+    render(<PluginSection />)
+
+    await userEvent.click(screen.getByRole('button', { name: '打开 Acme Browser' }))
+    await userEvent.click(screen.getByRole('switch', { name: '禁用 Browser Review' }))
+    expect(skillState.setEnabled).toHaveBeenCalledWith('plugin:review', false)
+  })
+
+  it('已禁用技能仍可重新打开，不会被 inactive 状态锁死', async () => {
+    pluginState.items = [installedPlugin()]
+    pluginState.marketEntries = [marketEntry]
+    skillState.items = [skill({
+      id: 'plugin:review', source: 'plugin', pluginId: 'acme.browser', displayName: 'Browser Review',
+      enabled: false, active: false
+    })]
+    render(<PluginSection />)
+
+    await userEvent.click(screen.getByRole('button', { name: '打开 Acme Browser' }))
+    const toggle = screen.getByRole('switch', { name: '启用 Browser Review' })
+    expect(toggle).toBeEnabled()
+    await userEvent.click(toggle)
+    expect(skillState.setEnabled).toHaveBeenCalledWith('plugin:review', true)
+  })
+
+  it('未安装插件点击安装后直接调用市场安装', async () => {
+    pluginState.marketEntries = [{ ...marketEntry, recommended: false, categories: ['Productivity'] }]
+    let finish: ((value: boolean) => void) | undefined
+    pluginState.installMarket.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    render(<PluginSection />)
+
+    await userEvent.click(screen.getByRole('button', { name: '安装' }))
+    expect(pluginState.installMarket).toHaveBeenCalledWith('official', 'acme.browser', '2.0.0')
+    expect(screen.getByRole('button', { name: '安装中…' })).toBeDisabled()
+    finish?.(true)
+    await waitFor(() => expect(screen.getByRole('button', { name: '安装' })).toBeInTheDocument())
+  })
+
+  it('每个市场条目独立显示安装状态，不锁住其他安装按钮', async () => {
+    pluginState.marketEntries = [
+      { ...marketEntry, id: 'acme.browser', name: 'Acme Browser', recommended: false, categories: ['Productivity'] },
+      { ...marketEntry, id: 'acme.docs', name: 'Acme Docs', recommended: false, categories: ['Productivity'] }
+    ]
+    const finishes: Array<(value: boolean) => void> = []
+    pluginState.installMarket.mockImplementation(() => new Promise<boolean>((resolve) => finishes.push(resolve)))
+    render(<PluginSection />)
+
+    const installButtons = screen.getAllByRole('button', { name: '安装' })
+    await userEvent.click(installButtons[0])
+    expect(screen.getByRole('button', { name: '安装中…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '安装' })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('button', { name: '安装' }))
+    expect(screen.getAllByRole('button', { name: '安装中…' })).toHaveLength(2)
+    finishes.forEach((finish) => finish(true))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '安装' })).toHaveLength(2))
+  })
+
+  it('禁用插件仍展示真实技能清单，但不允许直接切换技能', async () => {
+    pluginState.items = [installedPlugin({ enabled: false })]
+    pluginState.marketEntries = [{ ...marketEntry, components: ['skills'], categories: ['Productivity'] }]
+    pluginState.skillsByPlugin = {
+      'acme.browser': [skill({ id: 'plugin:review', source: 'plugin', pluginId: 'acme.browser', displayName: 'Browser Review' })]
+    }
+    render(<PluginSection />)
+
+    await userEvent.click(screen.getByRole('button', { name: '打开 Acme Browser' }))
+    expect(screen.getByText('插件已禁用；启用插件后可调整技能开关。')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: '禁用 Browser Review' })).toBeDisabled()
+    expect(pluginState.loadPluginSkills).toHaveBeenCalledWith('acme.browser')
+  })
+
+  it('没有技能组件的应用插件不展示误导性的技能 0 区块', async () => {
+    pluginState.marketEntries = [{ ...marketEntry, components: ['tools'], recommended: false, categories: ['Productivity'] }]
+    render(<PluginSection />)
+    expect(screen.queryByRole('group', { name: '市场范围' })).not.toBeInTheDocument()
+    const row = screen.getByText('Acme Browser').closest('article')
+    expect(row).toHaveClass('rounded-lg')
+    expect(row).not.toHaveClass('border-b')
+    await userEvent.click(screen.getByRole('button', { name: '查看 Acme Browser 详情' }))
+    expect(screen.queryByRole('heading', { name: '技能' })).not.toBeInTheDocument()
+  })
+
+  it('已安装市场项的三点菜单提供立即试用、管理和卸载', async () => {
+    pluginState.items = [installedPlugin()]
+    pluginState.marketEntries = [{ ...marketEntry, recommended: false, categories: ['Productivity'] }]
+    render(<PluginSection />)
+
+    await userEvent.click(screen.getByLabelText('更多 Acme Browser'))
+    expect(screen.getByRole('menuitem', { name: '管理' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '卸载' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: '立即试用' }))
+
+    expect(uiState.setPendingPrompt).toHaveBeenCalledWith('@acme.browser ', 'blank')
+    expect(uiState.closeSettings).toHaveBeenCalled()
+    expect(sessionState.create).toHaveBeenCalled()
+    expect(sessionState.create.mock.invocationCallOrder[0]).toBeLessThan(uiState.setPendingPrompt.mock.invocationCallOrder[0])
+  })
 })
 
 describe('MCP 连接面板 - 迁移到全局组件后行为不变', () => {

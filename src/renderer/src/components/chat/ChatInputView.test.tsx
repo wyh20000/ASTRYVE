@@ -335,24 +335,41 @@ describe('ChatInput 待填文本（技能「立即试用」）', () => {
     )
 
     // 模拟「立即试用」设置待填文本
-    act(() => { useUiStore.getState().setPendingPrompt('/frontend-app-builder ') })
+    act(() => { useUiStore.getState().setPendingPrompt('/frontend-app-builder ', 's1') })
 
     await waitFor(() => {
       expect(screen.getByRole('textbox')).toHaveValue('/frontend-app-builder ')
     })
+    await waitFor(() => expect(useUiStore.getState().pendingPrompt).toBeUndefined())
   })
 
-  it('用户一旦编辑就清空待填文本，避免污染后续会话', async () => {
+  it('只填入目标会话，消费后切换回来也不会再次出现', async () => {
     const { useUiStore } = await import('../../stores/uiStore')
-    useUiStore.setState({ pendingPrompt: '/review ' })
+    useUiStore.setState({ pendingPrompt: undefined })
+    act(() => { useUiStore.getState().setPendingPrompt('/review ', 's2') })
 
-    render(wrap(<ChatInput sessionId="s1" />))
+    const view = render(wrap(<ChatInput sessionId="s1" />))
     const box = await screen.findByRole('textbox')
-    expect(box).toHaveValue('/review ')
+    expect(box).toHaveValue('')
 
-    await userEvent.type(box, 'x')
-    await waitFor(() => {
-      expect(useUiStore.getState().pendingPrompt).toBeUndefined()
-    })
+    view.rerender(wrap(<ChatInput sessionId="s2" />))
+    await waitFor(() => expect(box).toHaveValue('/review '))
+    await waitFor(() => expect(useUiStore.getState().pendingPrompt).toBeUndefined())
+
+    await userEvent.clear(box)
+    view.rerender(wrap(<ChatInput sessionId="s1" />))
+    expect(box).toHaveValue('')
+    view.rerender(wrap(<ChatInput sessionId="s2" />))
+    expect(box).toHaveValue('')
+  })
+
+  it('旧输入框不能清除后续创建的新注入', async () => {
+    const { useUiStore } = await import('../../stores/uiStore')
+    useUiStore.setState({ pendingPrompt: undefined })
+    act(() => { useUiStore.getState().setPendingPrompt('/first ', 's1') })
+    const firstId = useUiStore.getState().pendingPrompt!.id
+    act(() => { useUiStore.getState().setPendingPrompt('/second ', 's2') })
+    act(() => { useUiStore.getState().clearPendingPrompt(firstId) })
+    expect(useUiStore.getState().pendingPrompt).toMatchObject({ text: '/second ', sessionId: 's2' })
   })
 })

@@ -20,7 +20,12 @@ describe('IconButton - 可访问性', () => {
 
     await userEvent.hover(button)
     await waitFor(() => {
-      expect(screen.getByRole('tooltip')).toHaveTextContent('新建对话')
+      const tooltip = screen.getByRole('tooltip')
+      expect(tooltip).toHaveTextContent('新建对话')
+      expect(tooltip).toHaveStyle({
+        backgroundColor: 'var(--surface-overlay)',
+        color: 'var(--text-primary)'
+      })
     })
   })
 

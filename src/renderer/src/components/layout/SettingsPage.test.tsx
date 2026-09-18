@@ -15,6 +15,7 @@ const skillState = vi.hoisted(() => ({
 }))
 const pluginState = vi.hoisted(() => ({
   items: [] as PluginMetadata[], marketEntries: [] as PluginMarketEntry[], marketSources: [],
+  skillsByPlugin: {} as Record<string, SkillMetadata[]>, loadPluginSkills: vi.fn(),
   loading: false, mutating: false, error: undefined as string | undefined,
   load: vi.fn(), importLocal: vi.fn(), setEnabled: vi.fn(), recover: vi.fn(), loadMarketplace: vi.fn(),
   addSource: vi.fn(), setSourceEnabled: vi.fn(), removeSource: vi.fn(), syncSource: vi.fn(),
@@ -84,6 +85,7 @@ beforeEach(() => {
   skillState.error = undefined
   pluginState.items = []
   pluginState.marketEntries = []
+  pluginState.skillsByPlugin = {}
   pluginState.loading = false
   pluginState.mutating = false
   pluginState.error = undefined
@@ -156,7 +158,7 @@ describe('Extensions settings page', () => {
     expect(html).not.toContain('GitHub')
   })
 
-  it('renders the real installed plugin list and concise capability metadata', () => {
+  it('renders downloaded plugins as icon-only shortcuts', () => {
     pluginState.items = [{
       id: 'acme.browser', name: 'Acme Browser', version: '1.2.3', description: '审查当前浏览器页面',
       author: 'Acme', source: 'installed', sourceFormat: 'native', enabled: true, status: 'ready',
@@ -167,16 +169,12 @@ describe('Extensions settings page', () => {
       }
     }]
     const html = renderToStaticMarkup(<PluginSection />)
-    expect(html).toContain('Acme Browser')
-    expect(html).toContain('审查当前浏览器页面')
-    expect(html).toContain('1.2.3')
-    expect(html).toContain('浏览器读取')
-    expect(html).toContain('Community Tools')
-    expect(html).not.toContain('>本地<')
-    expect(html).toContain('aria-label="禁用 Acme Browser"')
-    // 启用态是标准开关语义，不是自绘图标按钮
-    expect(html).toContain('role="switch"')
-    expect(html).toContain('aria-checked="true"')
+    expect(html).toContain('aria-label="打开 Acme Browser"')
+    expect(html).toContain('title="Acme Browser"')
+    expect(html).not.toContain('审查当前浏览器页面')
+    expect(html).not.toContain('浏览器读取')
+    expect(html).not.toContain('Community Tools')
+    expect(html).not.toContain('role="switch"')
     expect(html).not.toContain('尚未安装插件')
     expect(filterPlugins(pluginState.items, 'browser')).toHaveLength(1)
     expect(filterPlugins(pluginState.items, 'missing')).toHaveLength(0)
@@ -192,8 +190,7 @@ describe('Extensions settings page', () => {
     const html = renderToStaticMarkup(<PluginSection />)
     expect(html).toContain('自动安装安全更新')
     expect(html).toContain('checked=""')
-    expect(html).toContain('受管')
-    expect(html).toContain('aria-label="禁用 Managed Tools"')
+    expect(html).toContain('aria-label="打开 Managed Tools"')
     /*
      * 卸载入口迁移到 IconButton 后不再有 title 属性，
      * 因此改断言它的可访问名称 —— 否则这条「受管插件不可卸载」的约束会因为
@@ -202,15 +199,16 @@ describe('Extensions settings page', () => {
     expect(html).not.toContain('aria-label="卸载"')
   })
 
-  it('非受管插件仍然提供可访问的卸载与历史版本入口', () => {
+  it('非受管插件的列表态只提供管理入口', () => {
     pluginState.items = [{
       id: 'plain.tools', name: 'Plain Tools', version: '1.0.0', description: 'Plain',
       source: 'installed', sourceFormat: 'native', enabled: true, status: 'ready',
       permissions: [], capabilities: [], components: ['tools'], errors: []
     }]
     const html = renderToStaticMarkup(<PluginSection />)
-    expect(html).toContain('aria-label="卸载"')
-    expect(html).toContain('aria-label="历史版本"')
+    expect(html).toContain('aria-label="打开 Plain Tools"')
+    expect(html).not.toContain('aria-label="卸载"')
+    expect(html).not.toContain('aria-label="历史版本"')
   })
 
   it('offers explicit keep-data and clear-data uninstall choices', () => {
@@ -220,17 +218,15 @@ describe('Extensions settings page', () => {
     expect(html).toContain('审计记录会保留')
   })
 
-  it('shows invalid manifests as disabled diagnostic rows', () => {
+  it('marks invalid manifests in the icon strip and keeps their detail reachable', () => {
     pluginState.items = [{
       id: 'broken-plugin', name: 'broken', description: '', source: 'installed', sourceFormat: 'native',
       enabled: false, status: 'invalid', permissions: [], capabilities: [], components: [], errors: ['插件清单不是有效 JSON']
     }]
     const html = renderToStaticMarkup(<PluginSection />)
-    expect(html).toContain('清单无效')
-    expect(html).toContain('插件清单不是有效 JSON')
-    expect(html).toContain('disabled=""')
-    // 不可用的插件开关必须同时是「关闭 + 禁用」，读屏能读出状态
-    expect(html).toContain('aria-checked="false"')
+    expect(html).toContain('aria-label="打开 broken"')
+    expect(html).toContain('text-err')
+    expect(html).not.toContain('role="switch"')
   })
 
   it('renders pending, connected, failed, and restricted MCP actions without exposing credentials', () => {

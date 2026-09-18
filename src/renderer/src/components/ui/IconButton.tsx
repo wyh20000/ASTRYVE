@@ -86,7 +86,18 @@ export function IconButton({
   if (hideTooltip) return button
 
   return (
-    <Tooltip title={label} mouseEnterDelay={0.4}>
+    <Tooltip
+      title={label}
+      mouseEnterDelay={0.4}
+      styles={{
+        container: {
+          backgroundColor: 'var(--surface-overlay)',
+          border: '1px solid var(--border-strong)',
+          boxShadow: 'var(--shadow-overlay)',
+          color: 'var(--text-primary)'
+        }
+      }}
+    >
       {/* disabled 的 button 不触发鼠标事件，包一层 span 让 Tooltip 仍可用 */}
       <span className="inline-flex">{button}</span>
     </Tooltip>

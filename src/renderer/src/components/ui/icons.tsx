@@ -102,6 +102,13 @@ export const Icon = {
       <path d="M20 6 9 17l-5-5" />
     </svg>
   ),
+  More: (p: P) => (
+    <svg {...base(p, 16)}>
+      <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   Terminal: (p: P) => (
     <svg {...base(p, 16)}>
       <path d="M4 17 10 11 4 5M12 19h8" />

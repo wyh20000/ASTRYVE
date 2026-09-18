@@ -14,7 +14,7 @@ const MARKET_FILE = 'plugin-market.json'
 export const CODEX_OFFICIAL_SOURCE_ID = 'source-00000000-0000-4000-8000-000000000001'
 export const CODEX_OFFICIAL_INDEX_URL = 'https://raw.githubusercontent.com/openai/plugins/main/.agents/plugins/marketplace.json'
 const CODEX_REPOSITORY = { owner: 'openai', repo: 'plugins' } as const
-const OFFICIAL_PRESENTATION_VERSION = 1
+const OFFICIAL_PRESENTATION_VERSION = 2
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
@@ -22,6 +22,7 @@ const PERMISSIONS = new Set<PluginPermission>([
   'workspace.read', 'workspace.write', 'network', 'process', 'browser.read', 'browser.interact'
 ])
 const COMPONENTS = new Set<PluginComponent>(['skills', 'hooks', 'mcp', 'tools'])
+const CODEX_FEATURED_PLUGIN_IDS = new Set(['computer-use', 'spreadsheets', 'presentations'])
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -271,7 +272,7 @@ export async function parseCodexMarketplaceIndex(
       id, name: id, version: '0.0.0', description: 'Codex 官方插件', author: 'OpenAI',
       sourceId: source.id, sourceName: source.name, sourceKind: 'official', verified: true,
       permissions: [], categories: category ? [category] : [], platforms: [], architectures: [],
-      recommended: true,
+      recommended: CODEX_FEATURED_PLUGIN_IDS.has(id),
       publisherId: `github:${CODEX_REPOSITORY.owner}/${CODEX_REPOSITORY.repo}`,
       installable: false, unavailableReason: '当前来源类型暂不支持直接安装'
     }

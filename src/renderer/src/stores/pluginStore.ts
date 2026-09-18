@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type {
   PluginBackup, PluginImportKind, PluginMarketEntry, PluginMarketSource, PluginMcpConnectInput,
-  PluginMcpDisconnectInput, PluginMcpPluginView, PluginMcpTargetInput, PluginMetadata, PluginPreferences
+  PluginMcpDisconnectInput, PluginMcpPluginView, PluginMcpTargetInput, PluginMetadata, PluginPreferences,
+  SkillMetadata
 } from '@shared/types'
 
 interface PluginState {
@@ -13,8 +14,10 @@ interface PluginState {
   marketSources: PluginMarketSource[]
   preferences: PluginPreferences
   connections: PluginMcpPluginView[]
+  skillsByPlugin: Record<string, SkillMetadata[]>
   mutatingConnection: boolean
   load: () => Promise<void>
+  loadPluginSkills: (id: string) => Promise<void>
   importLocal: (kind: PluginImportKind) => Promise<boolean>
   setEnabled: (id: string, enabled: boolean) => Promise<void>
   recover: (id: string) => Promise<void>
@@ -24,7 +27,7 @@ interface PluginState {
   removeSource: (id: string) => Promise<void>
   syncSource: (id: string) => Promise<void>
   installMarket: (sourceId: string, id: string, version: string) => Promise<boolean>
-  uninstall: (id: string, dataDisposition?: 'keep' | 'clear') => Promise<void>
+  uninstall: (id: string, dataDisposition?: 'keep' | 'clear') => Promise<boolean>
   loadBackups: (id: string) => Promise<PluginBackup[]>
   rollback: (id: string, version: string) => Promise<boolean>
   loadPreferences: () => Promise<void>
@@ -37,13 +40,18 @@ interface PluginState {
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
-  items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, connections: [],
+  items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, connections: [], skillsByPlugin: {},
   loading: false, mutating: false, mutatingConnection: false,
   load: async () => {
     set({ loading: true, error: undefined })
     const result = await window.agent.plugins.list()
     if (result.ok) set({ items: result.data, loading: false })
     else set({ error: result.error.message, loading: false })
+  },
+  loadPluginSkills: async (id) => {
+    const result = await window.agent.plugins.listSkills({ id })
+    if (result.ok) set((state) => ({ skillsByPlugin: { ...state.skillsByPlugin, [id]: result.data }, error: undefined }))
+    else set({ error: result.error.message })
   },
   importLocal: async (kind) => {
     set({ mutating: true, error: undefined })
@@ -90,15 +98,15 @@ export const usePluginStore = create<PluginState>((set) => ({
     else set({ error: result.error.message, mutating: false })
   },
   installMarket: async (sourceId, id, version) => {
-    set({ mutating: true, error: undefined })
+    set({ error: undefined })
     const result = await window.agent.plugins.installMarket({ sourceId, id, version })
-    if (result.ok) { set({ items: result.data, mutating: false }); return true }
-    set({ error: result.error.message, mutating: false }); return false
+    if (result.ok) { set({ items: result.data }); return true }
+    set({ error: result.error.message }); return false
   },
   uninstall: async (id, dataDisposition = 'keep') => {
     const result = await window.agent.plugins.uninstall({ id, dataDisposition })
-    if (result.ok) set({ items: result.data, error: undefined })
-    else set({ error: result.error.message })
+    if (result.ok) { set({ items: result.data, error: undefined }); return true }
+    set({ error: result.error.message }); return false
   },
   loadBackups: async (id) => {
     const result = await window.agent.plugins.backups({ id })

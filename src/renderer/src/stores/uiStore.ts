@@ -35,18 +35,13 @@ interface UiState {
   openSettings: () => void
   closeSettings: () => void
   setSearchQuery: (q: string) => void
-  /**
-   * 待填入对话输入框的文本（例如技能详情的「立即试用」）。
-   *
-   * 注意：读取方应当**幂等**地同步它，不要用「读一次就清空」的消费语义。
-   * main.tsx 启用了 React.StrictMode，开发模式下 effect 会执行两次，
-   * 一次性消费会在第一次就把值取走，导致最终那次拿到 undefined。
-   * 清空由 clearPendingPrompt 在用户开始编辑时显式进行。
-   */
-  pendingPrompt?: string
-  setPendingPrompt: (text: string) => void
-  clearPendingPrompt: () => void
+  /** 一次性填入指定会话的文本；id 避免旧输入框清除较新的注入。 */
+  pendingPrompt?: { id: number; text: string; sessionId: string }
+  setPendingPrompt: (text: string, sessionId: string) => void
+  clearPendingPrompt: (id?: number) => void
 }
+
+let pendingPromptId = 0
 
 export const useUiStore = create<UiState>((set) => ({
   sidebarOpen: true,
@@ -73,6 +68,9 @@ export const useUiStore = create<UiState>((set) => ({
   closeSettings: () => set({ settingsOpen: false }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   pendingPrompt: undefined,
-  setPendingPrompt: (text) => set({ pendingPrompt: text }),
-  clearPendingPrompt: () => set({ pendingPrompt: undefined })
+  setPendingPrompt: (text, sessionId) => set({
+    pendingPrompt: { id: ++pendingPromptId, text, sessionId }
+  }),
+  clearPendingPrompt: (id) => set((state) =>
+    id !== undefined && state.pendingPrompt?.id !== id ? state : { pendingPrompt: undefined })
 }))

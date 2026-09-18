@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PluginMcpPluginView, PluginMetadata } from '@shared/types'
+import type { PluginMcpPluginView, PluginMetadata, SkillMetadata } from '@shared/types'
 import { usePluginStore } from './pluginStore'
 
 const plugin: PluginMetadata = {
@@ -10,7 +10,7 @@ const plugin: PluginMetadata = {
 
 describe('pluginStore', () => {
   beforeEach(() => {
-    usePluginStore.setState({ items: [], marketEntries: [], marketSources: [], preferences: { autoUpdate: false }, loading: false, mutating: false, error: undefined })
+    usePluginStore.setState({ items: [], marketEntries: [], marketSources: [], skillsByPlugin: {}, preferences: { autoUpdate: false }, loading: false, mutating: false, error: undefined })
   })
 
   it('loads only plugin metadata returned by the trusted preload API', async () => {
@@ -20,6 +20,19 @@ describe('pluginStore', () => {
     await usePluginStore.getState().load()
     expect(list).toHaveBeenCalledOnce()
     expect(usePluginStore.getState().items).toEqual([plugin])
+  })
+
+  it('loads an installed plugin skill preview without enabling the plugin', async () => {
+    const skills: SkillMetadata[] = [{
+      id: 'plugin:review', name: 'review', displayName: 'Review', description: 'Review code', source: 'plugin',
+      enabled: true, active: false, autoTrigger: true, requestedTools: [], allowedTools: [], resources: [],
+      invocation: 'model', toolPolicy: 'inherit', installKind: 'external', pluginId: plugin.id, errors: []
+    }]
+    const listSkills = vi.fn().mockResolvedValue({ ok: true, data: skills })
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { agent: { plugins: { listSkills } } } })
+    await usePluginStore.getState().loadPluginSkills(plugin.id)
+    expect(listSkills).toHaveBeenCalledWith({ id: plugin.id })
+    expect(usePluginStore.getState().skillsByPlugin[plugin.id]).toEqual(skills)
   })
 
   it('keeps the current list and exposes a concise error when toggling fails', async () => {

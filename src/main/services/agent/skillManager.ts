@@ -5,7 +5,7 @@ import type { AuditEvent, WorkspaceGrant } from '../../../shared/agent'
 import type { SkillMetadata } from '../../../shared/types'
 import { getDisabledSkillIds } from '../settings'
 import { SkillRegistry, type ResolvedSkills } from './skillRegistry'
-import { listEnabledPluginSkillRoots } from './pluginManager'
+import { listEnabledPluginSkillRoots, listInstalledPluginSkillRoots } from './pluginManager'
 import { getToolRegistry, writeAgentAudit } from './taskRuntimeManager'
 
 let registry: SkillRegistry | undefined
@@ -27,6 +27,16 @@ export function getInstalledSkillRoot(): string {
 
 export async function listSkills(workspace?: WorkspaceGrant): Promise<SkillMetadata[]> {
   return requireRegistry().list(workspace, availableTools())
+}
+
+export async function listPluginSkills(pluginId: string): Promise<SkillMetadata[]> {
+  if (!installedRoot) throw new Error('Skill registry not initialized')
+  const roots = await listInstalledPluginSkillRoots(pluginId)
+  if (!roots.length) return []
+  const preview = new SkillRegistry(installedRoot, getDisabledSkillIds, {
+    pluginRoots: async () => roots
+  })
+  return (await preview.list(undefined, availableTools())).filter((skill) => skill.pluginId === pluginId)
 }
 
 export async function resolveSkills(

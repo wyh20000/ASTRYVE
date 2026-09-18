@@ -55,6 +55,25 @@ export async function listEnabledPluginSkillRoots(): Promise<Array<{
   pluginId: string
   version?: string
 }>> {
+  return listPluginSkillRoots()
+}
+
+/** Read-only discovery used by plugin details, including plugins that are not enabled yet. */
+export async function listInstalledPluginSkillRoots(pluginId: string): Promise<Array<{
+  root: string
+  boundaryRoot: string
+  pluginId: string
+  version?: string
+}>> {
+  return listPluginSkillRoots(pluginId, true)
+}
+
+async function listPluginSkillRoots(pluginId?: string, includeDisabled = false): Promise<Array<{
+  root: string
+  boundaryRoot: string
+  pluginId: string
+  version?: string
+}>> {
   const root = getInstalledPluginRoot()
   await mkdir(root, { recursive: true })
   const disabled = getDisabledPluginIds()
@@ -65,7 +84,8 @@ export async function listEnabledPluginSkillRoots(): Promise<Array<{
     try {
       const boundaryRoot = join(root, entry.name)
       const manifest = await readPluginManifest(boundaryRoot)
-      if (!manifest.skillsPath || disabled.has(manifest.id) || isPluginQuarantined(manifest.id)) continue
+      if (!manifest.skillsPath || (pluginId && manifest.id !== pluginId) ||
+          (!includeDisabled && (disabled.has(manifest.id) || isPluginQuarantined(manifest.id)))) continue
       result.push({ root: join(boundaryRoot, manifest.skillsPath), boundaryRoot, pluginId: manifest.id, version: manifest.version })
     } catch {
       // Invalid plugins never contribute Skills.

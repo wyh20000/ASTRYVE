@@ -341,23 +341,24 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
       )
       if (pluginNav) {
         pluginNav.click()
-        await new Promise((r) => setTimeout(r, 1200))
+        await new Promise((r) => setTimeout(r, ${process.env.AI_AGENT_PLUGIN_PAGE_SMOKE === '1' ? 12000 : 1200}))
       }
-      // 切到「技能」顶层标签（与「插件」同级）
-      const skillTopTab = Array.from(document.querySelectorAll("button")).find(
-        (b) => (b.textContent || "").trim() === "技能"
-      )
-      if (skillTopTab) {
-        skillTopTab.click()
-        await new Promise((r) => setTimeout(r, 1200))
-      }
-      // 明确停在「已安装」标签，避免落在默认的市场页上
-      const installedTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
-        (b) => (b.textContent || "").trim() === "已安装"
-      )
-      if (installedTab) {
-        installedTab.click()
-        await new Promise((r) => setTimeout(r, 900))
+      if (${JSON.stringify(process.env.AI_AGENT_PLUGIN_PAGE_SMOKE !== '1')}) {
+        // 默认截图切到「技能」顶层标签；插件页专项 smoke 则停留在插件市场。
+        const skillTopTab = Array.from(document.querySelectorAll("button")).find(
+          (b) => (b.textContent || "").trim() === "技能"
+        )
+        if (skillTopTab) {
+          skillTopTab.click()
+          await new Promise((r) => setTimeout(r, 1200))
+        }
+        const installedTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+          (b) => (b.textContent || "").trim() === "已安装"
+        )
+        if (installedTab) {
+          installedTab.click()
+          await new Promise((r) => setTimeout(r, 900))
+        }
       }
       return "ok"
     })()`
@@ -404,9 +405,22 @@ export async function runThemePaintSmoke(win: BrowserWindow): Promise<void> {
     const image = await win.webContents.capturePage()
     const dir = join(process.cwd(), 'out')
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    const target = join(dir, `theme-smoke-${report.themeResolved || 'unknown'}.png`)
+    const prefix = process.env.AI_AGENT_PLUGIN_PAGE_SMOKE === '1' ? 'plugin-page-smoke' : 'theme-smoke'
+    const target = join(dir, `${prefix}-${report.themeResolved || 'unknown'}.png`)
     fs.writeFileSync(target, image.toPNG())
     console.log(`[theme-smoke] 截图已保存: ${target}`)
+    if (process.env.AI_AGENT_PLUGIN_DETAIL_SMOKE === '1') {
+      const detail = await win.webContents.executeJavaScript(`(async () => {
+        const installed = document.querySelector('button[aria-label^="打开 "]')
+        if (!installed) return { opened: false, skills: 0 }
+        installed.click()
+        await new Promise((resolve) => setTimeout(resolve, 1200))
+        return { opened: true, skills: document.querySelectorAll('[aria-label^="启用 "], [aria-label^="禁用 "]').length }
+      })()`)
+      const detailTarget = join(dir, `plugin-detail-smoke-${report.themeResolved || 'unknown'}.png`)
+      fs.writeFileSync(detailTarget, (await win.webContents.capturePage()).toPNG())
+      console.log(`[theme-smoke] 插件详情截图已保存: ${detailTarget} ${JSON.stringify(detail)}`)
+    }
   } catch (error) {
     console.warn('[theme-smoke] 截图失败:', error)
   }

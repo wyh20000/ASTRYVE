@@ -44,6 +44,7 @@ export const IPC = {
   },
   plugins: {
     list: 'plugins:list',
+    listSkills: 'plugins:list-skills',
     importLocal: 'plugins:import-local',
     setEnabled: 'plugins:set-enabled',
     recover: 'plugins:recover',

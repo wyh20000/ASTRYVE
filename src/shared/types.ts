@@ -616,6 +616,7 @@ export interface AgentApi {
   }
   plugins: {
     list: () => Promise<IpcResult<PluginMetadata[]>>
+    listSkills: (input: PluginUninstallInput) => Promise<IpcResult<SkillMetadata[]>>
     importLocal: (input: PluginImportInput) => Promise<IpcResult<PluginMetadata[]>>
     setEnabled: (input: PluginToggleInput) => Promise<IpcResult<PluginMetadata[]>>
     recover: (input: PluginRecoverInput) => Promise<IpcResult<PluginMetadata[]>>

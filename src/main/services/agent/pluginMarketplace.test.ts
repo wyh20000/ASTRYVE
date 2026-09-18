@@ -129,7 +129,8 @@ describe('plugin marketplace', () => {
     expect(snapshot.sources[0]).toMatchObject({ id: CODEX_OFFICIAL_SOURCE_ID, kind: 'official', verified: true, enabled: true })
     expect(snapshot.entries[0]).toMatchObject({
       id: 'docs-helper', name: 'Docs Helper', version: '1.2.3', verified: true, installable: true,
-      permissions: ['workspace.read'], capabilities: ['Read'], components: ['skills'], repository: { ref: commit, path: 'plugins/docs-helper' }
+      permissions: ['workspace.read'], capabilities: ['Read'], components: ['skills'], recommended: false,
+      repository: { ref: commit, path: 'plugins/docs-helper' }
     })
     expect(snapshot.entries[0]).toMatchObject({
       brandColor: '#3366FF',
