@@ -1,17 +1,42 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Message } from '@shared/types'
 import { MessageItem } from './MessageItem'
+import { Icon } from '../ui/icons'
 
 export function MessageList({ messages }: { messages: Message[] }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [stick, setStick] = useState(true)
+  const [hasNewContent, setHasNewContent] = useState(false)
+  const stickRef = useRef(true)
+  const pendingScrollRef = useRef<number | null>(null)
+
+  const cancelPendingScroll = (): void => {
+    if (pendingScrollRef.current == null) return
+    cancelAnimationFrame(pendingScrollRef.current)
+    pendingScrollRef.current = null
+  }
+
+  const setFollowing = (next: boolean): void => {
+    stickRef.current = next
+    setStick((current) => current === next ? current : next)
+    if (!next) cancelPendingScroll()
+  }
+
+  const scheduleScrollToBottom = (): void => {
+    cancelPendingScroll()
+    const element = ref.current
+    if (!element || !stickRef.current) return
+    pendingScrollRef.current = requestAnimationFrame(() => {
+      pendingScrollRef.current = null
+      if (stickRef.current) element.scrollTop = element.scrollHeight
+    })
+  }
 
   useEffect(() => {
-    if (stick) {
-      const el = ref.current
-      if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
-    }
-  }, [messages, stick])
+    setHasNewContent(!stickRef.current)
+    scheduleScrollToBottom()
+    return cancelPendingScroll
+  }, [messages])
 
   useEffect(() => {
     const el = ref.current
@@ -19,41 +44,49 @@ export function MessageList({ messages }: { messages: Message[] }): JSX.Element 
     const content = el.firstElementChild
     if (!content) return
     const observer = new ResizeObserver(() => {
-      if (stick) el.scrollTop = el.scrollHeight
+      if (stickRef.current) el.scrollTop = el.scrollHeight
     })
     observer.observe(content)
     return () => observer.disconnect()
-  }, [stick])
+  }, [])
 
   return (
-    <div
-      ref={ref}
-      className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4"
-      onScroll={(e) => {
-        const el = e.currentTarget
-        setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
-      }}
-    >
+    <div className="relative min-h-0 flex-1">
       <div
-        className="mx-auto max-w-[820px] space-y-6"
+        ref={ref}
+        className="h-full overflow-y-auto px-4 py-4"
+        onPointerDown={() => setFollowing(false)}
+        onWheel={() => setFollowing(false)}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          if (stickRef.current && el.scrollHeight - el.scrollTop - el.clientHeight >= 80) {
+            setFollowing(false)
+          }
+        }}
       >
-        {messages.length === 0 ? (
-          <EmptyState />
-        ) : (
-          messages.map((m) => <MessageItem key={m.id} message={m} />)
-        )}
+        <div className="mx-auto max-w-[820px] space-y-6">
+          {messages.length === 0 ? (
+            <EmptyState />
+          ) : (
+            messages.map((m) => <MessageItem key={m.id} message={m} />)
+          )}
+        </div>
       </div>
 
       {!stick && messages.length > 0 && (
         <button
+          type="button"
           onClick={() => {
-            setStick(true)
+            setFollowing(true)
+            setHasNewContent(false)
             const el = ref.current
             if (el) el.scrollTop = el.scrollHeight
           }}
-          className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-bg-raised px-3 py-1 text-[14px] text-txt-secondary shadow-lg hover:text-txt-primary"
+          aria-label={hasNewContent ? '查看新内容并回到底部' : '回到底部'}
+          className="absolute bottom-3 left-1/2 z-10 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-strong bg-surface-overlay px-3 text-[14px] font-medium text-txt-secondary shadow-overlay transition-colors hover:border-accent hover:text-txt-primary"
         >
-          回到底部
+          <Icon.ChevronDown size={14} />
+          <span>{hasNewContent ? '新内容' : '回到底部'}</span>
         </button>
       )}
     </div>

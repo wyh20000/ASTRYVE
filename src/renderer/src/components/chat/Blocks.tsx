@@ -363,13 +363,36 @@ function ThinkingBlock({
 }): JSX.Element {
   const streaming = status === 'streaming'
   const [stick, setStick] = useState(true)
+  const stickRef = useRef(true)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const pendingScrollRef = useRef<number | null>(null)
+
+  const cancelPendingScroll = (): void => {
+    if (pendingScrollRef.current == null) return
+    cancelAnimationFrame(pendingScrollRef.current)
+    pendingScrollRef.current = null
+  }
+
+  const setFollowing = (next: boolean): void => {
+    stickRef.current = next
+    setStick((current) => current === next ? current : next)
+    if (!next) cancelPendingScroll()
+  }
+
+  const scheduleScrollToBottom = (): void => {
+    cancelPendingScroll()
+    const element = scrollRef.current
+    if (!element || !open || !streaming || !stickRef.current) return
+    pendingScrollRef.current = requestAnimationFrame(() => {
+      pendingScrollRef.current = null
+      if (stickRef.current) element.scrollTop = element.scrollHeight
+    })
+  }
 
   useEffect(() => {
-    if (!open || !streaming || !stick) return
-    const element = scrollRef.current
-    if (element) requestAnimationFrame(() => { element.scrollTop = element.scrollHeight })
-  }, [content, open, stick, streaming])
+    scheduleScrollToBottom()
+    return cancelPendingScroll
+  }, [content, open, streaming])
 
   return (
     <Think
@@ -400,9 +423,13 @@ function ThinkingBlock({
         <div
           ref={scrollRef}
           className="relative max-h-72 overflow-y-auto px-3 pb-1 pt-2"
+          onPointerDown={() => setFollowing(false)}
+          onWheel={() => setFollowing(false)}
           onScroll={(event) => {
             const element = event.currentTarget
-            setStick(element.scrollHeight - element.scrollTop - element.clientHeight < 48)
+            if (stickRef.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 48) {
+              setFollowing(false)
+            }
           }}
         >
           <div className="selectable whitespace-pre-wrap break-words text-[14px] leading-[22px] text-txt-secondary">
@@ -411,7 +438,7 @@ function ThinkingBlock({
           {!stick && streaming && <button
             type="button"
             onClick={() => {
-              setStick(true)
+              setFollowing(true)
               const element = scrollRef.current
               if (element) element.scrollTop = element.scrollHeight
             }}

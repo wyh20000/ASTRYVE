@@ -16,7 +16,7 @@ export default function ChatPanel(): JSX.Element {
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
 
   return (
-    <main className="flex min-w-[340px] flex-1 flex-col bg-bg-app">
+    <main className="flex min-h-0 min-w-[340px] flex-1 flex-col bg-bg-app">
       {/* 顶部 tab */}
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
         <button
