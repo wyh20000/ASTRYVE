@@ -97,6 +97,12 @@ export const Icon = {
       <path d="M12 3v12M7 8l5-5 5 5M5 21h14" />
     </svg>
   ),
+  Save: (p: P) => (
+    <svg {...base(p, 16)}>
+      <path d="M5 3h12l3 3v15H4V3z" />
+      <path d="M8 3v6h8V3M8 21v-7h8v7" />
+    </svg>
+  ),
   Check: (p: P) => (
     <svg {...base(p, 16)}>
       <path d="M20 6 9 17l-5-5" />

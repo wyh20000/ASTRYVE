@@ -10,8 +10,12 @@ import { useUiStore } from '../../stores/uiStore'
 import WorkspaceResizeHandle from './WorkspaceResizeHandle'
 import MonacoPreview from './MonacoPreview'
 import MonacoDiffPreview from './MonacoDiffPreview'
+import MarkdownRenderer from '../chat/MarkdownRenderer'
 import { hydrateLegacyDiff, visibleDiffContents } from './legacyDiff'
 import { directoriesToRefresh } from './workspaceRefresh'
+import { isMarkdownPath, workspaceFileKind, workspaceFolderIcon } from './workspaceFileKind'
+import { fileIconSources } from './fileIconSources'
+import { folderIconSource } from './folderIconSources'
 
 type View = 'files' | 'diff' | 'steps' | 'output' | 'terminal'
 
@@ -25,6 +29,7 @@ export default function WorkspacePanel(): JSX.Element | null {
   const width = useUiStore((state) => state.workspaceWidth)
   const [view, setView] = useState<View>('files')
   const [explorerOpen, setExplorerOpen] = useState(true)
+  const [markdownModeByPath, setMarkdownModeByPath] = useState<Record<string, 'code' | 'preview'>>({})
   const [directories, setDirectories] = useState<Record<string, WorkspaceFileEntry[]>>({})
   const [fileTreeRevision, setFileTreeRevision] = useState(0)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -53,6 +58,10 @@ export default function WorkspacePanel(): JSX.Element | null {
   const activeDiff = diffFiles.find((file) => file.path === activeDiffPath) ?? diffFiles[0]
   const legacyDiff = activeDiff && latestDiff ? legacyDiffContents[`${latestDiff.patchHash}:${activeDiff.path}`] : undefined
   const editorPath = view === 'diff' ? activeDiff?.path : activeFile?.path
+  const markdownMode = activeFile && isMarkdownPath(activeFile.path)
+    ? markdownModeByPath[activeFile.path] ?? 'preview'
+    : undefined
+  const compactWorkspace = width < 720
   const displayedDiff = activeDiff ? visibleDiffContents(activeDiff, {
     original: activeDiff.originalContent ?? legacyDiff?.original ?? fallbackDiffSide(activeDiff, 'original'),
     modified: activeDiff.modifiedContent ?? legacyDiff?.modified ?? fallbackDiffSide(activeDiff, 'modified')
@@ -61,6 +70,7 @@ export default function WorkspacePanel(): JSX.Element | null {
   useEffect(() => {
     fileLoadSequence.current += 1
     setDirectories({}); setExpanded(new Set()); setOpenFiles([]); setActiveFilePath(undefined); setDirtyPaths(new Set())
+    setMarkdownModeByPath({})
     setFileLoadingPath(undefined); setFileLoadError('')
     if (!workspace) return
     void loadDirectory(workspace.id, '', setDirectories, setLoading)
@@ -198,7 +208,7 @@ export default function WorkspacePanel(): JSX.Element | null {
   return <><WorkspaceResizeHandle /><aside style={{ width, minWidth: 380, maxWidth: '55vw' }}
     className="flex shrink flex-col border-l border-border bg-bg-panel">
     <div className="flex h-10 shrink-0 items-center border-b border-border bg-bg-panel px-2">
-      {([['files', '文件'], ['diff', `Diff${diffs.length ? ` ${diffs.length}` : ''}`], ['steps', '步骤'],
+      {([['files', '文件'], ['diff', `变更${diffFiles.length ? ` ${diffFiles.length}` : ''}`], ['steps', '步骤'],
         ['output', `输出${commands.length ? ` ${commands.length}` : ''}`], ['terminal', '终端']] as const)
         .map(([id, label]) => <button key={id} type="button" onClick={() => setView(id)}
           className={`relative h-10 px-2.5 text-[14px] transition-colors ${view === id
@@ -212,31 +222,33 @@ export default function WorkspacePanel(): JSX.Element | null {
     </div>
 
     {(view === 'files' || view === 'diff') ? <div className="flex min-h-0 flex-1 flex-col bg-bg-app">
-      <EditorTabs files={view === 'files' ? openFiles : diffFiles} activePath={view === 'files' ? activeFilePath : activeDiff?.path}
-        dirtyPaths={view === 'files' ? dirtyPaths : new Set()}
-        diff={view === 'diff'} onSelect={(path) => view === 'files' ? setActiveFilePath(path) : setActiveDiffPath(path)}
-        onClose={(path) => view === 'files' ? closeFile(path) : closeDiff(path)} />
-      <div className="flex min-h-0 flex-1">
+      {view === 'files' && <EditorTabs files={openFiles} activePath={activeFilePath}
+        dirtyPaths={dirtyPaths} diff={false} onSelect={setActiveFilePath} onClose={closeFile} />}
+      <div className="relative flex min-h-0 flex-1">
+        {view === 'diff' && <DiffFileList files={diffFiles} activePath={activeDiff?.path} onSelect={setActiveDiffPath} onClose={closeDiff} />}
         <section className="flex min-w-0 flex-1 flex-col">
           <Breadcrumb workspace={workspace.name} path={editorPath} dirty={Boolean(activeFile && dirtyPaths.has(activeFile.path))}
-            saving={savingPath === activeFile?.path} error={saveError} onSave={view === 'files' ? saveActiveFile : undefined} />
+            saving={savingPath === activeFile?.path} error={saveError} onSave={view === 'files' ? saveActiveFile : undefined}
+            markdownMode={view === 'files' ? markdownMode : undefined} onMarkdownModeChange={view === 'files' && activeFile && isMarkdownPath(activeFile.path)
+              ? (mode) => setMarkdownModeByPath((current) => ({ ...current, [activeFile.path]: mode })) : undefined} />
           <div className="min-h-0 flex-1">
             {view === 'files' ? (activeFile
-              ? <MonacoPreview path={activeFile.path} content={activeFile.content}
-                onChange={(content) => {
-                  setOpenFiles((current) => current.map((file) => file.path === activeFile.path ? { ...file, content } : file))
-                  setDirtyPaths((current) => new Set(current).add(activeFile.path))
-                  setSaveError('')
-                }} onSave={() => void saveActiveFile()} />
+              ? markdownMode === 'preview' ? <MarkdownFilePreview path={activeFile.path} content={activeFile.content} />
+                : <MonacoPreview path={activeFile.path} content={activeFile.content}
+                  onChange={(content) => {
+                    setOpenFiles((current) => current.map((file) => file.path === activeFile.path ? { ...file, content } : file))
+                    setDirtyPaths((current) => new Set(current).add(activeFile.path))
+                    setSaveError('')
+                  }} onSave={() => void saveActiveFile()} />
               : <Empty text={fileLoadError || (fileLoadingPath ? `正在读取 ${basename(fileLoadingPath)}…` : '从文件列表选择一个文件')} />)
               : (activeDiff && displayedDiff ? <MonacoDiffPreview path={activeDiff.path}
                 original={displayedDiff.original} modified={displayedDiff.modified} />
                 : <Empty text="暂无可查看的文件变更" />)}
           </div>
         </section>
-        {explorerOpen && <Explorer workspaceId={workspace.id} directories={directories} expanded={expanded}
-          activePath={editorPath} loading={loading} revision={fileTreeRevision}
-          onDirectory={toggleDirectory} onFile={selectFile} />}
+        {view === 'files' && explorerOpen && <Explorer workspaceId={workspace.id} directories={directories} expanded={expanded}
+          activePath={editorPath} loading={loading} revision={fileTreeRevision} overlay={compactWorkspace}
+          onDirectory={toggleDirectory} onFile={selectFile} onClose={() => setExplorerOpen(false)} />}
       </div>
     </div> : <AuxiliaryView view={view} plans={plans} commands={commands} activeId={activeId ?? undefined}
       terminalId={terminalId} terminalOutput={terminalOutput} terminalInput={terminalInput}
@@ -264,8 +276,9 @@ function EditorTabs({ files, activePath, dirtyPaths, diff, onSelect, onClose }: 
   </div>
 }
 
-function Breadcrumb({ workspace, path, dirty, saving, error, onSave }: {
+function Breadcrumb({ workspace, path, dirty, saving, error, onSave, markdownMode, onMarkdownModeChange }: {
   workspace: string; path?: string; dirty?: boolean; saving?: boolean; error?: string; onSave?: () => Promise<void>
+  markdownMode?: 'code' | 'preview'; onMarkdownModeChange?: (mode: 'code' | 'preview') => void
 }): JSX.Element {
   const parts = path?.split('/') ?? []
   return <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-bg-app px-3 text-[14px] text-txt-muted">
@@ -274,14 +287,65 @@ function Breadcrumb({ workspace, path, dirty, saving, error, onSave }: {
       <Icon.ChevronRight size={10} /><span className={index === parts.length - 1 ? 'truncate text-txt-secondary' : 'truncate'}>{part}</span>
     </span>)}
     {error && <span className="ml-auto max-w-[240px] truncate text-red-300" title={error}>{error}</span>}
-    {dirty && <button type="button" className="ml-auto shrink-0 rounded px-2 py-0.5 text-[14px] text-accent hover:bg-bg-raised"
-      disabled={saving} title="保存文件（Ctrl+S）" onClick={() => void onSave?.()}>{saving ? '保存中…' : '保存 Ctrl+S'}</button>}
+    {markdownMode && onMarkdownModeChange && <div className="ml-auto flex shrink-0 items-center rounded-md border border-border bg-bg-panel p-0.5" role="group" aria-label="Markdown 查看模式">
+      {(['code', 'preview'] as const).map((mode) => <button key={mode} type="button"
+        aria-pressed={markdownMode === mode} onClick={() => onMarkdownModeChange(mode)}
+        className={`rounded px-1.5 py-0.5 text-[14px] transition-colors ${markdownMode === mode
+          ? 'bg-bg-active text-txt-primary' : 'text-txt-muted hover:text-txt-secondary'}`}>
+        {mode === 'code' ? '代码' : 'Preview'}
+      </button>)}
+    </div>}
+    {dirty && <IconButton className="ml-1 shrink-0" size="sm" icon={<Icon.Save size={13} />} label={saving ? '保存中' : '保存文件（Ctrl+S）'}
+      disabled={saving} onClick={() => void onSave?.()} />}
   </div>
 }
 
-function Explorer({ workspaceId, directories, expanded, activePath, loading, revision, onDirectory, onFile }: {
+function DiffFileList({ files, activePath, onSelect, onClose }: {
+  files: PatchDiffFile[]; activePath?: string; onSelect: (path: string) => void; onClose: (path: string) => void
+}): JSX.Element {
+  const added = files.reduce((total, file) => total + file.linesAdded, 0)
+  const removed = files.reduce((total, file) => total + file.linesDeleted, 0)
+  return <aside className="flex w-[min(280px,32%)] min-w-[190px] shrink-0 flex-col border-r border-border bg-bg-panel">
+    <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+      <span className="text-[14px] font-medium text-txt-secondary">变更文件</span>
+      <span className="font-mono text-[14px] text-txt-muted">{files.length} 个</span>
+    </div>
+    <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 font-mono text-[14px]">
+      <span className="text-ok">+{added}</span><span className="text-err">-{removed}</span>
+    </div>
+    <div className="min-h-0 flex-1 overflow-auto py-1">
+      {files.length ? files.map((file) => <div key={file.path} className={`group flex items-center gap-1 px-2 ${
+        activePath === file.path ? 'bg-bg-active text-txt-primary' : 'text-txt-secondary hover:bg-bg-raised'}`}>
+        <button type="button" onClick={() => onSelect(file.path)} title={file.path}
+          className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left">
+          <span className={`w-4 shrink-0 text-center font-mono text-[14px] font-semibold ${file.status === 'added' ? 'text-ok' : file.status === 'deleted' ? 'text-err' : 'text-accent'}`}>
+            {file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'renamed' ? 'R' : 'M'}
+          </span>
+          <FileGlyph path={file.path} diff />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px]">{basename(file.path)}</span>
+            <span className="block truncate text-[14px] text-txt-muted">{file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '根目录'}</span>
+          </span>
+          <span className="shrink-0 font-mono text-[14px]"><span className="text-ok">+{file.linesAdded}</span> <span className="text-err">-{file.linesDeleted}</span></span>
+        </button>
+        <IconButton size="sm" icon={<Icon.X size={11} />} label={`关闭 ${basename(file.path)} 变更`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          onClick={() => onClose(file.path)} />
+      </div>) : <Empty text="暂无文件变更" />}
+    </div>
+  </aside>
+}
+
+function MarkdownFilePreview({ path, content }: { path: string; content: string }): JSX.Element {
+  return <div className="h-full overflow-auto bg-bg-app px-5 py-5" aria-label={`Markdown Preview ${path}`}>
+    <div className="mx-auto max-w-[820px]">
+      <MarkdownRenderer>{content}</MarkdownRenderer>
+    </div>
+  </div>
+}
+
+function Explorer({ workspaceId, directories, expanded, activePath, loading, revision, overlay, onDirectory, onFile, onClose }: {
   workspaceId: string; directories: Record<string, WorkspaceFileEntry[]>; expanded: Set<string>; activePath?: string
-  loading: boolean; revision: number; onDirectory: (path: string) => Promise<void>; onFile: (path: string) => Promise<void>
+  loading: boolean; revision: number; overlay: boolean; onDirectory: (path: string) => Promise<void>; onFile: (path: string) => Promise<void>; onClose: () => void
 }): JSX.Element {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<WorkspaceFileEntry[]>([])
@@ -300,10 +364,12 @@ function Explorer({ workspaceId, directories, expanded, activePath, loading, rev
     }, 180)
     return () => { current = false; window.clearTimeout(timer) }
   }, [query, workspaceId, revision])
-  return <aside className="flex shrink-0 flex-col border-l border-border bg-bg-panel"
-    style={{ width: 'clamp(170px, 30%, 230px)' }}>
-    <div className="border-b border-border p-2">
-      <label className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-bg-app px-2 focus-within:border-accent">
+  return <aside className={`${overlay ? 'absolute inset-y-0 right-0 z-30 shadow-modal' : 'relative'} flex shrink-0 flex-col border-l border-border bg-bg-panel`}
+    style={{ width: overlay ? 'min(280px, 82%)' : 'clamp(220px, 30%, 280px)' }}>
+    <div className="flex items-center gap-2 border-b border-border p-2">
+      <span className="min-w-0 flex-1 text-[14px] font-medium text-txt-secondary">文件</span>
+      {overlay && <IconButton size="sm" icon={<Icon.X size={13} />} label="关闭文件列表" onClick={onClose} />}
+      <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-bg-app px-2 focus-within:border-accent">
         <Icon.Search size={12} className="shrink-0 text-txt-muted" />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选文件…"
           className="min-w-0 flex-1 bg-transparent text-[14px] text-txt-primary outline-none placeholder:text-txt-muted" />
@@ -336,21 +402,27 @@ function FileTree({ path, directories, expanded, activePath, onDirectory, onFile
 function FileRow({ entry, depth, active, expanded, showPath, onClick }: {
   entry: WorkspaceFileEntry; depth: number; active: boolean; expanded?: boolean; showPath?: boolean; onClick: () => void
 }): JSX.Element {
+  const folderSource = entry.kind === 'directory'
+    ? folderIconSource(workspaceFolderIcon(entry.path), Boolean(expanded))
+    : undefined
   return <button type="button" className={`mx-1 flex w-[calc(100%-8px)] items-center gap-1.5 rounded px-2 py-1 text-left text-[14px] ${
     active ? 'bg-bg-active text-txt-primary shadow-sm ring-1 ring-inset ring-border-strong' : 'text-txt-secondary hover:bg-bg-raised'}`}
     style={{ paddingLeft: `${8 + depth * 11}px` }} onClick={onClick} title={entry.path}>
-    {entry.kind === 'directory' ? <><Icon.ChevronRight size={11} className={expanded ? 'rotate-90' : ''} /><Icon.Folder size={13} className="text-amber-300/80" /></>
+    {entry.kind === 'directory' ? <><Icon.ChevronRight size={11} className={expanded ? 'rotate-90' : ''} />
+      <img aria-hidden="true" src={folderSource} alt="" className="h-[18px] w-[18px] shrink-0 object-contain" /></>
       : <><span className="w-[11px]" /><FileGlyph path={entry.path} /></>}
     <span className="min-w-0 flex-1 truncate">{showPath ? entry.path : entry.name}</span>
   </button>
 }
 
 function FileGlyph({ path, diff = false }: { path: string; diff?: boolean }): JSX.Element {
-  const ext = path.split('.').pop()?.toLowerCase()
-  const color = diff ? 'text-accent' : ['ts', 'tsx'].includes(ext ?? '') ? 'text-sky-300'
-    : ['js', 'jsx'].includes(ext ?? '') ? 'text-yellow-300' : ext === 'json' ? 'text-amber-300'
-      : ['md', 'txt'].includes(ext ?? '') ? 'text-violet-300' : 'text-txt-muted'
-  return <Icon.File size={13} className={`shrink-0 ${color}`} />
+  const kind = workspaceFileKind(path)
+  const source = fileIconSources[kind.icon] ?? fileIconSources.file
+  return <span aria-hidden="true" className={`inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center ${diff ? 'rounded-[3px] ring-1 ring-inset ring-accent/70' : ''}`}>
+    <img src={source} alt="" className="h-full w-full object-contain" onError={(event) => {
+      if (event.currentTarget.src !== fileIconSources.file) event.currentTarget.src = fileIconSources.file
+    }} />
+  </span>
 }
 
 function AuxiliaryView({ view, plans, commands, activeId, terminalId, terminalOutput, terminalInput,
