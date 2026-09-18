@@ -65,7 +65,15 @@ export function MessageList({ messages }: { messages: Message[] }): JSX.Element 
         }}
         onScroll={(e) => {
           const el = e.currentTarget
-          if (stickRef.current && el.scrollHeight - el.scrollTop - el.clientHeight >= 80) {
+          const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+          if (distanceToBottom <= 2) {
+            if (!stickRef.current) {
+              setFollowing(true)
+              setHasNewContent(false)
+            }
+            return
+          }
+          if (stickRef.current && distanceToBottom >= 80) {
             setFollowing(false)
           }
         }}

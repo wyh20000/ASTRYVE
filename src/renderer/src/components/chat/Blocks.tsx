@@ -433,7 +433,12 @@ function ThinkingBlock({
           }}
           onScroll={(event) => {
             const element = event.currentTarget
-            if (stickRef.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 48) {
+            const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+            if (distanceToBottom <= 2) {
+              if (!stickRef.current) setFollowing(true)
+              return
+            }
+            if (stickRef.current && distanceToBottom >= 48) {
               setFollowing(false)
             }
           }}

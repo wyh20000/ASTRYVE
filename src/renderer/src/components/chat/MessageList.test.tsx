@@ -88,4 +88,18 @@ describe('MessageList 流式滚动', () => {
 
     expect(screen.queryByRole('button', { name: '回到底部' })).not.toBeInTheDocument()
   })
+
+  it('用户手动滚回底部后恢复跟随并隐藏按钮', () => {
+    const view = render(<MessageList messages={[message('m1')]} />)
+    const scroll = scrollElement(view.container)
+    setScrollMetrics(scroll, { scrollHeight: 1000, clientHeight: 400, scrollTop: 320 })
+
+    fireEvent.wheel(scroll, { deltaY: -240 })
+    expect(screen.getByRole('button', { name: '回到底部' })).toBeInTheDocument()
+
+    setScrollMetrics(scroll, { scrollHeight: 1000, clientHeight: 400, scrollTop: 600 })
+    fireEvent.scroll(scroll)
+
+    expect(screen.queryByRole('button', { name: '回到底部' })).not.toBeInTheDocument()
+  })
 })
