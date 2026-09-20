@@ -269,7 +269,7 @@ export function PluginSection(): JSX.Element {
         {filtered.map((plugin) => <button key={plugin.id} type="button" aria-label={`打开 ${plugin.name}`}
           title={plugin.name} className="rounded-lg outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-accent"
           onClick={() => setSelectedId(plugin.id)}>
-          <PluginLogo entry={marketById.get(plugin.id)} invalid={plugin.status !== 'ready'} size="lg" />
+          <PluginLogo entry={marketById.get(plugin.id)} plugin={plugin} invalid={plugin.status !== 'ready'} size="lg" />
         </button>)}
       </div>
       {!loading && !filtered.length && <div className="flex min-h-[120px] flex-col items-center justify-center px-4 text-center">
@@ -450,7 +450,7 @@ function MarketCard({ entry, installed, releases, mutating, installing, onOpen, 
   onInstall: () => void
 }): JSX.Element {
   return <article className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-bg-active">
-    <PluginLogo entry={entry} />
+    <PluginLogo entry={entry} plugin={installed} />
     <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}
       aria-label={`查看 ${entry.name} 详情`}>
       <span className="flex flex-wrap items-baseline gap-1.5">
@@ -546,7 +546,7 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
     <aside ref={dialog} role="dialog" aria-modal="true" aria-labelledby="plugin-detail-title" tabIndex={-1}
       onKeyDown={(event) => { if (event.key === 'Escape') onClose(); else if (dialog.current) trapPluginDialogFocus(event, dialog.current as unknown as DialogFocusRoot) }} onMouseDown={(event) => event.stopPropagation()}
       className="h-full w-full max-w-[560px] overflow-y-auto border-l border-border bg-bg-panel p-5 shadow-2xl sm:p-7">
-      <div className="flex items-start gap-4"><PluginLogo entry={entry} size="lg" /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
+      <div className="flex items-start gap-4"><PluginLogo entry={entry} plugin={installed} size="lg" /><div className="min-w-0 flex-1"><h2 id="plugin-detail-title" className="text-[17px] font-semibold">{entry.name}</h2>
         <p className="mt-1 text-[14px] text-txt-muted">{entry.author} · {entry.sourceName} · {entry.version}</p></div>
         <IconButton autoFocus icon={<Icon.X size={16} />} label="关闭插件详情" onClick={onClose} /></div>
       <p className="mt-5 text-[14px] leading-6 text-txt-secondary">{entry.description}</p>
@@ -626,7 +626,7 @@ function PluginDetailsPage({ entry, installed, releases, skills, mutating, onBac
     </nav>
 
     <header className="flex flex-wrap items-start gap-4">
-      <PluginLogo entry={entry} size="lg" invalid={installed?.status !== undefined && installed.status !== 'ready'} />
+      <PluginLogo entry={entry} plugin={installed} size="lg" invalid={installed?.status !== undefined && installed.status !== 'ready'} />
       <div className="min-w-[220px] flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="selectable text-[20px] font-semibold text-txt-primary">{name}</h1>
@@ -883,13 +883,24 @@ export function PluginUninstallChoices({ onChoose, onCancel, showHint = true }: 
   </span>
 }
 
-function PluginLogo({ entry, size = 'md', invalid = false }: {
+function PluginLogo({ entry, plugin, size = 'md', invalid = false }: {
   entry?: PluginMarketEntry
+  plugin?: PluginMetadata
   size?: 'md' | 'lg'
   invalid?: boolean
 }): JSX.Element {
   const light = useThemeStore((state) => state.resolved.light)
-  const src = (light ? entry?.logoUrl : entry?.logoDarkUrl ?? entry?.logoUrl) ?? entry?.composerIconUrl
+  const [localIcon, setLocalIcon] = useState<string>()
+  useEffect(() => {
+    setLocalIcon(undefined)
+    if (!plugin?.iconPath) return
+    let active = true
+    void window.agent.plugins.readIcon({ id: plugin.id }).then((result) => {
+      if (active && result.ok) setLocalIcon(result.data)
+    })
+    return () => { active = false }
+  }, [plugin?.id, plugin?.version, plugin?.iconPath])
+  const src = localIcon ?? (light ? entry?.logoUrl : entry?.logoDarkUrl ?? entry?.logoUrl) ?? entry?.composerIconUrl
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
   const dimension = size === 'lg' ? 'h-11 w-11 rounded-lg' : 'h-8 w-8 rounded-md'

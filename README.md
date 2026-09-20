@@ -113,6 +113,7 @@ npm start
 - 工具型插件需要在 `plugin.json` 的 `tools` 中声明 `name`、`description`、相对 `entry`、`operation` 和封闭的 `parameters`。插件权限必须覆盖其操作，例如读取文件需要 `workspace.read`。
 - 对话中输入 `@` 可用键盘选择插件；不显式选择时，模型可从新任务捕获的已启用插件中自主选择。插件变化不会改变正在运行的任务。
 - 插件代码只在独立 Electron Utility Process 中运行，仍要经过现有 Tool Registry、项目权限和审批。Worker 有握手、心跳、超时、取消及 200KB 消息限制。
+- 本地插件可在 `plugin.json` 声明 `"icon": "assets/icon.png"`；图标只允许包内 `assets/` 下的 PNG、JPEG 或 WebP，主进程限制大小并验证文件内容后供页面显示。
 - 连续三次启动或执行失败会自动隔离；可在插件列表查看原因并点击“恢复”。恢复只允许后续新任务重试，不会重放旧调用。
 - 当前支持 DeepSeek、Kimi 和自定义 OpenAI 兼容端点的结构化工具调用链。插件市场可浏览官方/社区来源、查看权限与兼容性并完成安装、更新和回滚；已显式绑定且连接成功的 HTTPS MCP 工具也会进入任务快照并逐次审批。连接管理界面、原生 OpenAI Responses 与 Gemini 属于后续里程碑。
 

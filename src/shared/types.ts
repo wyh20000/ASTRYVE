@@ -410,6 +410,8 @@ export interface PluginMetadata {
   permissions: PluginPermission[]
   capabilities: string[]
   components: PluginComponent[]
+  /** Relative image path declared by the package; the renderer cannot read it directly. */
+  iconPath?: string
   errors: string[]
   installOrigin?: PluginInstallOrigin
   /** Read-only application deployment policy; managed plugins remain disableable. */
@@ -616,6 +618,7 @@ export interface AgentApi {
   }
   plugins: {
     list: () => Promise<IpcResult<PluginMetadata[]>>
+    readIcon: (input: { id: string }) => Promise<IpcResult<string | undefined>>
     listSkills: (input: PluginUninstallInput) => Promise<IpcResult<SkillMetadata[]>>
     importLocal: (input: PluginImportInput) => Promise<IpcResult<PluginMetadata[]>>
     setEnabled: (input: PluginToggleInput) => Promise<IpcResult<PluginMetadata[]>>

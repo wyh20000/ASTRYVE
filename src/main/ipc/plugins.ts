@@ -18,6 +18,7 @@ import { removePluginConnectionData } from '../services/agent/pluginCredentials'
 import { createInstalledPluginConnectionService } from '../services/agent/pluginMcpRuntime'
 import { getPluginConnectionManager } from '../services/agent/taskRuntimeManager'
 import { listPluginSkills } from '../services/agent/skillManager'
+import { readPluginIcon } from '../services/agent/pluginAssets'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
@@ -44,6 +45,16 @@ export function registerPluginsIpc(): void {
       return ok(await listPlugins())
     } catch (error) {
       return err('PLUGIN_LIST_ERR', error instanceof Error ? error.message : '插件加载失败')
+    }
+  })
+
+  ipcMain.handle(IPC.plugins.readIcon, async (event, input?: { id: string }) => {
+    try {
+      assertTrustedIpcSender(event)
+      assertPluginId(input)
+      return ok(await readPluginIcon(getInstalledPluginRoot(), input.id))
+    } catch (error) {
+      return err('PLUGIN_ICON_ERR', error instanceof Error ? error.message : '插件图标读取失败')
     }
   })
 

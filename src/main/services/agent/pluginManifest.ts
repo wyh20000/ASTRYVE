@@ -65,6 +65,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   const author = parseAuthor(value.author)
   const permissions = parsePermissions(value.permissions)
   const capabilities = stringArray(interfaceValue?.capabilities, '插件能力', 32, 64).sort()
+  const iconPath = parseIconPath(value.icon)
   const components: PluginComponent[] = []
   const tools: ParsedPluginTool[] = []
   const hooks = parseHooks(value.hooks)
@@ -108,10 +109,19 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
     }
   }
   return {
-    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks,
+    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks, iconPath,
     skillsPath: typeof value.skills === 'string' ? value.skills : undefined,
     mcpPath
   }
+}
+
+function parseIconPath(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > 160 ||
+      !/^assets\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:png|jpe?g|webp)$/i.test(value)) {
+    throw new Error('插件图标必须是 assets 目录内的 PNG、JPEG 或 WebP 图片')
+  }
+  return value
 }
 
 function parseHooks(value: unknown): ParsedPluginHook[] {
