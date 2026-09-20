@@ -5,7 +5,7 @@
 - **形态**：Electron + TypeScript 桌面应用
 - **当前阶段**：P1/P2/P3 已完成；P4 M12 已完成，M13 插件运行时代码与自动化验证已完成、待人工验收；M14 市场、生命周期、MCP 和 Hooks 已实现，待资源/UI 安全项及真实环境总验收
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
-- **持久化**：优先连接本机 MySQL（自动建库建表）；连不上则**自动回退内存存储**，应用不崩溃
+- **持久化**：认证后的账号使用各自目录内的本地 JSON 存储；旧共享 MySQL 会话表不含账号字段，暂不供已登录账号使用
 
 ## 运行
 
@@ -34,8 +34,14 @@ npm run build:win
 npm start
 ```
 
-### 数据库（MySQL，可选）
-默认连接 `127.0.0.1:3306`，库名 `ai_agent`，用户 `root`，空密码。可用环境变量覆盖：`MYSQL_HOST / MYSQL_PORT / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE`。
+### 账号认证（开发中）
+
+首次启动显示 Three.js 锁定页。桌面端设置 `AI_AGENT_AUTH_URL=https://你的登录域名`，Sign in 会在系统浏览器打开 Web 登录页；认证服务的部署步骤与变量见 [server/auth/README.md](server/auth/README.md) 和 [server/auth/.env.example](server/auth/.env.example)。本机联调可将认证服务设为 `AUTH_PUBLIC_URL=http://127.0.0.1:8787`、`AUTH_INSECURE_LOCAL_DEV=1`，客户端设 `AI_AGENT_AUTH_URL=http://127.0.0.1:8787`。生产环境只允许 HTTPS。
+
+未配置真实短信或已审核的 QQ、微信网站应用时，对应登录方式显示不可用。开发核验可运行 `npm run test:auth`、`npm run smoke:auth`；正式联调和发布条件见 [账号认证实施任务拆解](docs/19-账号认证实施任务拆解.md)。
+
+### 旧版对话数据库（MySQL，可选）
+旧版对话存储默认连接 `127.0.0.1:3306`，库名 `ai_agent`，用户 `root`，空密码。可用环境变量覆盖：`MYSQL_HOST / MYSQL_PORT / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE`。登录后不连接该共享库，认证服务另需自己的 MySQL 8 数据库。
 
 > 说明：本仓库开发环境没有可连接的 MySQL（3306 关闭），所以默认用内存存储跑通全流程；在你本机启动 MySQL 后即自动用 MySQL 持久化。
 

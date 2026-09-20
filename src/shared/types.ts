@@ -554,8 +554,20 @@ export interface DbConfig {
 }
 
 /** 前端可通过 window.agent 访问的统一 API 面 */
+export interface AuthStatus {
+  state: 'authenticated' | 'signedOut' | 'waiting' | 'offline' | 'unconfigured'
+  userId?: string
+  message?: string
+}
+
 export interface AgentApi {
   platform: string
+  auth: {
+    status: () => Promise<IpcResult<AuthStatus>>
+    start: () => Promise<IpcResult<AuthStatus>>
+    cancel: () => Promise<IpcResult<AuthStatus>>
+    logout: () => Promise<IpcResult<{ revocationPending: boolean }>>
+  }
   ping: () => Promise<IpcResult<string>>
   session: {
     list: () => Promise<IpcResult<Session[]>>

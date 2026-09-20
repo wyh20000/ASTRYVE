@@ -3,6 +3,9 @@
  * 命名约定：`域:动作`
  */
 export const IPC = {
+  auth: {
+    status: 'auth:status', start: 'auth:start', cancel: 'auth:cancel', logout: 'auth:logout'
+  },
   app: {
     ping: 'app:ping'
   },

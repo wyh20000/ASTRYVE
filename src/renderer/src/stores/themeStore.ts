@@ -32,13 +32,14 @@ function resolveCurrent(mode: ThemeMode, overrides: ThemeOverrides): ResolvedThe
 }
 
 /** 把令牌推送到 DOM 与 Electron 标题栏 */
-function pushTheme(theme: ResolvedTheme): void {
+function pushTheme(theme: ResolvedTheme, applyOverlay = true): void {
   applyThemeToRoot(theme)
+  if (!applyOverlay) return
   try {
     void window.agent?.window.setTitleBarOverlay({
       color: theme.color.surface.app,
       symbolColor: theme.color.text.primary
-    })
+    }).catch(() => undefined)
   } catch {
     /* 非 Electron 环境或 IPC 尚未就绪时忽略 */
   }
@@ -89,7 +90,7 @@ interface ThemeState {
 
 // 首帧：在 React 挂载前先用「跟随系统」应用一次，避免主题闪烁
 const initialResolved = resolveCurrent(DEFAULT_THEME_MODE, {})
-pushTheme(initialResolved)
+pushTheme(initialResolved, false)
 
 export const useThemeStore = create<ThemeState>((set, get) => {
   const persist = (mode: ThemeMode, overrides: ThemeOverrides): void => {

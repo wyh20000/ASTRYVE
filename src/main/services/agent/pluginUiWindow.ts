@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { readInstalledPluginUi } from './pluginUiContent'
 import { pluginUiWebPreferences, wrapPluginUiHtml } from './pluginUiSecurity'
+import { isBusinessIpcAvailable } from '../../ipc/validation'
 
 interface PluginUiIdentity { id: string; name: string; version?: string }
 const windows = new Map<string, BrowserWindow>()
@@ -18,6 +19,9 @@ export function registerPluginUiBridge(): void {
   if (bridgeRegistered) return
   bridgeRegistered = true
   ipcMain.handle('plugin-ui:info', (event) => {
+    if (!isBusinessIpcAvailable() && !(process.env.AI_AGENT_PLUGIN_UI_SMOKE === '1' && !app.isPackaged)) {
+      throw new Error('请先登录')
+    }
     const identity = trustedIdentity(event)
     if (!identity) throw new Error('插件界面来源无效')
     return { ...identity }
@@ -74,4 +78,8 @@ function denyDownload(event: Electron.Event): void { event.preventDefault() }
 export function closePluginUi(id: string): void {
   const win = windows.get(id)
   if (win && !win.isDestroyed()) win.destroy()
+}
+
+export function closeAllPluginUi(): void {
+  for (const win of windows.values()) if (!win.isDestroyed()) win.destroy()
 }

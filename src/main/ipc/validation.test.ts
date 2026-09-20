@@ -3,7 +3,9 @@ import type { IpcMainInvokeEvent } from 'electron'
 import {
   InputValidationError,
   assertTrustedIpcSender,
+  assertTrustedRenderer,
   configureTrustedIpcSender,
+  setBusinessIpcAvailable,
   validateSendMessageInput,
   validateWorkspaceId,
   validateWorkspaceRelativePath
@@ -28,6 +30,10 @@ describe('workspace IPC validation', () => {
 
   it('allows only the configured renderer main frame', () => {
     configureTrustedIpcSender('file:///D:/app/index.html')
+    setBusinessIpcAvailable(false)
+    expect(() => assertTrustedRenderer(eventFor('file:///D:/app/index.html'))).not.toThrow()
+    expect(() => assertTrustedIpcSender(eventFor('file:///D:/app/index.html'))).toThrow('请先登录')
+    setBusinessIpcAvailable(true)
     expect(() => assertTrustedIpcSender(eventFor('file:///D:/app/index.html'))).not.toThrow()
     expect(() => assertTrustedIpcSender(eventFor('file:///D:/other/index.html'))).toThrow(InputValidationError)
     expect(() => assertTrustedIpcSender(eventFor('file:///D:/app/index.html', false))).toThrow(InputValidationError)
@@ -38,6 +44,7 @@ describe('workspace IPC validation', () => {
     expect(() => assertTrustedIpcSender(eventFor('https://evil.example/'))).toThrow(
       InputValidationError
     )
+    setBusinessIpcAvailable(false)
   })
 
   it('refuses remote or credential-bearing renderer entry configuration', () => {

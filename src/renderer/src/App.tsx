@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { App as AntdApp } from 'antd'
 import { XProvider } from '@ant-design/x'
 import zhCN from '@ant-design/x/es/locale/zh_CN'
@@ -18,6 +18,8 @@ import { useWorkspaceStore } from './stores/workspaceStore'
 import WorkspacePanel from './components/layout/WorkspacePanel'
 import ApprovalDialog from './components/chat/ApprovalDialog'
 import { usePluginStore } from './stores/pluginStore'
+import { LoginLockPage } from './components/auth/LoginLockPage'
+import type { AuthStatus } from '@shared/types'
 
 function AppShell(): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
@@ -122,7 +124,7 @@ function AppShell(): JSX.Element {
   )
 }
 
-export default function App(): JSX.Element {
+function AuthenticatedApp(): JSX.Element {
   // 主题令牌由 themeStore 统一解析；系统主题变化会更新 resolved 并触发重渲染。
   const theme = useResolvedTheme()
 
@@ -144,4 +146,19 @@ export default function App(): JSX.Element {
       </AntdApp>
     </XProvider>
   )
+}
+
+export default function App(): JSX.Element {
+  const [status, setStatus] = useState<AuthStatus | null>(null)
+  useEffect(() => {
+    let active = true
+    void window.agent.auth.status().then((result) => {
+      if (active) setStatus(result.ok ? result.data : { state: 'signedOut', message: result.error.message })
+    }).catch(() => {
+      if (active) setStatus({ state: 'offline', message: '无法确认登录状态，请检查网络后重试。' })
+    })
+    return () => { active = false }
+  }, [])
+  if (!status) return <div className="login-lock-loading">正在确认登录状态…</div>
+  return status.state === 'authenticated' ? <AuthenticatedApp /> : <LoginLockPage initialStatus={status} />
 }

@@ -49,6 +49,12 @@ import type {
 
 const api: AgentApi = {
   platform: process.platform,
+  auth: {
+    status: () => ipcRenderer.invoke(IPC.auth.status),
+    start: () => ipcRenderer.invoke(IPC.auth.start),
+    cancel: () => ipcRenderer.invoke(IPC.auth.cancel),
+    logout: () => ipcRenderer.invoke(IPC.auth.logout)
+  },
   ping: () => ipcRenderer.invoke(IPC.app.ping),
   session: {
     list: () => ipcRenderer.invoke(IPC.session.list),

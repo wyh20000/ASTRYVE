@@ -1,5 +1,6 @@
 import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { join } from 'path'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { getStore, initStore } from './db'
 import { initModelConfig } from './services/modelConfig'
@@ -29,6 +30,9 @@ import { cleanupEmptySessions } from './services/emptySessionCleanup'
 import { initSkillRegistry } from './services/agent/skillManager'
 import { initPluginRegistry } from './services/agent/pluginManager'
 import { configureTrustedIpcSender } from './ipc/validation'
+import { setBusinessIpcAvailable } from './ipc/validation'
+import { registerAuthIpc } from './ipc/auth'
+import { currentAccountPath, currentAuthStatus, initializeAuth, setDevelopmentSmokeAuth, startSessionRechecks } from './services/auth/authSession'
 import {
   createSecureWebPreferences,
   isAllowedExternalUrl,
@@ -40,7 +44,7 @@ const rendererEntry = isDev && process.env['ELECTRON_RENDERER_URL']
   ? process.env['ELECTRON_RENDERER_URL']
   : pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
 
-function createWindow(): BrowserWindow {
+function createWindow(locked = false): BrowserWindow {
   const persistedTheme = getThemeSettings()
   const isDark = persistedTheme.mode === 'system'
     ? nativeTheme.shouldUseDarkColors
@@ -51,23 +55,28 @@ function createWindow(): BrowserWindow {
   const firstPaintSymbol = persistedTheme.overrides.text ?? (
     isDark ? FIRST_PAINT_SYMBOL : FIRST_PAINT_LIGHT_SYMBOL
   )
+  const windowBackground = locked ? '#060b17' : firstPaintBackground
+  const windowSymbol = locked ? '#d7e6fb' : firstPaintSymbol
 
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1120,
-    minHeight: 720,
+    width: locked ? 1120 : 1440,
+    height: locked ? 760 : 900,
+    minWidth: locked ? 430 : 1120,
+    minHeight: locked ? 560 : 720,
     autoHideMenuBar: true,
     // 首帧兜底：渲染进程应用主题前即匹配系统/持久化模式，避免明暗闪烁
-    backgroundColor: firstPaintBackground,
+    backgroundColor: windowBackground,
     // 用自定义隐藏标题栏 + 覆盖层（仅 Windows），让顶部随主题颜色变化
     titleBarStyle: process.platform === 'win32' ? 'hidden' : undefined,
     titleBarOverlay:
       process.platform === 'win32'
-        ? { color: firstPaintBackground, symbolColor: firstPaintSymbol, height: 32 }
+        ? { color: windowBackground, symbolColor: windowSymbol, height: 36 }
         : undefined,
     webPreferences: createSecureWebPreferences(join(__dirname, '../preload/index.js'))
   })
+  if (locked && process.platform === 'win32') {
+    win.setTitleBarOverlay({ color: windowBackground, symbolColor: windowSymbol, height: 36 })
+  }
 
   // 窗口创建即显示；就绪后置顶聚焦，确保弹到最前
   win.once('ready-to-show', () => {
@@ -109,7 +118,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
-  if (process.env.AI_AGENT_PLUGIN_UI_SMOKE === '1') {
+  if (isDev && process.env.AI_AGENT_PLUGIN_UI_SMOKE === '1') {
     try {
       const { runPluginUiSmoke } = await import('./services/agent/pluginUiSmoke')
       await runPluginUiSmoke()
@@ -121,7 +130,7 @@ app.whenReady().then(async () => {
     }
     return
   }
-  if (process.env.AI_AGENT_PLUGIN_SMOKE === '1') {
+  if (isDev && process.env.AI_AGENT_PLUGIN_SMOKE === '1') {
     try {
       const { runPluginRuntimeSmoke } = await import('./services/agent/pluginRuntimeSmoke')
       await runPluginRuntimeSmoke()
@@ -133,7 +142,7 @@ app.whenReady().then(async () => {
     }
     return
   }
-  if (process.env.AI_AGENT_MARKET_ICON_SMOKE === '1') {
+  if (isDev && process.env.AI_AGENT_MARKET_ICON_SMOKE === '1') {
     try {
       const { runMarketIconDiagnostics } = await import('./services/marketIconDiagnostics')
       await runMarketIconDiagnostics()
@@ -145,7 +154,7 @@ app.whenReady().then(async () => {
     return
   }
 
-  if (process.env.AI_AGENT_DOCKER_EXECUTION_SMOKE === '1') {
+  if (isDev && process.env.AI_AGENT_DOCKER_EXECUTION_SMOKE === '1') {
     try {
       const { runDockerExecutionSmoke } = await import('./services/agent/dockerExecutionSmoke')
       await runDockerExecutionSmoke()
@@ -157,7 +166,7 @@ app.whenReady().then(async () => {
     }
     return
   }
-  if (process.env.AI_AGENT_LOCAL_EXECUTION_SMOKE === '1') {
+  if (isDev && process.env.AI_AGENT_LOCAL_EXECUTION_SMOKE === '1') {
     try {
       const { runLocalExecutionSmoke } = await import('./services/agent/localExecutionSmoke')
       await runLocalExecutionSmoke()
@@ -169,42 +178,79 @@ app.whenReady().then(async () => {
     }
     return
   }
-  initSettings()
-  const dockerPreflight = refreshAgentExecutionCapabilities()
-  try {
-    const cleanup = await cleanupInterruptedDockerResources()
-    if (cleanup.containersRemoved) console.log('[agent] removed interrupted Docker resources', cleanup)
-  } catch (error) {
-    console.warn('[agent] Docker recovery unavailable:', error)
-  }
-  void dockerPreflight
-  startDockerCleanupTimer()
-  initWorkspaceService()
-  initTaskRuntime()
-  initPluginRegistry(app.getPath('userData'))
-  initSkillRegistry(app.getPath('userData'))
-  try {
-    const recovery = await initTaskPersistence(app.getPath('userData'))
-    if (recovery.staleTasks || recovery.removedResources || recovery.removedInterruptedWrites) {
-      console.log('[agent] runtime recovery', recovery)
-    }
-  } catch (error) {
-    console.warn('[agent] runtime persistence unavailable:', error)
-  }
-  await initStore()
-  try {
-    const removed = await cleanupEmptySessions(getStore())
-    if (removed) console.log('[session] removed empty sessions at startup:', removed)
-  } catch (error) {
-    console.warn('[session] startup empty-session cleanup failed:', error)
-  }
-  initModelConfig()
   configureTrustedIpcSender(rendererEntry)
-  registerIpcHandlers()
-  const mainWindow = createWindow()
+  registerAuthIpc()
+  const themeSmoke = !app.isPackaged && process.env.AI_AGENT_THEME_SMOKE === '1'
+  if (themeSmoke) setDevelopmentSmokeAuth()
+  const authStatus = themeSmoke ? currentAuthStatus() : await initializeAuth(app.getPath('userData'))
+  if (authStatus.state === 'authenticated') {
+    if (!themeSmoke) {
+      const accountPath = currentAccountPath()
+      if (!accountPath) throw new Error('已验证账号缺少数据目录')
+      mkdirSync(accountPath, { recursive: true })
+      app.setPath('userData', accountPath)
+    }
+    initSettings()
+    const dockerPreflight = refreshAgentExecutionCapabilities()
+    try {
+      const cleanup = await cleanupInterruptedDockerResources()
+      if (cleanup.containersRemoved) console.log('[agent] removed interrupted Docker resources', cleanup)
+    } catch (error) {
+      console.warn('[agent] Docker recovery unavailable:', error)
+    }
+    void dockerPreflight
+    startDockerCleanupTimer()
+    initWorkspaceService()
+    initTaskRuntime()
+    initPluginRegistry(app.getPath('userData'))
+    initSkillRegistry(app.getPath('userData'))
+    try {
+      const recovery = await initTaskPersistence(app.getPath('userData'))
+      if (recovery.staleTasks || recovery.removedResources || recovery.removedInterruptedWrites) {
+        console.log('[agent] runtime recovery', recovery)
+      }
+    } catch (error) {
+      console.warn('[agent] runtime persistence unavailable:', error)
+    }
+    await initStore(!themeSmoke)
+    try {
+      const removed = await cleanupEmptySessions(getStore())
+      if (removed) console.log('[session] removed empty sessions at startup:', removed)
+    } catch (error) {
+      console.warn('[session] startup empty-session cleanup failed:', error)
+    }
+    initModelConfig()
+    setBusinessIpcAvailable(true)
+    registerIpcHandlers()
+    if (!themeSmoke) startSessionRechecks()
+  }
+  const mainWindow = createWindow(authStatus.state !== 'authenticated')
+
+  if (!app.isPackaged && process.env.AI_AGENT_AUTH_SMOKE === '1') {
+    try {
+      await new Promise<void>((resolve) => mainWindow.webContents.once('did-finish-load', () => resolve()))
+      const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+        const status = await window.agent.auth.status()
+        let businessDenied = false
+        try { await window.agent.session.list() } catch { businessDenied = true }
+        return { locked: Boolean(document.querySelector('.login-lock')), state: status.data?.state, businessDenied }
+      })()`)
+      if (!result.locked || result.state === 'authenticated' || !result.businessDenied) throw new Error(JSON.stringify(result))
+      if (process.env.AI_AGENT_AUTH_SCREENSHOT) {
+        await new Promise((resolve) => setTimeout(resolve, 700))
+        writeFileSync(process.env.AI_AGENT_AUTH_SCREENSHOT, (await mainWindow.webContents.capturePage()).toPNG())
+      }
+      console.log('[auth-smoke] PASS: locked renderer and rejected business IPC')
+      app.exit(0)
+    } catch (error) {
+      console.error('[auth-smoke] FAIL:', error)
+      app.exit(1)
+    }
+    return
+  }
 
   // 真实窗口主题验收：只在显式开启时运行，用于替代纯 jsdom 的假验证。
-  if (process.env.AI_AGENT_THEME_SMOKE === '1') {
+  if (themeSmoke) {
     try {
       const { runThemePaintSmoke } = await import('./services/themePaintSmoke')
       await runThemePaintSmoke(mainWindow)
@@ -217,7 +263,7 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(authStatus.state !== 'authenticated')
   })
 })
 

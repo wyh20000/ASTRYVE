@@ -18,6 +18,11 @@ test('only documented public routes work without a session', async () => {
     assert.equal(unknown.status, 401)
     const session = await fetch(`${base}/v1/auth/session`)
     assert.equal(session.status, 401)
+    const smsBypass = await fetch(`${base}/v1/auth/sms/verify`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ phone: '+8613800138000', code: '123456' })
+    })
+    assert.equal(smsBypass.status, 403)
     const fakeSession = await fetch(`${base}/v1/auth/session`, {
       headers: { authorization: `Bearer ${'A'.repeat(43)}` }
     })

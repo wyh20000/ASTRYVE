@@ -7,6 +7,7 @@ const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const MAX_ATTACHMENTS_BYTES = 64 * 1024 * 1024
 let trustedRendererUrl: URL | undefined
+let businessIpcAvailable = false
 
 export class InputValidationError extends Error {}
 
@@ -38,13 +39,21 @@ function matchesTrustedRenderer(raw: string): boolean {
   }
 }
 
-export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
+export function setBusinessIpcAvailable(value: boolean): void { businessIpcAvailable = value }
+export function isBusinessIpcAvailable(): boolean { return businessIpcAvailable }
+
+export function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
   if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
     invalid('IPC 调用来源不受信任')
   }
   const raw = event.senderFrame?.url || event.sender.getURL()
   if (matchesTrustedRenderer(raw)) return
   invalid('IPC 调用来源不受信任')
+}
+
+export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
+  assertTrustedRenderer(event)
+  if (!businessIpcAvailable) invalid('请先登录')
 }
 
 export function validateSessionId(value: unknown): string {
