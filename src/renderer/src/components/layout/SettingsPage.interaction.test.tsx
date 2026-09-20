@@ -123,6 +123,22 @@ function installedPlugin(overrides: Partial<PluginMetadata> = {}): PluginMetadat
 }
 
 describe('插件市场与同页详情', () => {
+  it('only opens the declared isolated UI for an enabled installed plugin', async () => {
+    const openUi = vi.fn(async () => ({ ok: true, data: undefined }))
+    const previous = Object.getOwnPropertyDescriptor(window.agent, 'plugins')
+    Object.defineProperty(window.agent, 'plugins', { configurable: true, value: { openUi } })
+    try {
+      pluginState.items = [installedPlugin({ components: ['ui'] })]
+      render(<PluginSection />)
+      await userEvent.click(screen.getByRole('button', { name: '打开 Acme Browser' }))
+      await userEvent.click(screen.getByRole('button', { name: '打开插件界面' }))
+      await waitFor(() => expect(openUi).toHaveBeenCalledWith({ id: 'acme.browser' }))
+    } finally {
+      if (previous) Object.defineProperty(window.agent, 'plugins', previous)
+      else Reflect.deleteProperty(window.agent, 'plugins')
+    }
+  })
+
   it('已下载插件只显示图标，点击后进入详情并可返回', async () => {
     pluginState.items = [installedPlugin()]
     pluginState.marketEntries = [{ ...marketEntry, categories: ['Productivity'] }]

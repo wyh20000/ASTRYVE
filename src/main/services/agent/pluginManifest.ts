@@ -32,6 +32,7 @@ export interface ParsedPluginManifest extends Omit<PluginMetadata, 'enabled' | '
   tools: ParsedPluginTool[]
   hooks: ParsedPluginHook[]
   assetPaths: string[]
+  uiPath?: string
   skillsPath?: string
   mcpPath?: string
 }
@@ -68,6 +69,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   const capabilities = stringArray(interfaceValue?.capabilities, '插件能力', 32, 64).sort()
   const iconPath = parseIconPath(value.icon)
   const assetPaths = parseAssetPaths(value.assets)
+  const uiPath = parseUiPath(value.ui)
   const components: PluginComponent[] = []
   const tools: ParsedPluginTool[] = []
   const hooks = parseHooks(value.hooks)
@@ -75,6 +77,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   if (hooks.length) components.push('hooks')
   if (value.mcp !== undefined || value.mcpServers !== undefined) components.push('mcp')
   if (Array.isArray(value.tools) && value.tools.length) components.push('tools')
+  if (uiPath) components.push('ui')
   if (!components.length) throw new Error('插件未声明任何可用组件')
   if (sourceFormat === 'native' && EXECUTABLE_ALIASES.some((key) => value[key] !== undefined)) {
     throw new Error('插件包含不受支持的可执行入口')
@@ -111,7 +114,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
     }
   }
   return {
-    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks, iconPath, assetPaths,
+    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks, iconPath, assetPaths, uiPath,
     skillsPath: typeof value.skills === 'string' ? value.skills : undefined,
     mcpPath
   }
@@ -137,6 +140,15 @@ function parseAssetPaths(value: unknown): string[] {
 function isImageAssetPath(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 160 &&
     /^assets\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:png|jpe?g|webp)$/i.test(value)
+}
+
+function parseUiPath(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > 160 ||
+      !/^ui\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.html$/i.test(value)) {
+    throw new Error('插件界面必须是 ui 目录内的 HTML 文件')
+  }
+  return value
 }
 
 function parseHooks(value: unknown): ParsedPluginHook[] {

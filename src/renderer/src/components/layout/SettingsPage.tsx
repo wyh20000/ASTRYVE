@@ -539,7 +539,7 @@ export function PluginMarketDetails({ entry, installed, releases, mutating, onCl
 }): JSX.Element {
   const risk = describePluginInstallRisk(entry, installed, releases)
   const dialog = useRef<HTMLElement | null>(null)
-  const componentLabels: Record<string, string> = { skills: 'Skills', tools: '工具', mcp: 'MCP / 外部账号', hooks: 'Hooks' }
+  const componentLabels: Record<string, string> = { skills: 'Skills', tools: '工具', mcp: 'MCP / 外部账号', hooks: 'Hooks', ui: '隔离界面' }
   const action = entry.installable === false ? '暂不可安装' : risk.mode === 'installed' ? '已安装' :
     risk.mode === 'install' ? '校验并安装' : risk.mode === 'older' ? '版本较旧' : risk.requiresFreshApproval ? '更新并重新确认' : '校验并更新'
   return <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onMouseDown={onClose}>
@@ -602,6 +602,8 @@ function PluginDetailsPage({ entry, installed, releases, skills, mutating, onBac
   const [backups, setBackups] = useState<import('@shared/types').PluginBackup[]>()
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [openingUi, setOpeningUi] = useState(false)
+  const [uiError, setUiError] = useState('')
   const pluginId = installed?.id ?? entry?.id ?? ''
   const name = installed?.name ?? entry?.name ?? pluginId
   const description = installed?.description ?? entry?.description ?? ''
@@ -617,6 +619,16 @@ function PluginDetailsPage({ entry, installed, releases, skills, mutating, onBac
     if (!entry || !canInstall) return
     setInstalling(true)
     try { await install(entry.sourceId, entry.id, entry.version) } finally { setInstalling(false) }
+  }
+  const openUi = async (): Promise<void> => {
+    if (!installed) return
+    setOpeningUi(true)
+    setUiError('')
+    try {
+      const result = await window.agent.plugins.openUi({ id: installed.id })
+      if (!result.ok) setUiError(result.error.message)
+    } catch { setUiError('插件界面打开失败') }
+    finally { setOpeningUi(false) }
   }
   return <div className="pb-12">
     <nav className="mb-7 flex items-center gap-2 text-[14px]" aria-label="插件详情路径">
@@ -645,6 +657,8 @@ function PluginDetailsPage({ entry, installed, releases, skills, mutating, onBac
           aria-label={installed.enabled ? `禁用 ${installed.name}` : `启用 ${installed.name}`}
           checked={installed.enabled} onChange={(next) => onPluginToggle(installed.id, next)} />}
         {installed?.status === 'ready' && <Button variant="primary" onClick={onTry}>立即试用</Button>}
+        {installed?.components.includes('ui') && <Button disabled={!installed.enabled || installed.status !== 'ready' || openingUi}
+          onClick={() => void openUi()}>{openingUi ? '打开中…' : '打开插件界面'}</Button>}
         {!installed && <Button variant="primary" disabled={!canInstall || installing} onClick={() => void confirmInstall()}>
           {installing ? '安装中…' : entry?.installable === false ? '暂不可安装' : '安装插件'}
         </Button>}
@@ -652,6 +666,7 @@ function PluginDetailsPage({ entry, installed, releases, skills, mutating, onBac
     </header>
 
     {installed?.errors[0] && <p role="alert" className="mt-5 rounded-lg bg-red-950/30 px-3 py-2 text-[14px] text-red-300">{installed.errors[0]}</p>}
+    {uiError && <p role="alert" className="mt-5 rounded-lg bg-red-950/30 px-3 py-2 text-[14px] text-red-300">{uiError}</p>}
 
     {(declaresSkills || skills.length > 0) && <section className="mt-8">
       <div className="flex items-center gap-2 border-b border-border pb-3">

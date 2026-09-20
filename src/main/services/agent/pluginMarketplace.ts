@@ -21,7 +21,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const PERMISSIONS = new Set<PluginPermission>([
   'workspace.read', 'workspace.write', 'network', 'process', 'browser.read', 'browser.interact'
 ])
-const COMPONENTS = new Set<PluginComponent>(['skills', 'hooks', 'mcp', 'tools'])
+const COMPONENTS = new Set<PluginComponent>(['skills', 'hooks', 'mcp', 'tools', 'ui'])
 const CODEX_FEATURED_PLUGIN_IDS = new Set(['computer-use', 'spreadsheets', 'presentations'])
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
@@ -289,6 +289,7 @@ export async function parseCodexMarketplaceIndex(
       if (record(manifest.hooks) && Object.keys(manifest.hooks).length) components.push('hooks')
       if (manifest.mcp !== undefined || manifest.mcpServers !== undefined) components.push('mcp')
       if (Array.isArray(manifest.tools) && manifest.tools.length) components.push('tools')
+      if (typeof manifest.ui === 'string') components.push('ui')
       const permissions = strings(manifest.permissions, '插件权限', 32, 64) as PluginPermission[]
       if (permissions.some((permission) => !PERMISSIONS.has(permission))) throw new Error('插件权限无效')
       const hasUnsupportedApps = manifest.apps !== undefined
@@ -364,7 +365,7 @@ function signingKeyFingerprint(publicKey: string): string {
 }
 function supportsCurrentRuntime(components: readonly PluginComponent[] | undefined): boolean {
   return Boolean(components?.length && components.every((component) =>
-    component === 'skills' || component === 'tools' || component === 'mcp' || component === 'hooks'))
+    component === 'skills' || component === 'tools' || component === 'mcp' || component === 'hooks' || component === 'ui'))
 }
 function normalizeCodexPluginPath(value: string, id: string): string | undefined {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')

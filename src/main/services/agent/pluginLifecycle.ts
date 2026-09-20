@@ -51,7 +51,7 @@ export async function installMarketPlugin(
 ): Promise<PluginMetadata> {
   if (entry.installable === false) throw new Error(entry.unavailableReason ?? '此插件当前不可安装')
   if (!entry.components?.length) throw new Error('市场插件缺少可验证的组件声明，请同步市场源后重试')
-  if (entry.components.some((component) => !['skills', 'tools', 'mcp', 'hooks'].includes(component))) throw new Error('此插件包含尚未支持的运行组件')
+  if (entry.components.some((component) => !['skills', 'tools', 'mcp', 'hooks', 'ui'].includes(component))) throw new Error('此插件包含尚未支持的运行组件')
   if (entry.signingKeyId && !entry.signature) throw new Error('市场插件签名标识缺少签名')
   if (entry.platforms.length && !entry.platforms.includes(process.platform)) throw new Error('插件不支持当前操作系统')
   if (entry.architectures.length && !entry.architectures.includes(process.arch)) throw new Error('插件不支持当前处理器架构')

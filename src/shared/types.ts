@@ -323,7 +323,7 @@ export type PluginPermission =
   | 'browser.read'
   | 'browser.interact'
 
-export type PluginComponent = 'skills' | 'hooks' | 'mcp' | 'tools'
+export type PluginComponent = 'skills' | 'hooks' | 'mcp' | 'tools' | 'ui'
 export type PluginStatus = 'ready' | 'invalid' | 'quarantined'
 export type PluginMcpAuthKind = 'none' | 'api-key' | 'oauth2'
 export interface PluginMcpServerDeclaration {
@@ -620,6 +620,7 @@ export interface AgentApi {
     list: () => Promise<IpcResult<PluginMetadata[]>>
     readIcon: (input: { id: string }) => Promise<IpcResult<string | undefined>>
     readAsset: (input: { id: string; path: string }) => Promise<IpcResult<string>>
+    openUi: (input: { id: string }) => Promise<IpcResult<void>>
     listSkills: (input: PluginUninstallInput) => Promise<IpcResult<SkillMetadata[]>>
     importLocal: (input: PluginImportInput) => Promise<IpcResult<PluginMetadata[]>>
     setEnabled: (input: PluginToggleInput) => Promise<IpcResult<PluginMetadata[]>>

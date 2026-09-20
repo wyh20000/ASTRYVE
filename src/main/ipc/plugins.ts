@@ -19,8 +19,10 @@ import { createInstalledPluginConnectionService } from '../services/agent/plugin
 import { getPluginConnectionManager } from '../services/agent/taskRuntimeManager'
 import { listPluginSkills } from '../services/agent/skillManager'
 import { readPluginAsset, readPluginIcon } from '../services/agent/pluginAssets'
+import { closePluginUi, openPluginUi, registerPluginUiBridge } from '../services/agent/pluginUiWindow'
 
 export function registerPluginsIpc(): void {
+  registerPluginUiBridge()
   const marketplace = new PluginMarketplace(app.getPath('userData'))
   const connectionService = createInstalledPluginConnectionService(
     app.getPath('userData'), getPluginConnectionManager(), (url) => shell.openExternal(url),
@@ -69,6 +71,21 @@ export function registerPluginsIpc(): void {
     }
   })
 
+  ipcMain.handle(IPC.plugins.openUi, async (event, input?: { id: string }) => {
+    try {
+      assertTrustedIpcSender(event)
+      assertPluginId(input)
+      const plugin = (await listPlugins()).find((item) => item.id === input.id)
+      if (!plugin || plugin.status !== 'ready' || !plugin.enabled || !plugin.components.includes('ui')) {
+        return err('PLUGIN_UI_UNAVAILABLE', '插件界面不可用，请确认插件已启用')
+      }
+      await openPluginUi(getInstalledPluginRoot(), input.id, BrowserWindow.fromWebContents(event.sender) ?? undefined)
+      return ok(undefined)
+    } catch (error) {
+      return err('PLUGIN_UI_ERR', error instanceof Error ? error.message : '插件界面打开失败')
+    }
+  })
+
   ipcMain.handle(IPC.plugins.listSkills, async (event, input?: PluginUninstallInput) => {
     try {
       assertTrustedIpcSender(event)
@@ -91,7 +108,7 @@ export function registerPluginsIpc(): void {
       if (selected.canceled || !selected.filePaths[0]) return ok(await listPlugins())
       const installed = await installLocalPlugin(
         selected.filePaths[0], input.kind, app.getPath('userData'), getInstalledPluginRoot(),
-        (id) => setPluginEnabled(id, false)
+        (id) => { closePluginUi(id); setPluginEnabled(id, false) }
       )
       // Local packages may contain executable code. Importing makes the package
       // available for inspection, but activation remains an explicit user choice.
@@ -112,6 +129,7 @@ export function registerPluginsIpc(): void {
       const target = current.find((plugin) => plugin.id === input.id)
       if (!target) return err('NOT_FOUND', '插件不存在')
       if (target.status !== 'ready') return err('INVALID_PLUGIN', '无效插件不能启用')
+      if (!input.enabled) closePluginUi(input.id)
       setPluginEnabled(input.id, input.enabled)
       notifyPluginsChanged()
       return ok(await listPlugins())
@@ -177,7 +195,7 @@ export function registerPluginsIpc(): void {
     }, async () => {
       const installed = await installMarketPlugin(
         entry, app.getPath('userData'), getInstalledPluginRoot(), fetch,
-        (id) => setPluginEnabled(id, false)
+        (id) => { closePluginUi(id); setPluginEnabled(id, false) }
       )
       setPluginEnabled(installed.id, false)
       notifyPluginsChanged()
@@ -192,6 +210,7 @@ export function registerPluginsIpc(): void {
       action: 'plugin.uninstall', pluginId: input.id, pluginVersion: current?.version
     }, async () => {
       setPluginEnabled(input.id, false)
+      closePluginUi(input.id)
       await uninstallPlugin(input.id, input.dataDisposition ?? 'keep', app.getPath('userData'), getInstalledPluginRoot(), {
         stop: stopPluginRuntimes,
         disposeConnections: (id, disposition) => removePluginConnectionData(id, disposition, app.getPath('userData'))
@@ -212,6 +231,7 @@ export function registerPluginsIpc(): void {
       action: 'plugin.rollback', pluginId: input.id, pluginVersion: input.version
     }, async () => {
       setPluginEnabled(input.id, false)
+      closePluginUi(input.id)
       const restored = await rollbackPlugin(input.id, input.version, app.getPath('userData'), getInstalledPluginRoot())
       setPluginEnabled(restored.id, false)
       notifyPluginsChanged()
@@ -249,6 +269,7 @@ async function runAutomaticUpdates(marketplace: PluginMarketplace): Promise<void
         action: 'plugin.update', pluginId: entry.id, pluginVersion: entry.version
       }, async () => {
         await stopPluginRuntimes(entry.id)
+        closePluginUi(entry.id)
         await installMarketPlugin(entry, app.getPath('userData'), getInstalledPluginRoot(), fetch, (id) => setPluginEnabled(id, false))
       })
     } finally {

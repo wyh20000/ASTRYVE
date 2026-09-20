@@ -109,6 +109,18 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.AI_AGENT_PLUGIN_UI_SMOKE === '1') {
+    try {
+      const { runPluginUiSmoke } = await import('./services/agent/pluginUiSmoke')
+      await runPluginUiSmoke()
+      console.log('PASS: isolated plugin UI and minimal bridge')
+      app.exit(0)
+    } catch (error) {
+      console.error('FAIL: isolated plugin UI smoke', error)
+      app.exit(1)
+    }
+    return
+  }
   if (process.env.AI_AGENT_PLUGIN_SMOKE === '1') {
     try {
       const { runPluginRuntimeSmoke } = await import('./services/agent/pluginRuntimeSmoke')

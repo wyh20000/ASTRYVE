@@ -19,6 +19,24 @@ async function roots(): Promise<{ installed: string; source: string }> {
 }
 
 describe('importPluginPackage', () => {
+  it('validates a self-contained UI at import without executing it', async () => {
+    const valid = await roots()
+    await mkdir(join(valid.source, 'ui'))
+    await writeFile(join(valid.source, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'safe.ui', name: 'Safe UI', ui: 'ui/index.html'
+    }))
+    await writeFile(join(valid.source, 'ui', 'index.html'), '<script>throw new Error("must not run")</script>')
+    await expect(importPluginPackage(valid.installed, valid.source)).resolves.toMatchObject({
+      id: 'safe.ui', components: ['ui']
+    })
+
+    const missing = await roots()
+    await writeFile(join(missing.source, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'missing.ui', name: 'Missing UI', ui: 'ui/index.html'
+    }))
+    await expect(importPluginPackage(missing.installed, missing.source)).rejects.toThrow()
+  })
+
   it('copies a validated folder into an atomic id-named destination', async () => {
     const { installed, source } = await roots()
     await mkdir(join(source, 'skills'))
