@@ -4,7 +4,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PluginMarketplace } from './agent/pluginMarketplace'
+import { CODEX_OFFICIAL_SOURCE_ID, PluginMarketplace } from './agent/pluginMarketplace'
 
 export async function runMarketIconDiagnostics(): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'market-diag-'))
@@ -28,6 +28,11 @@ export async function runMarketIconDiagnostics(): Promise<void> {
       console.log(
         `[market-diag] ${e.id} brand=${e.brandColor ?? '-'} logo=${e.logoUrl ? 'Y' : 'N'} composer=${e.composerIconUrl ? 'Y' : 'N'}`
       )
+    }
+
+    const official = snapshot.sources.find((source) => source.id === CODEX_OFFICIAL_SOURCE_ID)
+    if (!official?.lastSyncAt || official.error || !entries.some((entry) => entry.sourceId === CODEX_OFFICIAL_SOURCE_ID)) {
+      throw new Error(`官方插件市场同步失败：${official?.error ?? '未取得官方插件条目'}`)
     }
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined)
