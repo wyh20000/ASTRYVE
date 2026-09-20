@@ -619,6 +619,7 @@ export interface AgentApi {
   plugins: {
     list: () => Promise<IpcResult<PluginMetadata[]>>
     readIcon: (input: { id: string }) => Promise<IpcResult<string | undefined>>
+    readAsset: (input: { id: string; path: string }) => Promise<IpcResult<string>>
     listSkills: (input: PluginUninstallInput) => Promise<IpcResult<SkillMetadata[]>>
     importLocal: (input: PluginImportInput) => Promise<IpcResult<PluginMetadata[]>>
     setEnabled: (input: PluginToggleInput) => Promise<IpcResult<PluginMetadata[]>>

@@ -7,15 +7,31 @@ const MAX_ICON_BYTES = 256 * 1024
 
 /** Only the package-declared icon can cross into the renderer. Never accept a renderer path. */
 export async function readPluginIcon(installedRoot: string, id: string): Promise<string | undefined> {
+  return readDeclaredAsset(installedRoot, id)
+}
+
+/** Generic static image endpoint. The requested path must appear in the package manifest. */
+export async function readPluginAsset(installedRoot: string, id: string, path: string): Promise<string> {
+  if (typeof path !== 'string') throw new Error('插件静态资源路径无效')
+  const asset = await readDeclaredAsset(installedRoot, id, path)
+  if (!asset) throw new Error('插件静态资源未声明')
+  return asset
+}
+
+async function readDeclaredAsset(installedRoot: string, id: string, requestedPath?: string): Promise<string | undefined> {
   if (!PLUGIN_ID.test(id)) throw new Error('插件标识无效')
   const root = join(installedRoot, id)
   const rootInfo = await lstat(root)
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error('插件目录无效')
   const manifest = await readPluginManifest(root)
   if (manifest.id !== id) throw new Error('插件标识与安装目录不一致')
-  if (!manifest.iconPath) return undefined
+  if (requestedPath !== undefined && !manifest.assetPaths.includes(requestedPath) && requestedPath !== manifest.iconPath) {
+    throw new Error('插件静态资源未声明')
+  }
+  const declaredPath = requestedPath ?? manifest.iconPath
+  if (!declaredPath) return undefined
 
-  const parts = manifest.iconPath.split('/')
+  const parts = declaredPath.split('/')
   let target = root
   for (const [index, part] of parts.entries()) {
     target = join(target, part)

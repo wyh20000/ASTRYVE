@@ -12,6 +12,7 @@ const plugin: ParsedPluginManifest = {
   capabilities: [],
   components: ['tools'],
   hooks: [],
+  assetPaths: [],
   tools: [{
     name: 'inspect_dom',
     description: 'Inspect a saved DOM document',

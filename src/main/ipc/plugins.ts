@@ -18,7 +18,7 @@ import { removePluginConnectionData } from '../services/agent/pluginCredentials'
 import { createInstalledPluginConnectionService } from '../services/agent/pluginMcpRuntime'
 import { getPluginConnectionManager } from '../services/agent/taskRuntimeManager'
 import { listPluginSkills } from '../services/agent/skillManager'
-import { readPluginIcon } from '../services/agent/pluginAssets'
+import { readPluginAsset, readPluginIcon } from '../services/agent/pluginAssets'
 
 export function registerPluginsIpc(): void {
   const marketplace = new PluginMarketplace(app.getPath('userData'))
@@ -55,6 +55,17 @@ export function registerPluginsIpc(): void {
       return ok(await readPluginIcon(getInstalledPluginRoot(), input.id))
     } catch (error) {
       return err('PLUGIN_ICON_ERR', error instanceof Error ? error.message : '插件图标读取失败')
+    }
+  })
+
+  ipcMain.handle(IPC.plugins.readAsset, async (event, input?: { id: string; path: string }) => {
+    try {
+      assertTrustedIpcSender(event)
+      assertPluginId(input)
+      if (typeof input.path !== 'string') return err('INVALID_INPUT', '插件静态资源路径无效')
+      return ok(await readPluginAsset(getInstalledPluginRoot(), input.id, input.path))
+    } catch (error) {
+      return err('PLUGIN_ASSET_ERR', error instanceof Error ? error.message : '插件静态资源读取失败')
     }
   })
 

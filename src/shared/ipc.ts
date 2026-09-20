@@ -45,6 +45,7 @@ export const IPC = {
   plugins: {
     list: 'plugins:list',
     readIcon: 'plugins:read-icon',
+    readAsset: 'plugins:read-asset',
     listSkills: 'plugins:list-skills',
     importLocal: 'plugins:import-local',
     setEnabled: 'plugins:set-enabled',

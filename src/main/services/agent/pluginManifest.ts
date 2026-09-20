@@ -31,6 +31,7 @@ export interface ParsedPluginHook {
 export interface ParsedPluginManifest extends Omit<PluginMetadata, 'enabled' | 'status' | 'source' | 'errors'> {
   tools: ParsedPluginTool[]
   hooks: ParsedPluginHook[]
+  assetPaths: string[]
   skillsPath?: string
   mcpPath?: string
 }
@@ -66,6 +67,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   const permissions = parsePermissions(value.permissions)
   const capabilities = stringArray(interfaceValue?.capabilities, '插件能力', 32, 64).sort()
   const iconPath = parseIconPath(value.icon)
+  const assetPaths = parseAssetPaths(value.assets)
   const components: PluginComponent[] = []
   const tools: ParsedPluginTool[] = []
   const hooks = parseHooks(value.hooks)
@@ -109,7 +111,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
     }
   }
   return {
-    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks, iconPath,
+    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks, iconPath, assetPaths,
     skillsPath: typeof value.skills === 'string' ? value.skills : undefined,
     mcpPath
   }
@@ -117,11 +119,24 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
 
 function parseIconPath(value: unknown): string | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== 'string' || value.length > 160 ||
-      !/^assets\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:png|jpe?g|webp)$/i.test(value)) {
+  if (!isImageAssetPath(value)) {
     throw new Error('插件图标必须是 assets 目录内的 PNG、JPEG 或 WebP 图片')
   }
   return value
+}
+
+function parseAssetPaths(value: unknown): string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 32) throw new Error('插件静态资源声明无效')
+  if (value.some((path) => !isImageAssetPath(path)) || new Set(value).size !== value.length) {
+    throw new Error('插件静态资源声明无效')
+  }
+  return value as string[]
+}
+
+function isImageAssetPath(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 160 &&
+    /^assets\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:png|jpe?g|webp)$/i.test(value)
 }
 
 function parseHooks(value: unknown): ParsedPluginHook[] {

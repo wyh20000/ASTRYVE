@@ -89,6 +89,7 @@ const api: AgentApi = {
   plugins: {
     list: () => ipcRenderer.invoke(IPC.plugins.list),
     readIcon: (input: { id: string }) => ipcRenderer.invoke(IPC.plugins.readIcon, input),
+    readAsset: (input: { id: string; path: string }) => ipcRenderer.invoke(IPC.plugins.readAsset, input),
     listSkills: (input: PluginUninstallInput) => ipcRenderer.invoke(IPC.plugins.listSkills, input),
     importLocal: (input: PluginImportInput) => ipcRenderer.invoke(IPC.plugins.importLocal, input),
     setEnabled: (input: PluginToggleInput) => ipcRenderer.invoke(IPC.plugins.setEnabled, input),
