@@ -9,3 +9,7 @@ dist/
 *.err
 .smoke*.log*
 .diag.cjs
+.env
+.env.*
+!.env.example
+server/auth/*.sqlite*

@@ -13,6 +13,8 @@
     "smoke:plugin": "node scripts/smoke-plugin-runtime.cjs",
     "smoke:plugin-mcp": "node scripts/smoke-plugin-mcp.cjs",
     "smoke:plugin-ui": "electron-vite build && node scripts/smoke-plugin-ui.cjs",
+    "auth:server": "node server/auth/index.mjs",
+    "test:auth": "node --test server/auth/*.test.mjs",
     "prebuild": "npm run build:native",
     "predev": "npm run build:native",
     "prebuild:win": "npm run build:native",

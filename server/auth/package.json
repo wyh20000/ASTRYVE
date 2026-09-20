@@ -1,0 +1,22 @@
+{
+  "name": "ai-agent-auth-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node index.mjs",
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "mysql2": "3.24.4",
+    "tencentcloud-sdk-nodejs-sms": "4.1.306"
+  },
+  "overrides": {
+    "tencentcloud-sdk-nodejs-common": {
+      "uuid": "^11.1.1"
+    }
+  }
+}
