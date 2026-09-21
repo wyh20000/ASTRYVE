@@ -18,6 +18,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
+          bootstrap: resolve('src/main/bootstrap.ts'),
           index: resolve('src/main/index.ts'),
           localExecutionWorker: resolve('src/main/services/agent/localExecutionWorker.ts'),
           pluginWorkerProcess: resolve('src/main/services/agent/pluginWorkerProcess.ts')

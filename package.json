@@ -2,7 +2,7 @@
   "name": "astryve",
   "version": "0.1.0",
   "description": "ASTRYVE 桌面智能体客户端",
-  "main": "./out/main/index.js",
+  "main": "./out/main/bootstrap.js",
   "author": "ASTRYVE Team",
   "license": "MIT",
   "private": true,
