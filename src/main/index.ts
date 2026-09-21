@@ -39,6 +39,10 @@ import {
   isAllowedExternalUrl,
   isAllowedRendererNavigation
 } from './windowSecurity'
+import {
+  closeOfficialChromeBrowserRuntime,
+  initOfficialChromeBrowserRuntime
+} from './services/browser/officialChromeBrowserRuntime'
 
 const isDev = !app.isPackaged
 // Keep the pre-rebrand storage location stable. The folder name is an internal
@@ -212,7 +216,13 @@ app.whenReady().then(async () => {
     void dockerPreflight
     startDockerCleanupTimer()
     initWorkspaceService()
-    initTaskRuntime()
+    let browserGateway
+    try {
+      browserGateway = await initOfficialChromeBrowserRuntime()
+    } catch (error) {
+      console.warn('[browser] Google Chrome DevTools MCP unavailable:', error)
+    }
+    initTaskRuntime(browserGateway)
     initPluginRegistry(app.getPath('userData'))
     initSkillRegistry(app.getPath('userData'))
     try {
@@ -311,7 +321,11 @@ app.on('before-quit', (event) => {
       return 0
     })
   void Promise.race([
-    Promise.all([flushTaskPersistence(), emptySessionCleanup]).then(() => undefined),
+    Promise.all([
+      flushTaskPersistence(),
+      closeOfficialChromeBrowserRuntime(),
+      emptySessionCleanup
+    ]).then(() => undefined),
     timeout
   ])
     .catch((error) => console.warn('[agent] final task journal flush failed:', error))

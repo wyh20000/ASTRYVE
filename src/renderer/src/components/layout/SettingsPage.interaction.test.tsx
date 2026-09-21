@@ -14,7 +14,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginMarketEntry, PluginMetadata, PluginMcpConnectInput, PluginMcpPluginView, PluginMcpServerView, SkillCatalogItem, SkillMetadata } from '@shared/types'
-import { PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SkillsSection } from './SettingsPage'
+import { BrowserSection, PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SkillsSection } from './SettingsPage'
 
 const skillState = vi.hoisted(() => ({
   items: [] as SkillMetadata[], catalog: [] as SkillCatalogItem[], loading: false, mutating: false, error: undefined as string | undefined,
@@ -111,6 +111,59 @@ beforeEach(() => {
   pluginState.loading = false
   pluginState.mutating = false
   pluginState.error = undefined
+})
+
+describe('Browser settings', () => {
+  it('loads and saves the official MCP website allowlist through the trusted bridge', async () => {
+    const getBrowserPreferences = vi.fn(async () => ({
+      ok: true as const,
+      data: { allowAllSites: false, allowedOrigins: [], blockedOrigins: [] }
+    }))
+    const setBrowserPreferences = vi.fn(async (value) => ({ ok: true as const, data: value }))
+    const testBrowserConnection = vi.fn(async () => ({
+      ok: true as const, data: { tabCount: 2 }
+    }))
+    const disconnectBrowser = vi.fn(async () => ({
+      ok: true as const, data: { disconnected: true as const }
+    }))
+    const previous = Object.getOwnPropertyDescriptor(window.agent, 'settings')
+    Object.defineProperty(window.agent, 'settings', {
+      configurable: true,
+      value: {
+        getBrowserPreferences,
+        setBrowserPreferences,
+        testBrowserConnection,
+        disconnectBrowser
+      }
+    })
+    try {
+      const user = userEvent.setup()
+      render(<BrowserSection />)
+      const allowAll = await screen.findByRole('switch', { name: '允许所有网站' })
+      await user.click(allowAll)
+      await user.type(screen.getByRole('textbox', { name: '允许的网站来源' }),
+        'https://example.com{enter}https://app.example.com')
+      await user.click(screen.getByRole('button', { name: '保存网站权限' }))
+
+      await waitFor(() => expect(setBrowserPreferences).toHaveBeenCalledWith({
+        allowAllSites: true,
+        allowedOrigins: ['https://example.com', 'https://app.example.com'],
+        blockedOrigins: []
+      }))
+      expect(screen.getByRole('status')).toHaveTextContent('浏览器网站权限已保存')
+
+      await user.click(screen.getByRole('button', { name: '测试官方连接' }))
+      await waitFor(() => expect(testBrowserConnection).toHaveBeenCalledTimes(1))
+      expect(screen.getByRole('status')).toHaveTextContent('发现 2 个标签页')
+
+      await user.click(screen.getByRole('button', { name: '断开连接' }))
+      await waitFor(() => expect(disconnectBrowser).toHaveBeenCalledTimes(1))
+      expect(screen.getByRole('status')).toHaveTextContent('已断开 Google 官方 MCP')
+    } finally {
+      if (previous) Object.defineProperty(window.agent, 'settings', previous)
+      else Reflect.deleteProperty(window.agent, 'settings')
+    }
+  })
 })
 
 function installedPlugin(overrides: Partial<PluginMetadata> = {}): PluginMetadata {

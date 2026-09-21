@@ -9,6 +9,7 @@ files:
 asar: true
 asarUnpack:
   - out/native/**
+  - node_modules/chrome-devtools-mcp/**
 extraResources:
   - from: build/icon.png
     to: icon.png

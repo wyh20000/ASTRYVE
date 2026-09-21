@@ -46,7 +46,11 @@ export class BrowserGateway {
   }
 
   async listTabs(context?: BrowserCallContext): Promise<BrowserTab[]> {
-    return (await this.withReadPermit(() => this.adapter.listTabs(context), context)).map((tab) => ({ ...tab, pageVersion: this.version(tab.id) }))
+    return (await this.withReadPermit(() => this.adapter.listTabs(context), context)).map((tab) => ({
+      ...tab,
+      url: safeDisplayUrl(tab.url),
+      pageVersion: this.version(tab.id)
+    }))
   }
 
   async assertTabOrigin(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
@@ -310,7 +314,16 @@ function safeWebUrl(raw: string): string {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('只允许打开 HTTP(S) 网页')
   url.username = ''; url.password = ''; return url.toString()
 }
-function safeDisplayUrl(raw: string): string { try { return safeWebUrl(raw).slice(0, 2048) } catch { return '' } }
+function safeDisplayUrl(raw: string): string {
+  try {
+    const url = new URL(safeWebUrl(raw))
+    url.search = ''
+    url.hash = ''
+    return url.toString().slice(0, 2048)
+  } catch {
+    return ''
+  }
+}
 function sensitiveText(value: string): boolean { return /(?:password|passwd|secret|token|api[_-]?key|验证码|信用卡)/i.test(value) }
 function clean(value: string, max: number): string {
   const redacted = value

@@ -1,7 +1,0 @@
-{
-  "name": "com.astryve.browser",
-  "description": "ASTRYVE secure browser connection host",
-  "path": "__ASTRYVE_EXECUTABLE_PATH__",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://lcjaalloempdgnhjjcpnckiniccpnacm/"]
-}

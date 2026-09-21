@@ -20,6 +20,10 @@ import {
   validateAgentProjectPreferences
 } from '../services/agent/projectPreferences'
 import { clearAgentAudit, listAgentAudit } from '../services/agent/taskRuntimeManager'
+import {
+  disconnectOfficialChromeBrowserRuntime,
+  testOfficialChromeBrowserConnection
+} from '../services/browser/officialChromeBrowserRuntime'
 
 export function registerSettingsIpc(): void {
   ipcMain.handle(IPC.settings.getTheme, (event) => {
@@ -120,6 +124,19 @@ export function registerSettingsIpc(): void {
       if (!value || typeof value !== 'object') return err('INVALID_INPUT', '浏览器设置无效')
       return ok(setBrowserPreferences(value))
     } catch (e) { return err('SET_ERR', e instanceof Error ? e.message : String(e)) }
+  })
+  ipcMain.handle(IPC.settings.testBrowserConnection, async (event) => {
+    try {
+      assertTrustedIpcSender(event)
+      return ok({ tabCount: await testOfficialChromeBrowserConnection() })
+    } catch (e) { return err('BROWSER_CONNECT_ERR', e instanceof Error ? e.message : String(e)) }
+  })
+  ipcMain.handle(IPC.settings.disconnectBrowser, async (event) => {
+    try {
+      assertTrustedIpcSender(event)
+      await disconnectOfficialChromeBrowserRuntime()
+      return ok({ disconnected: true as const })
+    } catch (e) { return err('BROWSER_DISCONNECT_ERR', e instanceof Error ? e.message : String(e)) }
   })
 }
 

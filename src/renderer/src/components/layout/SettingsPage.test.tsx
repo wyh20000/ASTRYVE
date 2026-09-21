@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginMarketEntry, PluginMetadata, PluginMcpPluginView, SkillMetadata } from '@shared/types'
 import type { AuditEvent } from '@shared/agent'
 import {
-  AuditRecordList, describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
+  AuditRecordList, BrowserSection, describePluginInstallRisk, ExtensionsSection, filterMarketplaceEntries, filterPlugins, trapPluginDialogFocus,
   listMarketplaceCategories, PluginConnectionPanel, PluginMarketDetails, PluginSection, PluginUninstallChoices, SecuritySection, SkillsSection,
   ModelSection
 } from './SettingsPage'
@@ -95,10 +95,14 @@ beforeEach(() => {
 })
 
 describe('Settings navigation', () => {
-  it('does not expose the removed managed Chrome controls', () => {
+  it('exposes the official Chrome MCP guide without restoring managed Chrome controls', () => {
     const html = renderToStaticMarkup(<SettingsPage />)
-    expect(html).not.toContain('>浏览器</span>')
+    expect(html).toContain('>浏览器</span>')
     expect(html).not.toContain('独立 Chrome')
+    const browser = renderToStaticMarkup(<BrowserSection />)
+    expect(browser).toContain('Google 官方 Chrome DevTools MCP')
+    expect(browser).toContain('chrome://inspect/#remote-debugging')
+    expect(browser).toContain('网站权限')
   })
 })
 

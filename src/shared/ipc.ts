@@ -86,7 +86,9 @@ export const IPC = {
     clearAudit: 'settings:clear-audit',
     getAudit: 'settings:get-audit',
     getBrowserPreferences: 'settings:get-browser-preferences',
-    setBrowserPreferences: 'settings:set-browser-preferences'
+    setBrowserPreferences: 'settings:set-browser-preferences',
+    testBrowserConnection: 'settings:test-browser-connection',
+    disconnectBrowser: 'settings:disconnect-browser'
   },
   window: {
     setTitleBarOverlay: 'window:set-title-bar-overlay'

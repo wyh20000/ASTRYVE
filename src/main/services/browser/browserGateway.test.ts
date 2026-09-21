@@ -23,6 +23,28 @@ function adapter(): BrowserAdapter {
 }
 
 describe('BrowserGateway', () => {
+  it('removes credentials, query parameters and fragments from model-visible URLs', async () => {
+    const fake = adapter()
+    fake.listTabs = vi.fn(async () => [{
+      id: 'tab-secret',
+      title: 'Signed in',
+      url: 'https://user:password@example.com/account?token=secret#private',
+      active: true
+    }])
+    fake.inspect = vi.fn(async () => ({
+      title: 'Signed in',
+      url: 'https://example.com/account?token=secret#private',
+      text: '',
+      readyState: 'complete',
+      meta: {},
+      outline: []
+    }))
+    const gateway = new BrowserGateway(fake)
+
+    expect((await gateway.listTabs())[0].url).toBe('https://example.com/account')
+    expect((await gateway.inspect('tab-secret')).url).toBe('https://example.com/account')
+  })
+
   it('versions pages and rejects stale element references after navigation', async () => {
     const gateway = new BrowserGateway(adapter())
     await gateway.listTabs()

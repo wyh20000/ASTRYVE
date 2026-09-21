@@ -28,6 +28,8 @@ import { captureTaskPluginCapabilities } from './pluginMcpTools'
 import { createInstalledPluginConnectionManager } from './pluginMcpRuntime'
 import type { PluginConnectionManager } from './pluginConnectionManager'
 import { getBrowserPreferences } from '../settings'
+import { createBrowserTools } from '../browser/browserTools'
+import type { BrowserGateway } from '../browser/browserGateway'
 
 export async function createProjectTask(sessionId: string, ownerWebContentsId: number, pluginIds?: readonly string[]) {
   const [{ BrowserWindow }, { getStore }, settings, workspaces] = await Promise.all([
@@ -70,7 +72,7 @@ let auditJournal: AuditJournal | null = null
 let patchWorkspace: PatchWorkspaceService | null = null
 let pluginConnectionManager: PluginConnectionManager | null = null
 
-export function initTaskRuntime(): TaskRuntime {
+export function initTaskRuntime(browserGateway?: BrowserGateway): TaskRuntime {
   unsubscribeJournal?.()
   unsubscribeJournal = null
   journal = null
@@ -107,6 +109,9 @@ export function initTaskRuntime(): TaskRuntime {
   registry.register(createWorkspacePatchTool(patchWorkspace))
   registry.register(createHostPatchTool(patchWorkspace))
   for (const tool of createGitReadTools(localBackend)) registry.register(tool)
+  if (browserGateway) {
+    for (const tool of createBrowserTools(browserGateway)) registry.register(tool)
+  }
   runtime.subscribe((event) => {
     const status = runtime?.getTaskSnapshot(event.taskId)?.status
     if (status && (TERMINAL_TASK_STATUSES as readonly string[]).includes(status)) {

@@ -19,7 +19,7 @@ import {
   ThemeModeCards,
   ToggleSwitch
 } from '../ui'
-import type { ModelProvider, ModelConfig, ModelPreset, PluginMarketEntry, PluginMcpConnectInput, PluginMcpServerView, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
+import type { BrowserPreferences, ModelProvider, ModelConfig, ModelPreset, PluginMarketEntry, PluginMcpConnectInput, PluginMcpServerView, PluginMetadata, PluginPermission, SkillCatalogItem, SkillMetadata, SkillSource } from '@shared/types'
 import { Icon } from '../ui/icons'
 import { useSkillStore } from '../../stores/skillStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -30,7 +30,7 @@ import { compareSemver } from '@shared/semver'
 import type { AuditEvent } from '@shared/agent'
 import { useDismissibleLayer } from '../../hooks/useDismissibleLayer'
 
-type Section = 'theme' | 'model' | 'agent' | 'extensions' | 'security'
+type Section = 'theme' | 'model' | 'agent' | 'browser' | 'extensions' | 'security'
 type ExtensionTab = 'plugins' | 'skills'
 
 const PROVIDER_PRESETS: Record<ModelProvider, { baseUrl: string; model: string }> = {
@@ -55,6 +55,7 @@ export default function SettingsPage(): JSX.Element {
     { id: 'theme', label: '主题设置', icon: <Icon.Settings size={14} /> },
     { id: 'model', label: '模型设置', icon: <Icon.Brain size={14} /> },
     { id: 'agent', label: 'Agent 设置', icon: <Icon.Shield size={14} /> },
+    { id: 'browser', label: '浏览器', icon: <Icon.Link size={14} /> },
     { id: 'extensions', label: '插件', icon: <Icon.FileDir size={14} /> },
     { id: 'security', label: '安全与数据', icon: <Icon.Shield size={14} /> }
   ]
@@ -90,11 +91,117 @@ export default function SettingsPage(): JSX.Element {
 
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[820px] px-4 py-5 sm:px-6 sm:py-6">
-          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'extensions' ? <ExtensionsSection /> : <SecuritySection />}
+          {section === 'theme' ? <ThemeSection /> : section === 'model' ? <ModelSection /> : section === 'agent' ? <AgentSettingsSection /> : section === 'browser' ? <BrowserSection /> : section === 'extensions' ? <ExtensionsSection /> : <SecuritySection />}
         </div>
       </div>
     </div>
   )
+}
+
+export function BrowserSection(): JSX.Element {
+  const [preferences, setPreferences] = useState<BrowserPreferences>({
+    allowAllSites: false,
+    allowedOrigins: [],
+    blockedOrigins: []
+  })
+  const [allowedOrigins, setAllowedOrigins] = useState('')
+  const [blockedOrigins, setBlockedOrigins] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [connectionBusy, setConnectionBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    let active = true
+    void window.agent.settings.getBrowserPreferences().then((result) => {
+      if (!active) return
+      if (result.ok) {
+        setPreferences(result.data)
+        setAllowedOrigins(result.data.allowedOrigins.join('\n'))
+        setBlockedOrigins(result.data.blockedOrigins.join('\n'))
+      } else {
+        setMessage(result.error.message)
+      }
+      setLoading(false)
+    })
+    return () => { active = false }
+  }, [])
+
+  const save = async (): Promise<void> => {
+    setSaving(true)
+    setMessage('')
+    const value: BrowserPreferences = {
+      allowAllSites: preferences.allowAllSites,
+      allowedOrigins: originLines(allowedOrigins),
+      blockedOrigins: originLines(blockedOrigins)
+    }
+    const result = await window.agent.settings.setBrowserPreferences(value)
+    setSaving(false)
+    if (result.ok) {
+      setPreferences(result.data)
+      setAllowedOrigins(result.data.allowedOrigins.join('\n'))
+      setBlockedOrigins(result.data.blockedOrigins.join('\n'))
+      setMessage('浏览器网站权限已保存')
+    } else {
+      setMessage(result.error.message)
+    }
+  }
+
+  const testConnection = async (): Promise<void> => {
+    setConnectionBusy(true)
+    setMessage('')
+    const result = await window.agent.settings.testBrowserConnection()
+    setConnectionBusy(false)
+    setMessage(result.ok
+      ? `已通过 Google 官方 MCP 连接，发现 ${result.data.tabCount} 个标签页`
+      : result.error.message)
+  }
+
+  const disconnect = async (): Promise<void> => {
+    setConnectionBusy(true)
+    setMessage('')
+    const result = await window.agent.settings.disconnectBrowser()
+    setConnectionBusy(false)
+    setMessage(result.ok ? '已断开 Google 官方 MCP；下次使用浏览器工具时可重新连接' : result.error.message)
+  }
+
+  return <div>
+    <h1 className="selectable text-[20px] font-semibold text-txt-primary">浏览器</h1>
+    <p className="mt-1 text-[14px] text-txt-muted">通过 Google 官方 Chrome DevTools MCP 连接你当前使用的 Chrome。</p>
+    <Group title="Chrome 官方连接">
+      <div className="space-y-2 text-[14px] leading-6 text-txt-secondary">
+        <p>要求 Chrome 144 或更高版本。请在 Chrome 中手动打开 <code>chrome://inspect/#remote-debugging</code>，开启远程调试，并在连接提示中点击允许。</p>
+        <p className="text-txt-muted">ASTRYVE 不会自动修改这个 Chrome 安全设置。官方连接能够看到已打开标签页和已登录页面，请只在你信任当前任务时启用。</p>
+        <p className="text-txt-muted">ASTRYVE 仅在测试连接或首次使用浏览器工具时启动官方 MCP；连接失败后可直接重试，无需重启应用。</p>
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button variant="primary" disabled={connectionBusy} onClick={() => void testConnection()}>{connectionBusy ? '处理中…' : '测试官方连接'}</Button>
+          <Button disabled={connectionBusy} onClick={() => void disconnect()}>断开连接</Button>
+        </div>
+      </div>
+    </Group>
+    <Group title="网站权限">
+      {loading ? <p className="text-[14px] text-txt-muted">正在读取浏览器权限…</p> : <>
+        <SettingRow label="允许所有网站" description="关闭时，仅允许下方列表中的网站。阻止列表始终优先。">
+          <ToggleSwitch checked={preferences.allowAllSites} onChange={(checked) => setPreferences((current) => ({ ...current, allowAllSites: checked }))} aria-label="允许所有网站" />
+        </SettingRow>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="text-[14px] font-medium text-txt-secondary">允许的网站来源
+            <TextArea className="mt-2 min-h-28 resize-y font-mono" rows={5} autoSize={false} aria-label="允许的网站来源" value={allowedOrigins} onChange={(event) => setAllowedOrigins(event.target.value)} placeholder={'https://example.com\nhttps://app.example.com'} />
+          </label>
+          <label className="text-[14px] font-medium text-txt-secondary">阻止的网站来源
+            <TextArea className="mt-2 min-h-28 resize-y font-mono" rows={5} autoSize={false} aria-label="阻止的网站来源" value={blockedOrigins} onChange={(event) => setBlockedOrigins(event.target.value)} placeholder="https://sensitive.example.com" />
+          </label>
+        </div>
+        <p className="mt-2 text-[14px] text-txt-muted">每行一个完整来源，只接受 http:// 或 https://。路径、查询参数和片段不会保存。</p>
+        <Button className="mt-4" variant="primary" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存网站权限'}</Button>
+      </>}
+      {message && <p role="status" className="mt-3 text-[14px] text-txt-secondary">{message}</p>}
+    </Group>
+  </div>
+}
+
+function originLines(value: string): string[] {
+  return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))]
 }
 
 export function ExtensionsSection({ initialTab = 'plugins' }: { initialTab?: ExtensionTab }): JSX.Element {
