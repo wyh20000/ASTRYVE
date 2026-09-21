@@ -41,6 +41,9 @@ import {
 } from './windowSecurity'
 
 const isDev = !app.isPackaged
+// Keep the pre-rebrand storage location stable. The folder name is an internal
+// compatibility key; changing the visible product name must not hide user data.
+app.setPath('userData', join(app.getPath('appData'), 'ai-agent'))
 app.setName('ASTRYVE')
 if (isDev && process.env.AI_AGENT_AUTH_SMOKE && process.env.AI_AGENT_AUTH_SMOKE_USER_DATA) {
   app.setPath('userData', process.env.AI_AGENT_AUTH_SMOKE_USER_DATA)

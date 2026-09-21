@@ -156,7 +156,10 @@ export function setDevelopmentSmokeAuth(): void {
     ...(__AI_AGENT_AUTH_MODE__ === 'local' ? { userId: LOCAL_PROFILE_ID } : {}) }
 }
 export function currentAccountPath(): string | undefined {
-  return active ? accountDataPath(baseUserData, active.userId) : undefined
+  if (!active) return undefined
+  // Local mode has one device profile and historically stored data at the root.
+  // Remote identities remain isolated in accounts/<userId>.
+  return active.mode === 'local' ? baseUserData : accountDataPath(baseUserData, active.userId)
 }
 
 function closePending(): void {

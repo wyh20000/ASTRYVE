@@ -32,7 +32,7 @@ vi.mock('../agent/taskRuntimeManager', () => ({ cancelAllAgentTasks: vi.fn() }))
 vi.mock('../agent/pluginUiWindow', () => ({ closeAllPluginUi: vi.fn() }))
 vi.mock('../../ipc/terminal', () => ({ closeAllTerminals: vi.fn() }))
 
-import { cancelLogin, currentAuthStatus, initializeAuth, logout, startAccountLink, startLogin } from './authSession'
+import { cancelLogin, currentAccountPath, currentAuthStatus, initializeAuth, logout, startAccountLink, startLogin } from './authSession'
 import { isBusinessIpcAvailable, setBusinessIpcAvailable } from '../../ipc/validation'
 
 async function readJson(req: IncomingMessage): Promise<Record<string, string>> {
@@ -122,6 +122,7 @@ describe('desktop authentication round trip', () => {
     expect(encrypted.toString()).not.toContain(token)
     expect((await initializeAuth(root)).state).toBe('authenticated')
     expect(currentAuthStatus().userId).toBe(userId)
+    expect(currentAccountPath()).toBe(join(root, 'accounts', userId))
     expect((await startAccountLink()).opened).toBe(true)
     expect(mocks.openExternal).toHaveBeenCalledWith(`${origin}/link?requestId=${requestId}`)
 
@@ -143,6 +144,7 @@ describe('desktop authentication round trip', () => {
         mode: 'local', state: 'authenticated', userId: '00000000-0000-4000-8000-000000000001'
       })
       expect(currentAuthStatus()).toEqual(local)
+      expect(currentAccountPath()).toBe(localRoot)
       expect(await startLogin()).toEqual(local)
       await expect(logout()).rejects.toThrow('本地模式不支持退出登录')
       await expect(startAccountLink()).rejects.toThrow('请先登录')
