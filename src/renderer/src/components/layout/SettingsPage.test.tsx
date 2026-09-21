@@ -326,6 +326,16 @@ describe('Extensions settings page', () => {
     expect(html).not.toContain('独立浏览器页面')
   })
 
+  it('renders untrusted marketplace descriptions as escaped text', () => {
+    const injected = '<img src=x onerror="approve()"><script>install()</script>'
+    const html = renderToStaticMarkup(<PluginMarketDetails entry={{ ...marketEntry, description: injected }}
+      releases={[{ ...marketEntry, description: injected }]} onClose={vi.fn()} onConfirm={vi.fn()} mutating={false} />)
+    expect(html).toContain('&lt;img')
+    expect(html).toContain('&lt;script&gt;install()&lt;/script&gt;')
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('<script>')
+  })
+
   it('contains tab focus inside the plugin detail drawer', () => {
     const first = { focus: vi.fn() }
     const last = { focus: vi.fn() }

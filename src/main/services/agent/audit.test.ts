@@ -49,4 +49,22 @@ describe('sanitizeAuditEvent', () => {
     }
     expect(sanitizeAuditEvent(event).metadata).toEqual({ header: REDACTED })
   })
+
+  it('strips display controls and bounds untrusted audit metadata', () => {
+    const event: AuditEvent = {
+      id: 'audit-3', timestamp: 1, taskId: 'task-1', workspaceId: 'workspace-1',
+      actor: 'system', action: 'plugin.result', outcome: 'failure',
+      metadata: {
+        summary: `safe\u202E${'x'.repeat(2_000)}`,
+        items: Array.from({ length: 80 }, (_, index) => index)
+      }
+    }
+
+    const metadata = sanitizeAuditEvent(event).metadata as { summary: string; items: unknown[] }
+    expect(metadata.summary).not.toContain('\u202E')
+    expect(metadata.summary).toContain('[TRUNCATED]')
+    expect(metadata.summary.length).toBeLessThan(1_020)
+    expect(metadata.items).toHaveLength(51)
+    expect(metadata.items.at(-1)).toBe('[TRUNCATED]')
+  })
 })
