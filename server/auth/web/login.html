@@ -1,3 +1,39 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI Agent · 登录</title><link rel="stylesheet" href="/auth/login.css"></head>
-<body><main class="layout"><section class="identity"><div class="brand"><span class="mark">◇</span> AI AGENT</div><div class="orb" aria-hidden="true"><div class="orbit a"></div><div class="orbit b"></div><div class="orbit c"></div><div class="core"></div></div><div class="identity-copy"><span>YOUR WORKSPACE, REIMAGINED</span><h1>让想法<br>成为作品。</h1><p>登录后，继续你的智能工作空间。</p></div></section><section class="form-side"><div class="panel" id="login-root" data-request-id="__FLOW_ID__" data-csrf="__CSRF_TOKEN__"><div class="panel-symbol">✧</div><p class="eyebrow">WELCOME BACK</p><h2>欢迎回来</h2><p class="intro">首次验证将自动创建账号</p><form id="login-form"><label for="phone">手机号</label><div class="field phone"><span>+86</span><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="请输入手机号" required></div><label for="code">验证码</label><div class="field code"><input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="6 位验证码" required><button type="button" id="send-code">获取验证码</button></div><button class="primary" id="submit-login" type="submit">登录 / 注册 <span>↗</span></button></form><div class="divider">或使用其他方式</div><div class="social"><button id="qq" type="button" disabled>QQ 登录</button><button id="wechat" type="button" disabled>微信登录</button></div><p class="status" id="status" role="status" aria-live="polite"></p><p class="footer-note">请只在本页面输入验证码。登录成功后会返回客户端。</p></div></section></main><script type="module" src="/auth/login.js"></script></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AI Agent · 登录</title>
+  <link rel="stylesheet" href="/auth/login.css">
+</head>
+<body>
+  <div class="space" aria-hidden="true">
+    <div class="aurora aurora-one"></div>
+    <div class="aurora aurora-two"></div>
+    <div class="galaxy"></div>
+    <canvas id="starfield"></canvas>
+  </div>
+  <header class="brand"><span class="brand-mark">◇</span><span>AI AGENT</span></header>
+  <main class="layout">
+    <section class="panel" id="login-root" data-request-id="__FLOW_ID__" data-csrf="__CSRF_TOKEN__" aria-label="登录 AI Agent">
+      <div class="panel-symbol" aria-hidden="true">✧</div>
+      <h1>欢迎回来</h1>
+      <p class="intro">验证身份，继续你的工作。</p>
+      <form id="login-form">
+        <label for="phone">手机号</label>
+        <div class="field phone"><span>+86</span><input id="phone" name="phone" type="tel" inputmode="tel-national" autocomplete="tel-national" placeholder="请输入手机号" required></div>
+        <label for="code">验证码</label>
+        <div class="field code"><input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="6 位验证码" required><button type="button" id="send-code">获取验证码</button></div>
+        <button class="primary" id="submit-login" type="submit">登录 / 注册 <span aria-hidden="true">↗</span></button>
+      </form>
+      <div class="divider"><span>或使用其他方式</span></div>
+      <div class="social"><button id="qq" type="button" disabled>QQ 登录</button><button id="wechat" type="button" disabled>微信登录</button></div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <p class="footer-note">只在本页面输入验证码；完成后将返回客户端。</p>
+    </section>
+  </main>
+  <footer class="page-footer">AI AGENT · SECURE SIGN IN</footer>
+  <script type="module" src="/auth/login.js"></script>
+</body>
+</html>
