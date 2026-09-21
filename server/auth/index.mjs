@@ -7,6 +7,7 @@ import tencentcloud from 'tencentcloud-sdk-nodejs-sms'
 import { bearerToken, FixedWindowLimiter, generateSmsCode, newSessionToken, normalizePhone, smsCodeHash, tokenHash, verifySmsCode } from './security.mjs'
 import { callbackUri, codeChallenge, equalHash, isFlowId, isSecret, publicOrigin, randomFlowId, randomSecret, sha256 } from './desktopProtocol.mjs'
 import { exchangeProviderIdentity, providerAuthorizeUrl, providerEnabled } from './oauthProviders.mjs'
+import { clientIp } from './clientIp.mjs'
 
 const DAY = 86_400_000
 const SMS_LIFETIME = 5 * 60_000
@@ -20,6 +21,7 @@ const cfg = {
   mysqlUrl: process.env.AUTH_MYSQL_URL,
   publicUrl: process.env.AUTH_PUBLIC_URL,
   insecureLocalDev: process.env.AUTH_INSECURE_LOCAL_DEV === '1',
+  trustProxy: process.env.AUTH_TRUST_PROXY_IP === '1',
   codeSecret: process.env.AUTH_CODE_SECRET,
   smsSecretId: process.env.TENCENTCLOUD_SECRET_ID,
   smsSecretKey: process.env.TENCENTCLOUD_SECRET_KEY,
@@ -570,7 +572,7 @@ async function verifyLinkSms(req, res, pool, ip) {
 }
 
 async function handler(req, res, pool, smsGateway) {
-  const ip = req.socket.remoteAddress || 'unknown'
+  const ip = clientIp(req, cfg.trustProxy)
   if (!ipLimiter.allow(ip)) return response(res, 429, { error: '请求过于频繁' })
   const url = new URL(req.url || '/', 'http://localhost')
   if (req.method === 'GET' && url.pathname === '/login') {
