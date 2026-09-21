@@ -407,6 +407,23 @@ describe('runToolCallingLoop', () => {
     expect(runtime.activeTaskCount).toBe(0)
   })
 
+  it('enforces tool-result limits by UTF-8 bytes instead of JavaScript characters', async () => {
+    const registry = new ToolRegistry()
+    const tool = echoTool()
+    tool.execute = async () => ({ ok: true, value: '界'.repeat(400) })
+    registry.register(tool)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-utf8-budget' })
+    const task = runtime.createTask({ sessionId: 'session-utf8-budget', workspace, ownerWebContentsId: 1,
+      permissionMode: 'ask-every-time', environment: 'docker' })
+
+    const result = await runToolCallingLoop({ taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, maxToolResultChars: 1_000, runRound: async () => toolTurn() })
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'TOOL_RESULT_BUDGET' } })
+    expect(runtime.activeTaskCount).toBe(0)
+  })
+
   it('lets an explicitly activated conversational Skill answer without forcing an unrelated project tool', async () => {
     const { registry, runtime, task } = setup()
     let choice: unknown

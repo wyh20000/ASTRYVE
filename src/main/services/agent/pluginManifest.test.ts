@@ -13,6 +13,26 @@ async function fixture(manifest: unknown, legacy = false): Promise<string> {
 }
 
 describe('readPluginManifest', () => {
+  it('accepts at most 128 closed tool schemas and rejects larger catalogs', async () => {
+    const makeTools = (count: number) => Array.from({ length: count }, (_, index) => ({
+      name: `tool_${index}`, description: `Tool ${index}`, entry: `tools/tool-${index}.js`, operation: 'fs.read',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false }
+    }))
+    const accepted = await fixture({
+      schemaVersion: 1, id: 'many.tools', name: 'Many Tools', version: '1.0.0',
+      permissions: ['workspace.read'], tools: makeTools(128)
+    })
+    await expect(readPluginManifest(accepted)).resolves.toMatchObject({ tools: expect.arrayContaining([
+      expect.objectContaining({ name: 'tool_127' })
+    ]) })
+
+    const rejected = await fixture({
+      schemaVersion: 1, id: 'too-many.tools', name: 'Too Many Tools', version: '1.0.0',
+      permissions: ['workspace.read'], tools: makeTools(129)
+    })
+    await expect(readPluginManifest(rejected)).rejects.toThrow('插件工具数量超过限制')
+  })
+
   it('normalizes the top-level Codex plugin format without executing package code', async () => {
     const root = await fixture({
       name: 'review-tools', version: '1.2.3', description: 'Review project changes',

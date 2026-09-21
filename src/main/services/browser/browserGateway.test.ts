@@ -210,6 +210,42 @@ describe('BrowserGateway', () => {
     })
   })
 
+  it('bounds long console and failed-request streams to their newest sanitized entries', async () => {
+    const fake = adapter()
+    fake.diagnostics = vi.fn(async () => ({
+      consoleErrors: Array.from({ length: 250 }, (_, index) => `error-${index}-${'x'.repeat(2_000)}`),
+      failedRequests: Array.from({ length: 250 }, (_, index) => `https://example.com/fail-${index}`),
+      performance: { navigationMs: 1, domContentLoadedMs: 1, resourceCount: 250, transferBytes: 1_000_000 }
+    }))
+    const result = await new BrowserGateway(fake).diagnostics('tab-1')
+
+    expect(result.consoleErrors).toHaveLength(100)
+    expect(result.failedRequests).toHaveLength(100)
+    expect(result.consoleErrors[0]).toContain('error-150')
+    expect(result.consoleErrors.every((value) => value.length <= 1_000)).toBe(true)
+  })
+
+  it('bounds a large page inspection and does not retain repeated screenshots', async () => {
+    const fake = adapter()
+    fake.inspect = vi.fn(async () => ({
+      title: 'Large page', url: 'https://example.com/large', readyState: 'complete', meta: {},
+      text: 'x'.repeat(500_000),
+      outline: Array.from({ length: 1_000 }, (_, index) => ({ role: 'row', name: `Row ${index}`, tag: 'div', disabled: false }))
+    }))
+    fake.screenshot = vi.fn(async () => Buffer.alloc(1_024, 1))
+    const gateway = new BrowserGateway(fake)
+
+    const inspection = await gateway.inspect('tab-1')
+    expect(inspection.text).toHaveLength(64_000)
+    expect(inspection.textTruncated).toBe(true)
+    expect(inspection.outline).toHaveLength(200)
+    expect(inspection.outlineTruncated).toBe(true)
+    for (let index = 0; index < 100; index += 1) {
+      await expect(gateway.screenshot('tab-1')).resolves.toHaveLength(1_024)
+    }
+    expect(fake.screenshot).toHaveBeenCalledTimes(100)
+  })
+
   it('blocks navigation denied by site policy', async () => {
     const gateway = new BrowserGateway(adapter(), { canNavigate: (url) => url.hostname !== 'blocked.test' })
     await expect(gateway.createTab('https://blocked.test')).rejects.toThrow('阻止')
@@ -239,6 +275,26 @@ describe('BrowserGateway', () => {
 
     await expect(gateway.screenshot('tab-2', element)).rejects.toThrow('不属于当前标签页')
     expect(fake.screenshot).not.toHaveBeenCalled()
+  })
+
+  it('bounds retained element references during repeated same-page searches', async () => {
+    const fake = adapter()
+    let backendNodeId = 0
+    fake.find = vi.fn(async () => [{
+      backendNodeId: ++backendNodeId, role: 'button', name: `Button ${backendNodeId}`, visible: true, disabled: false
+    }])
+    const gateway = new BrowserGateway(fake, { maxElementRefs: 3 })
+    const references = []
+    for (let index = 0; index < 8; index += 1) references.push((await gateway.find('tab-1', { role: 'button' }))[0])
+
+    await expect(gateway.interact(references[0], { type: 'click' }, context('evicted'))).rejects.toThrow('过期')
+    await expect(gateway.interact(references.at(-1)!, { type: 'click' }, context('retained'))).resolves.toEqual({ ok: true })
+  })
+
+  it('rejects oversized screenshots at the gateway boundary', async () => {
+    const fake = adapter()
+    fake.screenshot = vi.fn(async () => Buffer.alloc(2 * 1024 * 1024 + 1))
+    await expect(new BrowserGateway(fake).screenshot('tab-1')).rejects.toThrow('截图超过大小限制')
   })
 
   it('requires a trusted risk level in browser write contexts', async () => {

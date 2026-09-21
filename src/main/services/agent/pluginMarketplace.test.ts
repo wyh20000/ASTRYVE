@@ -75,6 +75,18 @@ describe('plugin marketplace', () => {
     expect(() => parseMarketplaceIndex({ ...index, generatedAt: '2026-08-10T23:59:59.000Z' }, source, now)).toThrow('已过期')
   })
 
+  it('parses the maximum marketplace catalog and rejects one entry beyond the cap', () => {
+    const source = { id: 'stress', name: 'Stress', kind: 'community' as const, url: 'https://example.com/index.json', enabled: true, verified: false }
+    const plugins = Array.from({ length: 2_000 }, (_, number) => ({
+      ...index.plugins[0], id: `plugin-${number}`, name: `Plugin ${number}`,
+      packageUrl: `https://example.com/plugin-${number}.zip`
+    }))
+
+    expect(parseMarketplaceIndex({ ...index, plugins }, source)).toHaveLength(2_000)
+    expect(() => parseMarketplaceIndex({ ...index, plugins: [...plugins, { ...plugins[0], id: 'overflow' }] }, source))
+      .toThrow('市场索引格式无效')
+  })
+
   it('keeps the last good cached index when synchronization fails', async () => {
     const root = await mkdtemp(join(tmpdir(), 'plugin-market-'))
     const fetcher = vi.fn()

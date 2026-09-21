@@ -41,6 +41,18 @@ afterEach(() => {
 })
 
 describe('PluginWorkerHost', () => {
+  it('releases timers and process handles across frequent start-stop cycles', async () => {
+    for (let index = 0; index < 50; index += 1) {
+      const { child, host, start } = setup()
+      ready(child)
+      await start
+      const stopping = host.stop('stress_cycle')
+      child.emit('exit', 0)
+      await stopping
+      expect(child.kill).not.toHaveBeenCalled()
+    }
+  })
+
   it('uses an allowlisted environment and waits for a matching startup handshake', async () => {
     const { child, fork, start } = setup()
     expect(fork).toHaveBeenCalledWith('pluginWorkerProcess.js', [], expect.objectContaining({

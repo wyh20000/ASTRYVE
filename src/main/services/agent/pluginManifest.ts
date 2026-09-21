@@ -78,6 +78,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   if (hooks.length) components.push('hooks')
   if (value.mcp !== undefined || value.mcpServers !== undefined) components.push('mcp')
   if (Array.isArray(value.tools) && value.tools.length) components.push('tools')
+  if (Array.isArray(value.tools) && value.tools.length > 128) throw new Error('插件工具数量超过限制')
   if (uiPath) components.push('ui')
   if (!components.length) throw new Error('插件未声明任何可用组件')
   if (sourceFormat === 'native' && EXECUTABLE_ALIASES.some((key) => value[key] !== undefined)) {

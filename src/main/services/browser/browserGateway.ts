@@ -36,10 +36,12 @@ export class BrowserGateway {
   private activeReads = 0
   private readonly maxText: number
   private readonly maxConcurrentReads: number
+  private readonly maxElementRefs: number
   private readonly canNavigate?: (url: URL) => boolean
-  constructor(private readonly adapter: BrowserAdapter, options: { maxText?: number; maxConcurrentReads?: number; canNavigate?: (url: URL) => boolean } = {}) {
+  constructor(private readonly adapter: BrowserAdapter, options: { maxText?: number; maxConcurrentReads?: number; maxElementRefs?: number; canNavigate?: (url: URL) => boolean } = {}) {
     this.maxText = Math.max(20, Math.min(options.maxText ?? 64_000, 200_000))
     this.maxConcurrentReads = Math.max(1, Math.min(options.maxConcurrentReads ?? 4, 16))
+    this.maxElementRefs = Math.max(1, Math.min(options.maxElementRefs ?? 1_000, 5_000))
     this.canNavigate = options.canNavigate
   }
 
@@ -128,6 +130,7 @@ export class BrowserGateway {
         highRisk: Boolean(item.highRisk), bounds: item.bounds
       }
       this.elements.set(id, { backendNodeId: item.backendNodeId, ref })
+      this.trimElementReferences()
       return ref
     })
   }
@@ -179,7 +182,7 @@ export class BrowserGateway {
       backendNodeId = record.backendNodeId
     }
     const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId, context), context)
-    if (image.byteLength > 10 * 1024 * 1024) throw new Error('截图超过大小限制')
+    if (image.byteLength > 2 * 1024 * 1024) throw new Error('截图超过大小限制')
     return image
   }
 
@@ -198,6 +201,13 @@ export class BrowserGateway {
   }
 
   private version(tabId: string): number { return this.versions.get(tabId) ?? 1 }
+  private trimElementReferences(): void {
+    while (this.elements.size > this.maxElementRefs) {
+      const oldest = this.elements.keys().next().value
+      if (oldest === undefined) break
+      this.elements.delete(oldest)
+    }
+  }
   private bump(tabId: string): void {
     this.versions.set(tabId, this.version(tabId) + 1)
     for (const [id, record] of this.elements) if (record.ref.tabId === tabId) this.elements.delete(id)
