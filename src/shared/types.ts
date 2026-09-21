@@ -567,6 +567,7 @@ export interface AgentApi {
     start: () => Promise<IpcResult<AuthStatus>>
     cancel: () => Promise<IpcResult<AuthStatus>>
     logout: () => Promise<IpcResult<{ revocationPending: boolean }>>
+    link: () => Promise<IpcResult<{ opened: boolean }>>
   }
   ping: () => Promise<IpcResult<string>>
   session: {

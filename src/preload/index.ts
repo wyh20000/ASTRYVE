@@ -53,7 +53,8 @@ const api: AgentApi = {
     status: () => ipcRenderer.invoke(IPC.auth.status),
     start: () => ipcRenderer.invoke(IPC.auth.start),
     cancel: () => ipcRenderer.invoke(IPC.auth.cancel),
-    logout: () => ipcRenderer.invoke(IPC.auth.logout)
+    logout: () => ipcRenderer.invoke(IPC.auth.logout),
+    link: () => ipcRenderer.invoke(IPC.auth.link)
   },
   ping: () => ipcRenderer.invoke(IPC.app.ping),
   session: {

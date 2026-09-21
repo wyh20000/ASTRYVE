@@ -7,11 +7,23 @@ import { Icon } from '../ui/icons'
 export default function SidebarFooter(): JSX.Element {
   const openSettings = useUiStore((s) => s.openSettings)
   const [accountId, setAccountId] = useState('')
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [linkMessage, setLinkMessage] = useState('')
   useEffect(() => {
     void window.agent.auth.status().then((result) => {
       if (result.ok && result.data.state === 'authenticated') setAccountId(result.data.userId ?? '')
     })
   }, [])
+
+  const startLink = async (): Promise<void> => {
+    setLinkBusy(true)
+    setLinkMessage('')
+    try {
+      const result = await window.agent.auth.link()
+      setLinkMessage(result.ok ? '请在浏览器中完成绑定' : result.error.message)
+    } catch { setLinkMessage('暂时无法启动账号绑定') }
+    finally { setLinkBusy(false) }
+  }
 
   return (
     <div className="mt-auto border-t border-border-subtle">
@@ -31,6 +43,13 @@ export default function SidebarFooter(): JSX.Element {
           />
         </span>
       </div>
+      <div className="flex justify-end px-3 pb-2">
+        <button className="text-xs text-txt-muted hover:text-txt-primary" type="button"
+          onClick={() => void startLink()} disabled={linkBusy}>
+          {linkBusy ? '正在打开…' : '绑定手机号 / QQ / 微信'}
+        </button>
+      </div>
+      {linkMessage && <p className="px-3 pb-2 text-xs text-txt-muted" role="status">{linkMessage}</p>}
     </div>
   )
 }

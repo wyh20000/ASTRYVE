@@ -31,6 +31,7 @@ test('QQ OAuth callback is bound to browser cookie and state, then yields a one-
         states.set(values[0], { flow_id: values[1], provider: values[2], browser_cookie_hash: values[3], expires_at: values[4], consumed_at: null })
         return [{ affectedRows: 1 }]
       }
+      if (sql.startsWith('SELECT state_hash FROM auth_link_oauth_states')) return [[]]
       if (sql.startsWith('SELECT flow_id, provider, browser_cookie_hash')) return [[states.get(values[0])].filter(Boolean)]
       if (sql.startsWith('UPDATE auth_oauth_states')) { states.get(values[1]).consumed_at = values[0]; return [{ affectedRows: 1 }] }
       if (sql.startsWith('SELECT redirect_uri, state, status')) return [[flows.get(values[0])].filter(Boolean)]

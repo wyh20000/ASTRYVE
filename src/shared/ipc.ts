@@ -4,7 +4,8 @@
  */
 export const IPC = {
   auth: {
-    status: 'auth:status', start: 'auth:start', cancel: 'auth:cancel', logout: 'auth:logout'
+    status: 'auth:status', start: 'auth:start', cancel: 'auth:cancel', logout: 'auth:logout',
+    link: 'auth:link'
   },
   app: {
     ping: 'app:ping'

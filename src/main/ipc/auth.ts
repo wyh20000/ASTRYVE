@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
-import { assertTrustedRenderer } from './validation'
+import { assertTrustedIpcSender, assertTrustedRenderer } from './validation'
 import { err, ok } from './result'
-import { cancelLogin, currentAuthStatus, logout, startLogin } from '../services/auth/authSession'
+import { cancelLogin, currentAuthStatus, logout, startAccountLink, startLogin } from '../services/auth/authSession'
 
 export function registerAuthIpc(): void {
   ipcMain.handle(IPC.auth.status, (event) => {
@@ -20,5 +20,9 @@ export function registerAuthIpc(): void {
   ipcMain.handle(IPC.auth.logout, async (event) => {
     try { assertTrustedRenderer(event); return ok(await logout()) }
     catch { return err('AUTH_LOGOUT', '退出登录失败') }
+  })
+  ipcMain.handle(IPC.auth.link, async (event) => {
+    try { assertTrustedIpcSender(event); return ok(await startAccountLink()) }
+    catch { return err('AUTH_LINK', '无法启动账号绑定，请检查登录状态和认证服务') }
   })
 }

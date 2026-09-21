@@ -114,6 +114,71 @@ async function showLogin(res, pool, requestId) {
   return htmlResponse(res, 200, page, { 'set-cookie': `${cookieName}=${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure}` })
 }
 
+async function startLinkFlow(res, pool, userId, token) {
+  const requestId = randomFlowId()
+  const now = Date.now()
+  await pool.execute(
+    'INSERT INTO auth_link_flows (id, user_id, session_hash, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [requestId, userId, tokenHash(token), 'pending', now, now + FLOW_LIFETIME]
+  )
+  return response(res, 200, { requestId, linkUrl: `${cfg.publicUrl}/link?requestId=${requestId}`,
+    expiresAt: now + FLOW_LIFETIME })
+}
+
+async function showLink(res, pool, requestId) {
+  if (!isFlowId(requestId)) return htmlResponse(res, 400, '<h1>绑定链接无效</h1>')
+  const [rows] = await pool.execute('SELECT status, expires_at, session_hash FROM auth_link_flows WHERE id = ?', [requestId])
+  if (!rows[0] || !(await linkSessionActive(pool, rows[0].session_hash)) ||
+      rows[0].status !== 'pending' || Number(rows[0].expires_at) <= Date.now()) {
+    return htmlResponse(res, 410, '<h1>绑定链接已失效，请返回客户端重试</h1>')
+  }
+  const cookie = randomSecret()
+  const csrf = randomSecret()
+  const [updated] = await pool.execute(
+    'UPDATE auth_link_flows SET browser_cookie_hash = ?, csrf_hash = ? WHERE id = ? AND status = ? AND expires_at > ?',
+    [sha256(cookie), sha256(csrf), requestId, 'pending', Date.now()]
+  )
+  if (updated.affectedRows !== 1) return htmlResponse(res, 410, '<h1>绑定链接已失效，请返回客户端重试</h1>')
+  const cookieName = cfg.insecureLocalDev ? 'aiagent_flow_dev' : '__Host-aiagent_flow'
+  const secure = cfg.insecureLocalDev ? '' : '; Secure'
+  const page = readFileSync(fileURLToPath(new URL('./web/login.html', import.meta.url)), 'utf8')
+    .replaceAll('__FLOW_ID__', requestId).replaceAll('__CSRF_TOKEN__', csrf)
+    .replace('data-csrf="' + csrf + '"', 'data-csrf="' + csrf + '" data-purpose="link"')
+    .replace('<h1>欢迎回来</h1>', '<h1>绑定登录方式</h1>')
+    .replace('验证身份，继续你的工作。', '选择一种方式，绑定到当前已登录账号。')
+    .replace('登录 / 注册', '验证并绑定')
+    .replace('QQ 登录', '绑定 QQ').replace('微信登录', '绑定微信')
+    .replace('只在本页面输入验证码；完成后将返回客户端。', '请确认由你本人发起；已有其他账号的身份不会被合并。')
+  return htmlResponse(res, 200, page, { 'set-cookie': `${cookieName}=${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure}` })
+}
+
+async function requireLinkFlow(req, pool, flowId) {
+  if (!isFlowId(flowId) || req.headers.origin !== cfg.publicUrl) {
+    throw Object.assign(new Error('绑定请求无效'), { status: 403 })
+  }
+  const cookie = browserCookie(req)
+  const csrf = req.headers['x-csrf-token']
+  if (!cookie || !isSecret(csrf)) throw Object.assign(new Error('绑定请求无效'), { status: 403 })
+  const [rows] = await pool.execute(
+    'SELECT user_id, session_hash, browser_cookie_hash, csrf_hash, expires_at, status FROM auth_link_flows WHERE id = ?', [flowId]
+  )
+  const flow = rows[0]
+  if (!flow || !(await linkSessionActive(pool, flow.session_hash)) ||
+      flow.status !== 'pending' || Number(flow.expires_at) <= Date.now() ||
+      !equalHash(sha256(cookie), flow.browser_cookie_hash) || !equalHash(sha256(csrf), flow.csrf_hash)) {
+    throw Object.assign(new Error('绑定请求已失效'), { status: 403 })
+  }
+  return flow
+}
+
+async function linkSessionActive(db, sessionHash, lock = false) {
+  const [rows] = await db.execute(
+    `SELECT user_id FROM auth_sessions WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ? LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+    [sessionHash, Date.now()]
+  )
+  return rows.length > 0
+}
+
 async function exchangeDesktopCode(req, res, pool) {
   const { requestId, code, verifier, redirectUri } = await jsonBody(req)
   if (!isFlowId(requestId) || !isSecret(code) || !isSecret(verifier)) throw new TypeError('授权码参数无效')
@@ -229,6 +294,91 @@ async function providerCallback(req, res, pool, provider, code, state) {
   finally { commitDb.release() }
 }
 
+async function startLinkProvider(req, res, pool) {
+  const { requestId, provider } = await jsonBody(req)
+  await requireLinkFlow(req, pool, requestId)
+  if (!providerEnabled(provider, oauthConfig)) return response(res, 503, { error: '该登录方式尚未配置' })
+  const state = randomSecret()
+  const callback = `${cfg.publicUrl}/v1/auth/oauth/callback/${provider}`
+  const url = providerAuthorizeUrl(provider, oauthConfig, callback, state)
+  await pool.execute(
+    'INSERT INTO auth_link_oauth_states (state_hash, flow_id, provider, browser_cookie_hash, expires_at) VALUES (?, ?, ?, ?, ?)',
+    [sha256(state), requestId, provider, sha256(browserCookie(req)), Date.now() + FLOW_LIFETIME]
+  )
+  return response(res, 200, { authorizeUrl: url })
+}
+
+async function linkProviderCallback(req, res, pool, provider, code, state) {
+  if (!providerEnabled(provider, oauthConfig) || !isSecret(state) ||
+      typeof code !== 'string' || code.length < 6 || code.length > 512 || /[\x00-\x20\x7f]/.test(code)) {
+    return htmlResponse(res, 400, '<h1>第三方绑定无效，请返回绑定页重试</h1>')
+  }
+  const db = await pool.getConnection()
+  let requestId
+  try {
+    await db.beginTransaction()
+    const now = Date.now()
+    const [states] = await db.execute(
+      'SELECT flow_id, provider, browser_cookie_hash, expires_at, consumed_at FROM auth_link_oauth_states WHERE state_hash = ? FOR UPDATE',
+      [sha256(state)]
+    )
+    const stored = states[0]
+    const [flows] = stored ? await db.execute(
+      'SELECT status, expires_at, session_hash FROM auth_link_flows WHERE id = ? FOR UPDATE', [stored.flow_id]
+    ) : [[]]
+    const cookie = browserCookie(req)
+    if (!stored || !cookie || !equalHash(sha256(cookie), stored.browser_cookie_hash) ||
+        stored.provider !== provider || stored.consumed_at !== null || Number(stored.expires_at) <= now ||
+        !flows[0] || !(await linkSessionActive(db, flows[0].session_hash, true)) ||
+        flows[0].status !== 'pending' || Number(flows[0].expires_at) <= now) {
+      await db.rollback()
+      return htmlResponse(res, 400, '<h1>第三方绑定已失效，请返回绑定页重试</h1>')
+    }
+    requestId = stored.flow_id
+    await db.execute('UPDATE auth_link_oauth_states SET consumed_at = ? WHERE state_hash = ?', [now, sha256(state)])
+    await db.commit()
+  } catch (error) { await db.rollback(); throw error }
+  finally { db.release() }
+
+  let subject
+  try {
+    subject = await exchangeProviderIdentity(provider, oauthConfig,
+      `${cfg.publicUrl}/v1/auth/oauth/callback/${provider}`, code)
+  } catch { return htmlResponse(res, 400, '<h1>第三方认证失败，请返回绑定页重试</h1>') }
+
+  const commitDb = await pool.getConnection()
+  try {
+    await commitDb.beginTransaction()
+    const now = Date.now()
+    const [flows] = await commitDb.execute(
+      'SELECT user_id, session_hash, status, expires_at FROM auth_link_flows WHERE id = ? FOR UPDATE', [requestId]
+    )
+    const flow = flows[0]
+    if (!flow || !(await linkSessionActive(commitDb, flow.session_hash, true)) ||
+        flow.status !== 'pending' || Number(flow.expires_at) <= now) {
+      await commitDb.rollback()
+      return htmlResponse(res, 410, '<h1>绑定请求已失效，请返回客户端重试</h1>')
+    }
+    const [identities] = await commitDb.execute(
+      'SELECT user_id FROM auth_identities WHERE provider = ? AND subject = ? FOR UPDATE', [provider, subject]
+    )
+    if (identities[0] && identities[0].user_id !== flow.user_id) {
+      await commitDb.commit()
+      return htmlResponse(res, 409, '<h1>该第三方身份已属于其他账号，无法自动合并</h1>')
+    }
+    if (!identities[0]) {
+      await commitDb.execute(
+        'INSERT INTO auth_identities (provider, subject, user_id, created_at) VALUES (?, ?, ?, ?)',
+        [provider, subject, flow.user_id, now]
+      )
+    }
+    await commitDb.execute('UPDATE auth_link_flows SET status = ? WHERE id = ?', ['completed', requestId])
+    await commitDb.commit()
+    return htmlResponse(res, 200, '<h1>绑定成功，可以返回 AI Agent 客户端</h1>')
+  } catch (error) { await commitDb.rollback(); throw error }
+  finally { commitDb.release() }
+}
+
 async function jsonBody(req) {
   const type = req.headers['content-type']?.split(';')[0]?.trim()
   if (type !== 'application/json') throw Object.assign(new Error('需要 JSON 正文'), { status: 415 })
@@ -338,6 +488,87 @@ async function verifySms(req, res, pool, ip) {
   finally { db.release() }
 }
 
+async function requestLinkSms(req, res, pool, ip, smsGateway) {
+  const { phone: rawPhone, requestId } = await jsonBody(req)
+  await requireLinkFlow(req, pool, requestId)
+  if (!smsGateway.configured) return response(res, 503, { error: '短信登录尚未配置' })
+  const phone = normalizePhone(rawPhone)
+  if (!smsIpLimiter.allow(ip) || !smsPhoneLimiter.allow(phone)) {
+    return response(res, 429, { error: '请求过于频繁，请稍后再试' })
+  }
+  const now = Date.now()
+  const [existing] = await pool.execute('SELECT sent_at FROM auth_sms_challenges WHERE phone = ?', [phone])
+  if (existing.length && now - Number(existing[0].sent_at) < 60_000) {
+    return response(res, 429, { error: '请求过于频繁，请稍后再试' })
+  }
+  const code = generateSmsCode()
+  await pool.execute(
+    'INSERT INTO auth_sms_challenges (phone, flow_id, code_hash, expires_at, sent_at, attempts) VALUES (?, ?, ?, ?, ?, 0) ON DUPLICATE KEY UPDATE flow_id = VALUES(flow_id), code_hash = VALUES(code_hash), expires_at = VALUES(expires_at), sent_at = VALUES(sent_at), attempts = 0',
+    [phone, requestId, smsCodeHash(cfg.codeSecret, phone, code), now + SMS_LIFETIME, now]
+  )
+  try { await smsGateway.send(phone, code) }
+  catch {
+    await pool.execute('DELETE FROM auth_sms_challenges WHERE phone = ? AND sent_at = ?', [phone, now])
+    return response(res, 503, { error: '短信暂时无法发送' })
+  }
+  return response(res, 202, { ok: true, expiresInSeconds: 300 })
+}
+
+async function verifyLinkSms(req, res, pool, ip) {
+  const { phone: rawPhone, code, requestId } = await jsonBody(req)
+  await requireLinkFlow(req, pool, requestId)
+  const phone = normalizePhone(rawPhone)
+  if (!verifyLimiter.allow(`${ip}:${phone}`)) {
+    return response(res, 429, { error: '尝试过于频繁，请稍后再试' })
+  }
+  const db = await pool.getConnection()
+  try {
+    await db.beginTransaction()
+    const now = Date.now()
+    const [flows] = await db.execute(
+      'SELECT user_id, session_hash, browser_cookie_hash, csrf_hash, status, expires_at FROM auth_link_flows WHERE id = ? FOR UPDATE',
+      [requestId]
+    )
+    const flow = flows[0]
+    if (!flow || !(await linkSessionActive(db, flow.session_hash, true)) ||
+        flow.status !== 'pending' || Number(flow.expires_at) <= now ||
+        !equalHash(sha256(browserCookie(req)), flow.browser_cookie_hash) ||
+        !equalHash(sha256(req.headers['x-csrf-token']), flow.csrf_hash)) {
+      await db.rollback()
+      return response(res, 403, { error: '绑定请求已失效' })
+    }
+    const [challenges] = await db.execute(
+      'SELECT flow_id, code_hash, expires_at, attempts FROM auth_sms_challenges WHERE phone = ? FOR UPDATE', [phone]
+    )
+    const challenge = challenges[0]
+    const valid = challenge && challenge.flow_id === requestId && Number(challenge.expires_at) > now &&
+      Number(challenge.attempts) < 5 && verifySmsCode(cfg.codeSecret, phone, code, challenge.code_hash)
+    if (!valid) {
+      if (challenge?.flow_id === requestId) {
+        await db.execute('UPDATE auth_sms_challenges SET attempts = attempts + 1 WHERE phone = ?', [phone])
+      }
+      await db.commit()
+      return response(res, 401, { error: '验证码无效或已过期' })
+    }
+    await db.execute('DELETE FROM auth_sms_challenges WHERE phone = ?', [phone])
+    const [identities] = await db.execute(
+      'SELECT user_id FROM auth_identities WHERE provider = ? AND subject = ? FOR UPDATE', ['phone', phone]
+    )
+    if (identities[0] && identities[0].user_id !== flow.user_id) {
+      await db.commit()
+      return response(res, 409, { error: '该手机号已属于其他账号，无法自动合并' })
+    }
+    if (!identities[0]) {
+      await db.execute('INSERT INTO auth_identities (provider, subject, user_id, created_at) VALUES (?, ?, ?, ?)',
+        ['phone', phone, flow.user_id, now])
+    }
+    await db.execute('UPDATE auth_link_flows SET status = ? WHERE id = ?', ['completed', requestId])
+    await db.commit()
+    return response(res, 200, { linked: true })
+  } catch (error) { await db.rollback(); throw error }
+  finally { db.release() }
+}
+
 async function handler(req, res, pool, smsGateway) {
   const ip = req.socket.remoteAddress || 'unknown'
   if (!ipLimiter.allow(ip)) return response(res, 429, { error: '请求过于频繁' })
@@ -346,12 +577,23 @@ async function handler(req, res, pool, smsGateway) {
     if (url.searchParams.size !== 1 || !url.searchParams.has('requestId')) return htmlResponse(res, 400, '<h1>登录链接无效</h1>')
     return showLogin(res, pool, url.searchParams.get('requestId'))
   }
+  if (req.method === 'GET' && url.pathname === '/link') {
+    if (url.searchParams.size !== 1 || !url.searchParams.has('requestId')) return htmlResponse(res, 400, '<h1>绑定链接无效</h1>')
+    return showLink(res, pool, url.searchParams.get('requestId'))
+  }
   const oauthCallback = /^\/v1\/auth\/oauth\/callback\/(qq|wechat)$/.exec(url.pathname)
   if (req.method === 'GET' && oauthCallback) {
     if (url.searchParams.size !== 2 || !url.searchParams.has('code') || !url.searchParams.has('state')) {
       return htmlResponse(res, 400, '<h1>第三方登录无效，请返回登录页重试</h1>')
     }
-    return providerCallback(req, res, pool, oauthCallback[1], url.searchParams.get('code'), url.searchParams.get('state'))
+    const state = url.searchParams.get('state')
+    const [linkStates] = isSecret(state) ? await pool.execute(
+      'SELECT state_hash FROM auth_link_oauth_states WHERE state_hash = ?', [sha256(state)]
+    ) : [[]]
+    if (linkStates.length) {
+      return linkProviderCallback(req, res, pool, oauthCallback[1], url.searchParams.get('code'), state)
+    }
+    return providerCallback(req, res, pool, oauthCallback[1], url.searchParams.get('code'), state)
   }
   if (url.search) return response(res, 400, { error: '查询参数不受支持' })
   if (req.method === 'GET' && url.pathname === '/auth/login.js') {
@@ -369,8 +611,16 @@ async function handler(req, res, pool, smsGateway) {
   if (req.method === 'POST' && url.pathname === '/v1/auth/sms/request') return requestSms(req, res, pool, ip, smsGateway)
   if (req.method === 'POST' && url.pathname === '/v1/auth/sms/verify') return verifySms(req, res, pool, ip)
   if (req.method === 'POST' && url.pathname === '/v1/auth/oauth/start') return startProviderLogin(req, res, pool)
+  if (req.method === 'POST' && url.pathname === '/v1/auth/link/sms/request') {
+    return requestLinkSms(req, res, pool, ip, smsGateway)
+  }
+  if (req.method === 'POST' && url.pathname === '/v1/auth/link/sms/verify') return verifyLinkSms(req, res, pool, ip)
+  if (req.method === 'POST' && url.pathname === '/v1/auth/link/oauth/start') return startLinkProvider(req, res, pool)
   // Every other endpoint, including unknown paths, requires a valid session.
   const session = await requireSession(req, pool)
+  if (req.method === 'POST' && url.pathname === '/v1/auth/link/start') {
+    return startLinkFlow(res, pool, session.userId, session.token)
+  }
   if (req.method === 'GET' && url.pathname === '/v1/auth/session') return response(res, 200, { user: { id: session.userId } })
   if (req.method === 'POST' && url.pathname === '/v1/auth/logout') {
     await pool.execute('UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ?', [Date.now(), tokenHash(session.token)])
@@ -396,6 +646,8 @@ async function cleanupExpired(pool) {
   await pool.execute('DELETE FROM auth_oauth_states WHERE expires_at < ? OR flow_id IN (SELECT id FROM auth_desktop_flows WHERE expires_at < ?)', [now, now])
   await pool.execute('DELETE FROM auth_desktop_codes WHERE expires_at < ? OR flow_id IN (SELECT id FROM auth_desktop_flows WHERE expires_at < ?)', [now, now])
   await pool.execute('DELETE FROM auth_desktop_flows WHERE expires_at < ?', [now])
+  await pool.execute('DELETE FROM auth_link_oauth_states WHERE expires_at < ? OR flow_id IN (SELECT id FROM auth_link_flows WHERE expires_at < ?)', [now, now])
+  await pool.execute('DELETE FROM auth_link_flows WHERE expires_at < ?', [now])
   await pool.execute('DELETE FROM auth_sessions WHERE expires_at < ? OR revoked_at < ?', [now, now - DAY])
 }
 

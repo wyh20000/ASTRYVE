@@ -32,7 +32,7 @@ vi.mock('../agent/taskRuntimeManager', () => ({ cancelAllAgentTasks: vi.fn() }))
 vi.mock('../agent/pluginUiWindow', () => ({ closeAllPluginUi: vi.fn() }))
 vi.mock('../../ipc/terminal', () => ({ closeAllTerminals: vi.fn() }))
 
-import { cancelLogin, currentAuthStatus, initializeAuth, logout, startLogin } from './authSession'
+import { cancelLogin, currentAuthStatus, initializeAuth, logout, startAccountLink, startLogin } from './authSession'
 import { isBusinessIpcAvailable, setBusinessIpcAvailable } from '../../ipc/validation'
 
 async function readJson(req: IncomingMessage): Promise<Record<string, string>> {
@@ -81,6 +81,9 @@ describe('desktop authentication round trip', () => {
         } else if (url.pathname === '/v1/auth/logout') {
           if (req.headers.authorization !== `Bearer ${token}`) reply(401, { error: 'expired' })
           else { revoked = true; reply(200, { ok: true }) }
+        } else if (url.pathname === '/v1/auth/link/start') {
+          if (req.headers.authorization !== `Bearer ${token}` || revoked) reply(401, { error: 'expired' })
+          else reply(200, { requestId, linkUrl: `${origin}/link?requestId=${requestId}` })
         } else reply(404, { error: 'missing' })
       })().catch(() => { res.writeHead(500); res.end() })
     })
@@ -119,6 +122,8 @@ describe('desktop authentication round trip', () => {
     expect(encrypted.toString()).not.toContain(token)
     expect((await initializeAuth(root)).state).toBe('authenticated')
     expect(currentAuthStatus().userId).toBe(userId)
+    expect((await startAccountLink()).opened).toBe(true)
+    expect(mocks.openExternal).toHaveBeenCalledWith(`${origin}/link?requestId=${requestId}`)
 
     setBusinessIpcAvailable(true)
     expect((await logout()).revocationPending).toBe(false)
@@ -126,6 +131,7 @@ describe('desktop authentication round trip', () => {
     expect(revoked).toBe(true)
     await expect(stat(join(root, 'auth-session.enc'))).rejects.toThrow()
     expect((await initializeAuth(root)).state).toBe('signedOut')
+    await expect(startAccountLink()).rejects.toThrow('请先登录')
     cancelLogin()
   })
 

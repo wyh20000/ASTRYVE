@@ -1,6 +1,7 @@
 const root = document.getElementById('login-root')
 const requestId = root.dataset.requestId
 const csrf = root.dataset.csrf
+const linking = root.dataset.purpose === 'link'
 const status = document.getElementById('status')
 const phone = document.getElementById('phone')
 const code = document.getElementById('code')
@@ -36,7 +37,8 @@ send.addEventListener('click', async () => {
   try {
     send.disabled = true
     show('正在发送验证码…')
-    await post('/v1/auth/sms/request', { phone: normalizedPhone() })
+    await post(linking ? '/v1/auth/link/sms/request' : '/v1/auth/sms/request',
+      { phone: normalizedPhone() })
     let remaining = 60
     send.textContent = `${remaining} 秒后重试`
     countdown = setInterval(() => {
@@ -53,9 +55,17 @@ document.getElementById('login-form').addEventListener('submit', async (event) =
   try {
     submit.disabled = true
     show('正在验证…')
-    const payload = await post('/v1/auth/sms/verify', { phone: normalizedPhone(), code: code.value })
-    show('验证成功，正在返回客户端…')
-    window.location.replace(payload.redirectUrl)
+    const payload = await post(linking ? '/v1/auth/link/sms/verify' : '/v1/auth/sms/verify',
+      { phone: normalizedPhone(), code: code.value })
+    if (linking) {
+      if (!payload.linked) throw new Error('绑定结果无效')
+      show('绑定成功，可以返回客户端')
+      send.disabled = true
+      code.disabled = true
+    } else {
+      show('验证成功，正在返回客户端…')
+      window.location.replace(payload.redirectUrl)
+    }
   } catch (error) { show(error.message, true); submit.disabled = false }
 })
 
@@ -64,7 +74,8 @@ for (const [button, provider] of [[qq, 'qq'], [wechat, 'wechat']]) {
     try {
       button.disabled = true
       show('正在前往授权页面…')
-      const payload = await post('/v1/auth/oauth/start', { provider })
+      const payload = await post(linking ? '/v1/auth/link/oauth/start' : '/v1/auth/oauth/start',
+        { provider })
       const target = new URL(payload.authorizeUrl)
       const expected = provider === 'qq' ? 'https://graph.qq.com' : 'https://open.weixin.qq.com'
       if (target.origin !== expected) throw new Error('授权地址无效')

@@ -286,6 +286,23 @@ export async function logout(): Promise<{ revocationPending: boolean }> {
   return { revocationPending }
 }
 
+export async function startAccountLink(): Promise<{ opened: boolean }> {
+  const session = active
+  if (!session || status.state !== 'authenticated') throw new Error('请先登录')
+  const result = await authJson('/v1/auth/link/start', {
+    method: 'POST', headers: { authorization: `Bearer ${session.token}` }
+  })
+  if (active !== session || typeof result.requestId !== 'string' || !FLOW_ID.test(result.requestId) ||
+      typeof result.linkUrl !== 'string') throw new Error('绑定请求响应无效')
+  const linkUrl = new URL(result.linkUrl)
+  if (linkUrl.origin !== serviceOrigin || linkUrl.pathname !== '/link' ||
+      linkUrl.searchParams.size !== 1 || linkUrl.searchParams.get('requestId') !== result.requestId) {
+    throw new Error('绑定地址不受信任')
+  }
+  await shell.openExternal(linkUrl.toString())
+  return { opened: true }
+}
+
 export function startSessionRechecks(): void {
   if (recheckTimer) clearInterval(recheckTimer)
   if (!active) return
