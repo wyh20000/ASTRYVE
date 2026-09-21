@@ -303,7 +303,10 @@ function safeWebUrl(raw: string): string {
 function safeDisplayUrl(raw: string): string { try { return safeWebUrl(raw).slice(0, 2048) } catch { return '' } }
 function sensitiveText(value: string): boolean { return /(?:password|passwd|secret|token|api[_-]?key|验证码|信用卡)/i.test(value) }
 function clean(value: string, max: number): string {
-  const redacted = value.replace(/(?:bearer\s+|password\s*[=:]\s*|token\s*[=:]\s*)[^\s,;]+/gi, '[已脱敏]')
+  const redacted = value
+    .replace(/\b(?:basic|bearer)\s+[^\s,;]+/gi, '[已脱敏]')
+    .replace(/((?:password|passwd|secret|token|api[-_]?key|cookie|otp|验证码|校验码|信用卡号|card\s*number)\s*(?:[=:：]\s*|\s+))[^\s,;]+/gi, '$1[已脱敏]')
+    .replace(/\b(?:\d[ -]?){13,19}\b/g, '[已脱敏]')
   return redacted.slice(0, max)
 }
 function short(value: string | undefined): string | undefined { return value ? clean(value, 300) : undefined }

@@ -63,6 +63,7 @@ export class PluginConnectionService {
     this.auditRequest('plugin.connection.connect', plugin.id, input.connectionId)
     let connection: PluginMcpConnection
     let connectionId = input.connectionId
+    let createdConnection = false
     try {
       if (input.connectionId) {
         const existing = await this.options.store.getConnection(input.connectionId)
@@ -76,12 +77,9 @@ export class PluginConnectionService {
           serverOrigin: new URL(declaration.url).origin, serverUrl: declaration.url,
           auth: declaration.auth, state: 'pending', ...optionalLabel(input.accountLabel)
         })
+        createdConnection = true
         connectionId = connection.id
-        try { await this.authorize(connection.id, declaration, input.credential) }
-        catch (error) {
-          await this.options.store.removeConnection(connection.id)
-          throw error
-        }
+        await this.authorize(connection.id, declaration, input.credential)
       }
       await this.options.store.bindPlugin({ pluginId: plugin.id, serverId: declaration.id, connectionId: connection.id })
       await this.options.manager.connectBinding({
@@ -90,6 +88,7 @@ export class PluginConnectionService {
       this.auditResult('plugin.connection.connect', 'success', plugin.id, connection.id)
       return this.list()
     } catch (error) {
+      if (createdConnection && connectionId) await this.cleanupCreatedConnection(connectionId)
       this.auditResult('plugin.connection.connect', 'failure', plugin.id, connectionId)
       throw error
     }
@@ -145,6 +144,12 @@ export class PluginConnectionService {
       this.auditResult('plugin.connection.disconnect', 'failure', pluginId, connection.id)
       throw error
     }
+  }
+
+  private async cleanupCreatedConnection(connectionId: string): Promise<void> {
+    try { await this.options.manager.disconnect(connectionId) } catch { /* continue local cleanup */ }
+    try { await this.options.vault.deleteConnection(connectionId) } catch { /* best effort */ }
+    try { await this.options.store.removeConnection(connectionId) } catch { /* preserve original failure */ }
   }
 
   private async target(input: PluginMcpTargetInput): Promise<{

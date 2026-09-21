@@ -173,6 +173,21 @@ describe('BrowserGateway', () => {
     expect(result.textTruncated).toBe(true)
   })
 
+  it('redacts passwords, verification codes, cookies and payment numbers from page text', async () => {
+    const fake = adapter()
+    fake.inspect = vi.fn(async () => ({
+      title: 'Checkout', url: 'https://example.com/pay', readyState: 'complete', meta: {}, outline: [],
+      text: 'password=hunter2 验证码: 123456 cookie=session-value card number 4111 1111 1111 1111'
+    }))
+    const result = await new BrowserGateway(fake, { maxText: 1_000 }).inspect('tab-1')
+
+    expect(result.text).not.toContain('hunter2')
+    expect(result.text).not.toContain('123456')
+    expect(result.text).not.toContain('session-value')
+    expect(result.text).not.toContain('4111')
+    expect(result.text.match(/\[已脱敏\]/g)?.length).toBeGreaterThanOrEqual(4)
+  })
+
   it('returns bounded redacted page metadata instead of dropping it', async () => {
     const gateway = new BrowserGateway(adapter())
     const result = await gateway.inspect('tab-1')

@@ -117,6 +117,21 @@ describe('PluginConnectionService', () => {
     })
   })
 
+  it('removes a newly stored credential, binding and connection when startup fails', async () => {
+    connectBinding.mockRejectedValue(new Error('server unavailable'))
+
+    await expect(service().connect({
+      pluginId: 'acme.remote', serverId: 'api', credential: 'must-be-removed'
+    })).rejects.toThrow('server unavailable')
+
+    const attemptedId = connectBinding.mock.calls[0][0].connectionId as string
+    expect(disconnect).toHaveBeenCalledWith(attemptedId)
+    expect(await vault.get(attemptedId, 'api-key')).toBeUndefined()
+    expect(await store.getConnection(attemptedId)).toBeUndefined()
+    expect(await store.listBindings()).toEqual([])
+    expect(JSON.stringify(audit.mock.calls)).not.toContain('must-be-removed')
+  })
+
   it('restarts a bound connection for retry and removes it on disconnect', async () => {
     const existing = await store.saveConnection({
       serverOrigin: 'https://api.example.com', serverUrl: declarations[0].url,
