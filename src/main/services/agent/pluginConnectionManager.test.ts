@@ -150,4 +150,36 @@ describe('plugin connection manager', () => {
     expect(clients[0].close).toHaveBeenCalled()
     expect(clients[1].connect).toHaveBeenCalled()
   })
+
+  it('aborts an in-flight connection and prevents it from reviving after manager close', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'plugin-manager-close-race-'))
+    const store = new PluginConnectionStore(root)
+    const connection = await store.saveConnection({
+      serverOrigin: 'https://api.example.com', serverUrl: declaration.url, auth: 'none', state: 'pending'
+    })
+    await store.bindPlugin({ pluginId: 'one.plugin', serverId: 'api', connectionId: connection.id })
+    let release!: () => void
+    let signal: AbortSignal | undefined
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const client = fakeClient()
+    client.connect = vi.fn(async (value) => { signal = value; await gate })
+    const manager = new PluginConnectionManager({
+      store, resolveDeclaration: async () => declaration, createClient: () => client
+    })
+
+    const acquiring = manager.acquireLease({
+      pluginId: 'one.plugin', serverId: 'api', connectionId: connection.id, taskId: 'task-1'
+    })
+    await vi.waitFor(() => expect(client.connect).toHaveBeenCalledOnce())
+    const closing = manager.close()
+    expect(signal?.aborted).toBe(true)
+    release()
+
+    await expect(acquiring).rejects.toThrow()
+    await closing
+    expect(client.close).toHaveBeenCalled()
+    await expect(manager.acquireLease({
+      pluginId: 'one.plugin', serverId: 'api', connectionId: connection.id, taskId: 'task-2'
+    })).rejects.toThrow('已关闭')
+  })
 })

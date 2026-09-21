@@ -107,6 +107,7 @@ export class TaskRuntimeError extends Error {
  * function name, call id and JSON arguments.
  */
 export class TaskRuntime {
+  private readonly pendingDisposals = new Set<Promise<void>>()
   private readonly tasks = new Map<string, RuntimeTask>()
   private readonly sessionTasks = new Map<string, string>()
   private readonly workspaceTasks = new Map<string, Set<string>>()
@@ -337,6 +338,12 @@ export class TaskRuntime {
     return cancelled
   }
 
+  async settleDisposals(): Promise<void> {
+    while (this.pendingDisposals.size) {
+      await Promise.allSettled([...this.pendingDisposals])
+    }
+  }
+
   getTaskSnapshot(taskId: string): TaskSnapshot | undefined {
     return this.tasks.get(taskId)?.machine.snapshot
   }
@@ -472,7 +479,11 @@ export class TaskRuntime {
     if (task.output.timer) clearTimeout(task.output.timer)
     task.output.timer = undefined
     task.controller.abort(reason)
-    void Promise.resolve(task.dispose?.()).catch(() => undefined)
+    const disposal = Promise.resolve()
+      .then(() => task.dispose?.())
+      .then(() => undefined, () => undefined)
+      .finally(() => this.pendingDisposals.delete(disposal))
+    this.pendingDisposals.add(disposal)
     this.removeTask(task)
     this.resolveQueuedCalls(task, cancelledResult())
   }

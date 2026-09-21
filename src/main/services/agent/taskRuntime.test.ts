@@ -86,6 +86,35 @@ afterEach(() => {
 })
 
 describe('TaskRuntime', () => {
+  it('tracks asynchronous task cleanup and contains synchronous cleanup failures', async () => {
+    const first = createRuntime()
+    let release!: () => void
+    const disposed = new Promise<void>((resolve) => { release = resolve })
+    const task = first.runtime.createTask({
+      sessionId: 'session-dispose', workspace, ownerWebContentsId: 101,
+      permissionMode: 'ask-every-time', environment: 'docker', dispose: () => disposed
+    })
+    first.runtime.startTask(task.id)
+    first.runtime.cancelTask(task.id)
+    let settled = false
+    const waiting = first.runtime.settleDisposals().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    release()
+    await waiting
+    expect(settled).toBe(true)
+
+    const second = createRuntime()
+    const broken = second.runtime.createTask({
+      sessionId: 'session-broken-dispose', workspace, ownerWebContentsId: 102,
+      permissionMode: 'ask-every-time', environment: 'docker', dispose: () => { throw new Error('dispose failed') }
+    })
+    second.runtime.startTask(broken.id)
+    expect(() => second.runtime.cancelTask(broken.id)).not.toThrow()
+    await expect(second.runtime.settleDisposals()).resolves.toBeUndefined()
+    expect(second.runtime.activeTaskCount).toBe(0)
+  })
+
   it('freezes additional tools and plugin metadata per task', () => {
     const { runtime } = createRuntime()
     const pluginTool = { ...tool(vi.fn(async () => ({ ok: true, value: 'plugin' }))), name: 'plugin.acme.echo' }

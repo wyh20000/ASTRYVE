@@ -31,6 +31,11 @@ interface ClientEntry {
   controller: AbortController
 }
 
+interface ConnectingEntry {
+  promise: Promise<ClientEntry>
+  controller: AbortController
+}
+
 interface LeaseRecord {
   id: string
   pluginId: string
@@ -57,8 +62,9 @@ export interface PluginMcpToolSnapshot {
 
 export class PluginConnectionManager {
   private readonly clients = new Map<string, ClientEntry>()
-  private readonly connecting = new Map<string, Promise<ClientEntry>>()
+  private readonly connecting = new Map<string, ConnectingEntry>()
   private readonly leases = new Map<string, LeaseRecord>()
+  private closed = false
   private readonly now: () => number
   private readonly leaseTtlMs: number
 
@@ -157,17 +163,23 @@ export class PluginConnectionManager {
   }
 
   async close(): Promise<void> {
+    this.closed = true
     for (const lease of this.leases.values()) this.revokeLease(lease)
+    const connecting = [...this.connecting.values()]
+    for (const entry of connecting) entry.controller.abort('manager_closed')
+    await Promise.allSettled(connecting.map((entry) => entry.promise))
     const entries = [...this.clients.values()]
     this.clients.clear()
     for (const entry of entries) { entry.controller.abort(); await entry.client.close() }
   }
 
   private async getOrConnect(connectionId: string, declaration: PluginMcpServerDeclaration): Promise<ClientEntry> {
+    if (this.closed) throw new Error('MCP 连接管理器已关闭')
     const current = this.clients.get(connectionId)
     if (current) return current
     const pending = this.connecting.get(connectionId)
-    if (pending) return pending
+    if (pending) return pending.promise
+    const controller = new AbortController()
     const created = (async () => {
       const getCredential = async (): Promise<string | undefined> => {
         if (declaration.auth === 'none') return undefined
@@ -176,9 +188,10 @@ export class PluginConnectionManager {
       }
       const client = this.options.createClient?.(declaration, connectionId, getCredential) ??
         createPluginMcpClient(declaration, { getCredential })
-      const entry = { client, controller: new AbortController() }
+      const entry = { client, controller }
       try {
         await client.connect(entry.controller.signal)
+        if (this.closed || entry.controller.signal.aborted) throw new PluginMcpError('MCP_ABORTED', 'MCP 管理器已关闭')
         this.clients.set(connectionId, entry)
         await this.options.store.updateConnection(connectionId, {
           state: 'connected', lastConnectedAt: this.now(), errorCode: undefined
@@ -191,7 +204,7 @@ export class PluginConnectionManager {
         throw error
       } finally { this.connecting.delete(connectionId) }
     })()
-    this.connecting.set(connectionId, created)
+    this.connecting.set(connectionId, { promise: created, controller })
     return created
   }
 

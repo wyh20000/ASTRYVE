@@ -87,4 +87,28 @@ describe('taskRuntimeManager', () => {
     expect(persisted.events.map((event) => event.type)).toContain('task.output')
     expect(persisted.events.at(-1)?.type).toBe('task.status-changed')
   })
+
+  it('waits for task-scoped plugin and connection cleanup before the final flush resolves', async () => {
+    const dir = await fs.promises.mkdtemp(join(os.tmpdir(), 'ai-agent-manager-dispose-'))
+    tempDirs.push(dir)
+    const runtime = initTaskRuntime()
+    await initTaskPersistence(dir)
+    let release!: () => void
+    const disposed = new Promise<void>((resolve) => { release = resolve })
+    const task = runtime.createTask({
+      sessionId: 'session-dispose', workspace: {
+        id: 'workspace-1', rootPath: 'D:\\repo', realRootPath: 'D:\\repo', createdAt: 1
+      }, ownerWebContentsId: 10, permissionMode: 'ask-every-time', environment: 'docker', dispose: () => disposed
+    })
+    runtime.startTask(task.id)
+    runtime.cancelTask(task.id, 'app_quit')
+
+    let flushed = false
+    const flushing = flushTaskPersistence().then(() => { flushed = true })
+    await Promise.resolve()
+    expect(flushed).toBe(false)
+    release()
+    await flushing
+    expect(flushed).toBe(true)
+  })
 })

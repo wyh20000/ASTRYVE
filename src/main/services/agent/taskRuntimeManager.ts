@@ -198,6 +198,7 @@ export function cancelAllAgentTasks(reason: string): number {
 }
 
 export async function flushTaskPersistence(): Promise<void> {
+  await runtime?.settleDisposals()
   await Promise.all([journal?.close(), pluginConnectionManager?.close()])
 }
 
