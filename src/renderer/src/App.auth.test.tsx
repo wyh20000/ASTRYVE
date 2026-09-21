@@ -7,9 +7,9 @@ it('keeps the conversation UI unmounted when the main process denies authenticat
   const listSessions = vi.fn()
   Object.assign(window.agent, {
     auth: {
-      status: async () => ({ ok: true, data: { state: 'signedOut' } }),
-      start: async () => ({ ok: true, data: { state: 'waiting' } }),
-      cancel: async () => ({ ok: true, data: { state: 'signedOut' } })
+      status: async () => ({ ok: true, data: { mode: 'remote', state: 'signedOut' } }),
+      start: async () => ({ ok: true, data: { mode: 'remote', state: 'waiting' } }),
+      cancel: async () => ({ ok: true, data: { mode: 'remote', state: 'signedOut' } })
     },
     sessions: { list: listSessions }
   })

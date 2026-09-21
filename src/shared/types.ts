@@ -555,6 +555,7 @@ export interface DbConfig {
 
 /** 前端可通过 window.agent 访问的统一 API 面 */
 export interface AuthStatus {
+  mode: 'local' | 'remote'
   state: 'authenticated' | 'signedOut' | 'waiting' | 'offline' | 'unconfigured'
   userId?: string
   message?: string

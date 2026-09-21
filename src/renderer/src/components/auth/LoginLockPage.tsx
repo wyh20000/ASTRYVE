@@ -19,8 +19,8 @@ export function LoginLockPage({ initialStatus }: { initialStatus: AuthStatus }):
     setBusy(true)
     try {
       const result = await window.agent.auth.start()
-      setStatus(result.ok ? result.data : { state: 'signedOut', message: result.error.message })
-    } catch { setStatus({ state: 'signedOut', message: '暂时无法启动登录，请重试' }) }
+      setStatus(result.ok ? result.data : { mode: 'remote', state: 'signedOut', message: result.error.message })
+    } catch { setStatus({ mode: 'remote', state: 'signedOut', message: '暂时无法启动登录，请重试' }) }
     finally { setBusy(false) }
   }
   const cancel = async (): Promise<void> => {

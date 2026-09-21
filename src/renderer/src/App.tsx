@@ -153,9 +153,9 @@ export default function App(): JSX.Element {
   useEffect(() => {
     let active = true
     void window.agent.auth.status().then((result) => {
-      if (active) setStatus(result.ok ? result.data : { state: 'signedOut', message: result.error.message })
+      if (active) setStatus(result.ok ? result.data : { mode: 'remote', state: 'signedOut', message: result.error.message })
     }).catch(() => {
-      if (active) setStatus({ state: 'offline', message: '无法确认登录状态，请检查网络后重试。' })
+      if (active) setStatus({ mode: 'remote', state: 'offline', message: '无法确认登录状态，请检查网络后重试。' })
     })
     return () => { active = false }
   }, [])

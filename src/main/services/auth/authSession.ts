@@ -11,7 +11,10 @@ import { cancelAllAgentTasks } from '../agent/taskRuntimeManager'
 import { closeAllPluginUi } from '../agent/pluginUiWindow'
 import { closeAllTerminals } from '../../ipc/terminal'
 
-interface StoredSession { token: string; userId: string; expiresAt: number }
+type AuthMode = 'local' | 'remote'
+interface StoredSession { mode: 'remote'; token: string; userId: string; expiresAt: number }
+interface LocalIdentity { mode: 'local'; userId: string }
+type ActiveIdentity = StoredSession | LocalIdentity
 interface PendingLogin {
   server: Server
   port: number
@@ -24,11 +27,12 @@ interface PendingLogin {
 
 const SECRET = /^[A-Za-z0-9_-]{43}$/
 const FLOW_ID = /^[A-Za-z0-9_-]{32}$/
+const LOCAL_PROFILE_ID = '00000000-0000-4000-8000-000000000001'
 let baseUserData = ''
 let serviceOrigin: string | undefined
-let active: StoredSession | undefined
+let active: ActiveIdentity | undefined
 let pending: PendingLogin | undefined
-let status: AuthStatus = { state: 'signedOut' }
+let status: AuthStatus = { mode: __AI_AGENT_AUTH_MODE__, state: 'signedOut' }
 let recheckTimer: ReturnType<typeof setInterval> | undefined
 let rechecking = false
 let relaunching = false
@@ -63,7 +67,8 @@ async function readSession(): Promise<StoredSession | undefined> {
   if (!encryptedStorageReady()) return undefined
   try {
     const encrypted = await readFile(credentialFile())
-    const value = JSON.parse(safeStorage.decryptString(encrypted)) as StoredSession
+    const parsed = JSON.parse(safeStorage.decryptString(encrypted)) as Omit<StoredSession, 'mode'>
+    const value: StoredSession = { ...parsed, mode: 'remote' }
     if (!SECRET.test(value.token) || !Number.isSafeInteger(value.expiresAt) || value.expiresAt <= Date.now()) return undefined
     accountDataPath(baseUserData, value.userId)
     return value
@@ -77,7 +82,8 @@ async function saveSession(value: StoredSession): Promise<void> {
   const target = credentialFile()
   const temp = `${target}.${process.pid}.tmp`
   try {
-    await writeFile(temp, safeStorage.encryptString(JSON.stringify(value)), { mode: 0o600 })
+    const { mode: _mode, ...persisted } = value
+    await writeFile(temp, safeStorage.encryptString(JSON.stringify(persisted)), { mode: 0o600 })
     await rename(temp, target)
   } catch (error) {
     await rm(temp, { force: true }).catch(() => undefined)
@@ -113,24 +119,32 @@ async function verifySession(value: StoredSession): Promise<void> {
   if (user?.id !== value.userId) throw new Error('认证账号不匹配')
 }
 
-export async function initializeAuth(basePath: string): Promise<AuthStatus> {
+export async function initializeAuth(basePath: string, mode: AuthMode = __AI_AGENT_AUTH_MODE__): Promise<AuthStatus> {
   baseUserData = basePath
   setBusinessIpcAvailable(false)
+  closePending()
+  active = undefined
+  serviceOrigin = undefined
+  if (mode === 'local') {
+    active = { mode: 'local', userId: LOCAL_PROFILE_ID }
+    status = { mode, state: 'authenticated', userId: LOCAL_PROFILE_ID }
+    return currentAuthStatus()
+  }
   try { serviceOrigin = validateAuthServiceOrigin(process.env.AI_AGENT_AUTH_URL, app.isPackaged) }
-  catch { status = { state: 'unconfigured', message: '认证服务地址配置无效' }; return status }
-  if (!serviceOrigin) { status = { state: 'unconfigured', message: '尚未配置认证服务地址' }; return status }
+  catch { status = { mode, state: 'unconfigured', message: '认证服务地址配置无效' }; return status }
+  if (!serviceOrigin) { status = { mode, state: 'unconfigured', message: '尚未配置认证服务地址' }; return status }
   const stored = await readSession()
-  if (!stored) { status = { state: 'signedOut' }; return status }
+  if (!stored) { status = { mode, state: 'signedOut' }; return status }
   try {
     await verifySession(stored)
     active = stored
-    status = { state: 'authenticated', userId: stored.userId }
+    status = { mode, state: 'authenticated', userId: stored.userId }
     return status
   } catch (error) {
     if (error instanceof AuthHttpError && error.statusCode === 401) {
       await clearSession().catch(() => undefined)
-      status = { state: 'signedOut', message: '登录已过期，请重新登录' }
-    } else status = { state: 'offline', message: '无法验证登录状态，请检查网络后重试' }
+      status = { mode, state: 'signedOut', message: '登录已过期，请重新登录' }
+    } else status = { mode, state: 'offline', message: '无法验证登录状态，请检查网络后重试' }
     return status
   }
 }
@@ -138,7 +152,8 @@ export async function initializeAuth(basePath: string): Promise<AuthStatus> {
 export function currentAuthStatus(): AuthStatus { return { ...status } }
 export function setDevelopmentSmokeAuth(): void {
   if (app.isPackaged || process.env.AI_AGENT_THEME_SMOKE !== '1') throw new Error('只允许开发主题测试使用')
-  status = { state: 'authenticated' }
+  status = { mode: __AI_AGENT_AUTH_MODE__, state: 'authenticated',
+    ...(__AI_AGENT_AUTH_MODE__ === 'local' ? { userId: LOCAL_PROFILE_ID } : {}) }
 }
 export function currentAccountPath(): string | undefined {
   return active ? accountDataPath(baseUserData, active.userId) : undefined
@@ -155,7 +170,7 @@ function closePending(): void {
 
 export function cancelLogin(): AuthStatus {
   closePending()
-  if (!active) status = { state: 'signedOut' }
+  if (!active) status = { mode: 'remote', state: 'signedOut' }
   return currentAuthStatus()
 }
 
@@ -195,7 +210,7 @@ async function handleCallback(req: IncomingMessage, res: ServerResponse, login: 
         typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) {
       throw new Error('认证服务响应无效')
     }
-    const value: StoredSession = { token, userId: user.id, expiresAt }
+    const value: StoredSession = { mode: 'remote', token, userId: user.id, expiresAt }
     if (pending !== login) throw new Error('登录请求已取消')
     await verifySession(value)
     if (pending !== login) throw new Error('登录请求已取消')
@@ -206,12 +221,13 @@ async function handleCallback(req: IncomingMessage, res: ServerResponse, login: 
   } catch {
     login.processing = false
     callbackPage(res, 400, '登录未完成，请返回客户端重试。')
-    if (pending === login) status = { state: 'signedOut', message: '登录验证失败，请重试' }
+    if (pending === login) status = { mode: 'remote', state: 'signedOut', message: '登录验证失败，请重试' }
   }
 }
 
 export async function startLogin(): Promise<AuthStatus> {
-  if (!serviceOrigin) return { state: 'unconfigured', message: '认证服务尚未配置' }
+  if (status.mode === 'local') return currentAuthStatus()
+  if (!serviceOrigin) return { mode: 'remote', state: 'unconfigured', message: '认证服务尚未配置' }
   if (active) return currentAuthStatus()
   closePending()
   const state = randomSecret()
@@ -245,22 +261,23 @@ export async function startLogin(): Promise<AuthStatus> {
     }
     login.requestId = result.requestId
     login.timer = setTimeout(() => {
-      if (pending === login) { closePending(); status = { state: 'signedOut', message: '登录超时，请重试' } }
+      if (pending === login) { closePending(); status = { mode: 'remote', state: 'signedOut', message: '登录超时，请重试' } }
     }, 10 * 60_000)
     await shell.openExternal(loginUrl.toString())
     if (pending !== login) return currentAuthStatus()
-    status = { state: 'waiting', message: '请在浏览器中完成登录' }
+    status = { mode: 'remote', state: 'waiting', message: '请在浏览器中完成登录' }
     return currentAuthStatus()
   } catch {
     if (pending === login) {
       closePending()
-      status = { state: 'signedOut', message: '无法打开登录，请检查服务与浏览器' }
+      status = { mode: 'remote', state: 'signedOut', message: '无法打开登录，请检查服务与浏览器' }
     }
     return currentAuthStatus()
   }
 }
 
 export async function logout(): Promise<{ revocationPending: boolean }> {
+  if (active?.mode === 'local') throw new Error('本地模式不支持退出登录')
   closePending()
   setBusinessIpcAvailable(false)
   cancelAllGenerations('user_logout')
@@ -270,7 +287,7 @@ export async function logout(): Promise<{ revocationPending: boolean }> {
   if (recheckTimer) clearInterval(recheckTimer)
   const token = active?.token
   active = undefined
-  status = { state: 'signedOut' }
+  status = { mode: 'remote', state: 'signedOut' }
   await clearSession()
   let revocationPending = false
   if (token) {
@@ -288,7 +305,7 @@ export async function logout(): Promise<{ revocationPending: boolean }> {
 
 export async function startAccountLink(): Promise<{ opened: boolean }> {
   const session = active
-  if (!session || status.state !== 'authenticated') throw new Error('请先登录')
+  if (!session || session.mode !== 'remote' || status.state !== 'authenticated') throw new Error('请先登录')
   const result = await authJson('/v1/auth/link/start', {
     method: 'POST', headers: { authorization: `Bearer ${session.token}` }
   })
@@ -305,9 +322,9 @@ export async function startAccountLink(): Promise<{ opened: boolean }> {
 
 export function startSessionRechecks(): void {
   if (recheckTimer) clearInterval(recheckTimer)
-  if (!active) return
+  if (!active || active.mode !== 'remote') return
   recheckTimer = setInterval(() => {
-    if (!active || rechecking) return
+    if (!active || active.mode !== 'remote' || rechecking) return
     rechecking = true
     const value = active
     void verifySession(value).catch(async (error) => {
@@ -318,7 +335,7 @@ export function startSessionRechecks(): void {
       cancelAllAgentTasks('auth_lost')
       closeAllPluginUi()
       closeAllTerminals()
-      status = { state: 'offline', message: '登录状态无法验证，客户端已锁定' }
+      status = { mode: 'remote', state: 'offline', message: '登录状态无法验证，客户端已锁定' }
       if (error instanceof AuthHttpError && error.statusCode === 401) await clearSession().catch(() => undefined)
       restartClient()
     }).finally(() => { rechecking = false })

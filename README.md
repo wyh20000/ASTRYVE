@@ -36,9 +36,11 @@ npm start
 
 ### 账号认证（开发中）
 
-首次启动显示 Three.js 锁定页。桌面端设置 `AI_AGENT_AUTH_URL=https://你的登录域名`，Sign in 会在系统浏览器打开 Web 登录页；认证服务的部署步骤与变量见 [server/auth/README.md](server/auth/README.md) 和 [server/auth/.env.example](server/auth/.env.example)。本机联调可将认证服务设为 `AUTH_PUBLIC_URL=http://127.0.0.1:8787`、`AUTH_INSECURE_LOCAL_DEV=1`，客户端设 `AI_AGENT_AUTH_URL=http://127.0.0.1:8787`。生产环境只允许 HTTPS。
+当前默认构建为 `local`：使用隔离的本地工作区，不显示登录、退出或账号绑定入口，也不创建伪造的远程会话。运行 `npm run build:local` 可显式构建该模式，`npm run smoke:auth:local` 验证无认证服务时仍能进入客户端。
 
-未配置真实短信或已审核的 QQ、微信网站应用时，对应登录方式显示不可用。开发核验可运行 `npm run test:auth`、`npm run smoke:auth`；正式联调和发布条件见 [账号认证实施任务拆解](docs/19-账号认证实施任务拆解.md)。
+需要认证服务器时运行 `npm run build:remote`，或在执行 `dev` / `build:win` 前把构建环境变量 `AI_AGENT_AUTH_MODE` 设为 `remote`。该模式被编译进主进程，缺少 `AI_AGENT_AUTH_URL=https://你的登录域名` 时保持锁定。Sign in 会在系统浏览器打开 Web 登录页；认证服务的部署步骤与变量见 [server/auth/README.md](server/auth/README.md) 和 [server/auth/.env.example](server/auth/.env.example)。本机联调可将认证服务设为 `AUTH_PUBLIC_URL=http://127.0.0.1:8787`、`AUTH_INSECURE_LOCAL_DEV=1`，客户端设 `AI_AGENT_AUTH_URL=http://127.0.0.1:8787`。生产环境只允许 HTTPS。
+
+未配置真实短信或已审核的 QQ、微信网站应用时，对应登录方式显示不可用。远程认证核验可运行 `npm run test:auth`、`npm run smoke:auth`；正式联调和发布条件见 [账号认证实施任务拆解](docs/19-账号认证实施任务拆解.md)。本地数据以后不自动迁移到远程账号目录。
 
 ### 旧版对话数据库（MySQL，可选）
 旧版对话存储默认连接 `127.0.0.1:3306`，库名 `ai_agent`，用户 `root`，空密码。可用环境变量覆盖：`MYSQL_HOST / MYSQL_PORT / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE`。登录后不连接该共享库，认证服务另需自己的 MySQL 8 数据库。

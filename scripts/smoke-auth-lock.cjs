@@ -7,10 +7,12 @@ const electron = require('electron')
 const projectRoot = path.resolve(__dirname, '..')
 const tempRoot = path.resolve(os.tmpdir())
 const userData = fs.mkdtempSync(path.join(tempRoot, 'aiagent-auth-smoke-'))
+const localMode = process.argv.includes('--local')
 try {
   const result = spawnSync(electron, [projectRoot, `--user-data-dir=${userData}`], {
     cwd: projectRoot, encoding: 'utf8', timeout: 60_000,
-    env: { ...process.env, AI_AGENT_AUTH_SMOKE: '1', AI_AGENT_AUTH_URL: 'http://127.0.0.1:8787',
+    env: { ...process.env, AI_AGENT_AUTH_SMOKE: localMode ? 'unlocked' : '1',
+      ...(localMode ? {} : { AI_AGENT_AUTH_URL: 'http://127.0.0.1:8787' }),
       AI_AGENT_AUTH_SMOKE_USER_DATA: userData }
   })
   const output = `${result.stdout || ''}${result.stderr || ''}`

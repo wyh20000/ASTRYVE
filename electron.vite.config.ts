@@ -7,8 +7,14 @@ const sharedAlias = {
   '@renderer': resolve('src/renderer/src')
 }
 
+const authMode = process.env.AI_AGENT_AUTH_MODE || 'local'
+if (!['local', 'remote'].includes(authMode)) {
+  throw new Error('AI_AGENT_AUTH_MODE must be local or remote')
+}
+
 export default defineConfig({
   main: {
+    define: { __AI_AGENT_AUTH_MODE__: JSON.stringify(authMode) },
     build: {
       rollupOptions: {
         input: {

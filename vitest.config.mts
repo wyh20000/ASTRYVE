@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config'
 import { resolve } from 'path'
 
 export default defineConfig({
+  define: { __AI_AGENT_AUTH_MODE__: JSON.stringify('remote') },
   resolve: {
     alias: {
       '@shared': resolve('src/shared'),

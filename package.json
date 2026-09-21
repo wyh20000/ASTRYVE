@@ -21,6 +21,8 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
+    "build:local": "node scripts/build-auth-mode.cjs local",
+    "build:remote": "node scripts/build-auth-mode.cjs remote",
     "postinstall": "electron-builder install-app-deps",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -29,7 +31,8 @@
     "test:watch": "vitest",
     "build:win": "electron-vite build && electron-builder --win",
     "smoke:theme": "electron-vite build && node scripts/smoke-theme-paint.cjs",
-    "smoke:auth": "electron-vite build && node scripts/smoke-auth-lock.cjs && node scripts/smoke-auth-session.cjs",
+    "smoke:auth": "node scripts/build-auth-mode.cjs remote && node scripts/smoke-auth-lock.cjs && node scripts/smoke-auth-session.cjs",
+    "smoke:auth:local": "node scripts/build-auth-mode.cjs local && node scripts/smoke-auth-lock.cjs --local",
     "smoke:market": "electron-vite build && node scripts/smoke-market-icons.cjs"
   },
   "dependencies": {

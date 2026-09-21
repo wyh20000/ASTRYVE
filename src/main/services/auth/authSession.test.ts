@@ -135,6 +135,24 @@ describe('desktop authentication round trip', () => {
     cancelLogin()
   })
 
+  it('uses an isolated local identity without contacting or persisting a remote session', async () => {
+    const localRoot = await mkdtemp(join(tmpdir(), 'aiagent-local-profile-test-'))
+    try {
+      const local = await initializeAuth(localRoot, 'local')
+      expect(local).toEqual({
+        mode: 'local', state: 'authenticated', userId: '00000000-0000-4000-8000-000000000001'
+      })
+      expect(currentAuthStatus()).toEqual(local)
+      expect(await startLogin()).toEqual(local)
+      await expect(logout()).rejects.toThrow('本地模式不支持退出登录')
+      await expect(startAccountLink()).rejects.toThrow('请先登录')
+      await expect(stat(join(localRoot, 'auth-session.enc'))).rejects.toThrow()
+    } finally {
+      await rm(localRoot, { recursive: true, force: true })
+      await initializeAuth(root, 'remote')
+    }
+  })
+
   it('rejects revoked startup sessions and keeps offline sessions locked', async () => {
     const file = join(root, 'auth-session.enc')
     const stored = { token, userId, expiresAt: Date.now() + 60_000 }
