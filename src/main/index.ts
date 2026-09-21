@@ -41,6 +41,9 @@ import {
 } from './windowSecurity'
 
 const isDev = !app.isPackaged
+if (isDev && process.env.AI_AGENT_AUTH_SMOKE && process.env.AI_AGENT_AUTH_SMOKE_USER_DATA) {
+  app.setPath('userData', process.env.AI_AGENT_AUTH_SMOKE_USER_DATA)
+}
 const rendererEntry = isDev && process.env['ELECTRON_RENDERER_URL']
   ? process.env['ELECTRON_RENDERER_URL']
   : pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
@@ -227,21 +230,29 @@ app.whenReady().then(async () => {
   }
   const mainWindow = createWindow(authStatus.state !== 'authenticated')
 
-  if (!app.isPackaged && process.env.AI_AGENT_AUTH_SMOKE === '1') {
+  if (!app.isPackaged && ['1', 'locked', 'unlocked'].includes(process.env.AI_AGENT_AUTH_SMOKE ?? '')) {
     try {
       await new Promise<void>((resolve) => mainWindow.webContents.once('did-finish-load', () => resolve()))
       const result = await mainWindow.webContents.executeJavaScript(`(async () => {
         const status = await window.agent.auth.status()
-        let businessDenied = false
-        try { await window.agent.session.list() } catch { businessDenied = true }
-        return { locked: Boolean(document.querySelector('.login-lock')), state: status.data?.state, businessDenied }
+        let businessAllowed = false
+        try { businessAllowed = Boolean((await window.agent.session.list()).ok) } catch {}
+        return { locked: Boolean(document.querySelector('.login-lock')),
+          state: status.data?.state, businessAllowed }
       })()`)
-      if (!result.locked || result.state === 'authenticated' || !result.businessDenied) throw new Error(JSON.stringify(result))
+      const expectedUnlocked = process.env.AI_AGENT_AUTH_SMOKE === 'unlocked'
+      if (expectedUnlocked) {
+        if (result.locked || result.state !== 'authenticated' || !result.businessAllowed) throw new Error(JSON.stringify(result))
+      } else if (!result.locked || result.state === 'authenticated' || result.businessAllowed) {
+        throw new Error(JSON.stringify(result))
+      }
       if (process.env.AI_AGENT_AUTH_SCREENSHOT) {
         await new Promise((resolve) => setTimeout(resolve, 700))
         writeFileSync(process.env.AI_AGENT_AUTH_SCREENSHOT, (await mainWindow.webContents.capturePage()).toPNG())
       }
-      console.log('[auth-smoke] PASS: locked renderer and rejected business IPC')
+      console.log(expectedUnlocked
+        ? '[auth-smoke] PASS: verified session unlocked renderer and business IPC'
+        : '[auth-smoke] PASS: locked renderer and rejected business IPC')
       app.exit(0)
     } catch (error) {
       console.error('[auth-smoke] FAIL:', error)

@@ -29,7 +29,7 @@
     "test:watch": "vitest",
     "build:win": "electron-vite build && electron-builder --win",
     "smoke:theme": "electron-vite build && node scripts/smoke-theme-paint.cjs",
-    "smoke:auth": "electron-vite build && node scripts/smoke-auth-lock.cjs",
+    "smoke:auth": "electron-vite build && node scripts/smoke-auth-lock.cjs && node scripts/smoke-auth-session.cjs",
     "smoke:market": "electron-vite build && node scripts/smoke-market-icons.cjs"
   },
   "dependencies": {

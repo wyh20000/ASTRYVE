@@ -11,7 +11,7 @@ try {
   const result = spawnSync(electron, [projectRoot, `--user-data-dir=${userData}`], {
     cwd: projectRoot, encoding: 'utf8', timeout: 60_000,
     env: { ...process.env, AI_AGENT_AUTH_SMOKE: '1', AI_AGENT_AUTH_URL: 'http://127.0.0.1:8787',
-      AI_AGENT_AUTH_SCREENSHOT: path.join(projectRoot, 'docs', 'verification', 'auth-login-preview.png') }
+      AI_AGENT_AUTH_SMOKE_USER_DATA: userData }
   })
   const output = `${result.stdout || ''}${result.stderr || ''}`
   process.stdout.write(output)
