@@ -269,10 +269,10 @@ async function requireSession(req, pool) {
   return { userId: rows[0].user_id, token }
 }
 
-async function requestSms(req, res, pool, ip) {
+async function requestSms(req, res, pool, ip, smsGateway) {
   const { phone: rawPhone, requestId } = await jsonBody(req)
   await requireWebFlow(req, pool, requestId)
-  if (!smsConfigured()) return response(res, 503, { error: '短信登录尚未配置' })
+  if (!smsGateway.configured) return response(res, 503, { error: '短信登录尚未配置' })
   const phone = normalizePhone(rawPhone)
   if (!smsIpLimiter.allow(ip) || !smsPhoneLimiter.allow(phone)) return response(res, 429, { error: '请求过于频繁，请稍后再试' })
   const now = Date.now()
@@ -283,7 +283,7 @@ async function requestSms(req, res, pool, ip) {
     'INSERT INTO auth_sms_challenges (phone, flow_id, code_hash, expires_at, sent_at, attempts) VALUES (?, ?, ?, ?, ?, 0) ON DUPLICATE KEY UPDATE flow_id = VALUES(flow_id), code_hash = VALUES(code_hash), expires_at = VALUES(expires_at), sent_at = VALUES(sent_at), attempts = 0',
     [phone, requestId, smsCodeHash(cfg.codeSecret, phone, code), now + SMS_LIFETIME, now]
   )
-  try { await sendSms(phone, code) }
+  try { await smsGateway.send(phone, code) }
   catch {
     await pool.execute('DELETE FROM auth_sms_challenges WHERE phone = ? AND sent_at = ?', [phone, now])
     return response(res, 503, { error: '短信暂时无法发送' })
@@ -338,7 +338,7 @@ async function verifySms(req, res, pool, ip) {
   finally { db.release() }
 }
 
-async function handler(req, res, pool) {
+async function handler(req, res, pool, smsGateway) {
   const ip = req.socket.remoteAddress || 'unknown'
   if (!ipLimiter.allow(ip)) return response(res, 429, { error: '请求过于频繁' })
   const url = new URL(req.url || '/', 'http://localhost')
@@ -362,11 +362,11 @@ async function handler(req, res, pool) {
   }
   if (req.method === 'GET' && url.pathname === '/health') return response(res, 200, { ok: true })
   if (req.method === 'GET' && url.pathname === '/v1/auth/methods') return response(res, 200, {
-    phone: smsConfigured(), qq: providerEnabled('qq', oauthConfig), wechat: providerEnabled('wechat', oauthConfig)
+    phone: smsGateway.configured, qq: providerEnabled('qq', oauthConfig), wechat: providerEnabled('wechat', oauthConfig)
   })
   if (req.method === 'POST' && url.pathname === '/v1/auth/desktop/start') return startDesktopFlow(req, res, pool)
   if (req.method === 'POST' && url.pathname === '/v1/auth/desktop/exchange') return exchangeDesktopCode(req, res, pool)
-  if (req.method === 'POST' && url.pathname === '/v1/auth/sms/request') return requestSms(req, res, pool, ip)
+  if (req.method === 'POST' && url.pathname === '/v1/auth/sms/request') return requestSms(req, res, pool, ip, smsGateway)
   if (req.method === 'POST' && url.pathname === '/v1/auth/sms/verify') return verifySms(req, res, pool, ip)
   if (req.method === 'POST' && url.pathname === '/v1/auth/oauth/start') return startProviderLogin(req, res, pool)
   // Every other endpoint, including unknown paths, requires a valid session.
@@ -379,9 +379,9 @@ async function handler(req, res, pool) {
   return response(res, 404, { error: '接口不存在' })
 }
 
-export function createAuthRequestHandler(pool) {
+export function createAuthRequestHandler(pool, smsGateway = { configured: smsConfigured(), send: sendSms }) {
   return (req, res) => {
-    Promise.resolve(handler(req, res, pool)).catch((error) => {
+    Promise.resolve(handler(req, res, pool, smsGateway)).catch((error) => {
       if (res.headersSent) { res.destroy(); return }
       const status = Number.isInteger(error?.status) ? error.status : error instanceof TypeError ? 400 : 500
       if (status === 500) console.error('[auth] request failed:', error?.message)

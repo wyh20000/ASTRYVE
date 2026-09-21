@@ -32,6 +32,7 @@ import { initPluginRegistry } from './services/agent/pluginManager'
 import { configureTrustedIpcSender } from './ipc/validation'
 import { setBusinessIpcAvailable } from './ipc/validation'
 import { registerAuthIpc } from './ipc/auth'
+import { closeAllTerminals } from './ipc/terminal'
 import { currentAccountPath, currentAuthStatus, initializeAuth, setDevelopmentSmokeAuth, startSessionRechecks } from './services/auth/authSession'
 import {
   createSecureWebPreferences,
@@ -280,6 +281,7 @@ app.on('before-quit', (event) => {
   shutdownStarted = true
   cancelAllGenerations()
   cancelAllAgentTasks('app_quit')
+  closeAllTerminals()
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<void>((resolve) => {
     timeoutHandle = setTimeout(resolve, 2_000)

@@ -23,6 +23,8 @@ export function registerTerminalIpc(): void {
       const workspaceId = getSessionWorkspaceId(sessionId)
       if (!workspaceId) return err('NO_WORKSPACE', '当前会话未绑定项目工作区')
       await getWorkspaceService().activate(workspaceId)
+      // Authentication may have been revoked while workspace activation awaited I/O.
+      assertTrustedIpcSender(event)
       const grant = getWorkspaceService().getGrant(workspaceId)
       if (!grant) return err('NO_WORKSPACE', '工作区授权已失效')
       closeOwnerTerminals(event.sender.id)
@@ -90,6 +92,13 @@ function requireOwned(id: unknown, ownerId: number): TerminalSession {
 function closeOwnerTerminals(ownerId: number): void {
   for (const terminal of terminals.values()) {
     if (terminal.ownerId !== ownerId) continue
+    terminals.delete(terminal.id)
+    terminal.child.kill()
+  }
+}
+
+export function closeAllTerminals(): void {
+  for (const terminal of terminals.values()) {
     terminals.delete(terminal.id)
     terminal.child.kill()
   }

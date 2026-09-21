@@ -9,6 +9,7 @@ import { setBusinessIpcAvailable } from '../../ipc/validation'
 import { cancelAllGenerations } from '../generationTasks'
 import { cancelAllAgentTasks } from '../agent/taskRuntimeManager'
 import { closeAllPluginUi } from '../agent/pluginUiWindow'
+import { closeAllTerminals } from '../../ipc/terminal'
 
 interface StoredSession { token: string; userId: string; expiresAt: number }
 interface PendingLogin {
@@ -251,8 +252,10 @@ export async function startLogin(): Promise<AuthStatus> {
     status = { state: 'waiting', message: '请在浏览器中完成登录' }
     return currentAuthStatus()
   } catch {
-    if (pending === login) closePending()
-    status = { state: 'signedOut', message: '无法打开登录，请检查服务与浏览器' }
+    if (pending === login) {
+      closePending()
+      status = { state: 'signedOut', message: '无法打开登录，请检查服务与浏览器' }
+    }
     return currentAuthStatus()
   }
 }
@@ -263,6 +266,7 @@ export async function logout(): Promise<{ revocationPending: boolean }> {
   cancelAllGenerations('user_logout')
   cancelAllAgentTasks('user_logout')
   closeAllPluginUi()
+  closeAllTerminals()
   if (recheckTimer) clearInterval(recheckTimer)
   const token = active?.token
   active = undefined
@@ -296,6 +300,7 @@ export function startSessionRechecks(): void {
       cancelAllGenerations('auth_lost')
       cancelAllAgentTasks('auth_lost')
       closeAllPluginUi()
+      closeAllTerminals()
       status = { state: 'offline', message: '登录状态无法验证，客户端已锁定' }
       if (error instanceof AuthHttpError && error.statusCode === 401) await clearSession().catch(() => undefined)
       restartClient()
