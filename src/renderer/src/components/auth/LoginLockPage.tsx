@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AuthStatus } from '@shared/types'
 import { LoginScene } from './LoginScene'
+import astryveIcon from '../../assets/astryve-icon.png'
 import './loginLock.css'
 
 export function LoginLockPage({ initialStatus }: { initialStatus: AuthStatus }): JSX.Element {
@@ -29,13 +30,13 @@ export function LoginLockPage({ initialStatus }: { initialStatus: AuthStatus }):
   }
 
   return <div className="login-lock">
-    <header className="login-lock-brand"><span className="login-lock-logo">◇</span><span>AI AGENT</span></header>
+    <header className="login-lock-brand"><img className="login-lock-logo" src={astryveIcon} alt="" /><span>ASTRYVE</span></header>
     <main className="login-lock-main">
       <LoginScene />
-      <section className="login-lock-panel-area" aria-label="登录 AI Agent">
+      <section className="login-lock-panel-area" aria-label="登录 ASTRYVE">
         <div className="login-lock-panel">
           <h2>欢迎回来</h2>
-          <p className="login-lock-subtitle">登录 AI Agent，继续你的工作。</p>
+          <p className="login-lock-subtitle">登录 ASTRYVE，继续你的工作。</p>
           <button className="login-lock-primary" type="button" onClick={() => void start()}
             disabled={busy || status.state === 'waiting' || status.state === 'unconfigured'}>
             {busy ? '正在打开…' : status.state === 'waiting' ? '等待浏览器登录…' : '开始登录'} <span>↗</span>
@@ -45,6 +46,6 @@ export function LoginLockPage({ initialStatus }: { initialStatus: AuthStatus }):
         </div>
       </section>
     </main>
-    <footer className="login-lock-footer">© AI Agent · 2026</footer>
+    <footer className="login-lock-footer">© ASTRYVE · 2026</footer>
   </div>
 }

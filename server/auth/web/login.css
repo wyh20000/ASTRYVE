@@ -17,10 +17,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid #dbeaff; outline-
 #starfield { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none }
 
 .brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 11px; height: 78px; padding: 0 clamp(24px, 4vw, 52px); color: #d7e6fb; font-size: 12px; font-weight: 700; letter-spacing: .17em }
-.brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #8ca6cd9c; border-radius: 8px; color: #bdd5fa; font-size: 20px; font-weight: 400; line-height: 1 }
+.brand-mark { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 18px #48c9ff38 }
 .layout { position: relative; z-index: 1; display: grid; place-items: center; min-height: calc(100vh - 126px); padding: 0 24px }
 .panel { width: min(100%, 420px); padding: 26px 34px 19px; border: 1px solid #b4c9e94d; border-radius: 20px; background: #7896c524; box-shadow: 0 24px 75px #02061052, inset 0 1px #ffffff19; backdrop-filter: blur(16px) saturate(115%); -webkit-backdrop-filter: blur(16px) saturate(115%) }
-.panel-symbol { display: grid; place-items: center; width: 39px; height: 39px; margin: 0 auto 12px; border: 1px solid #c6dcf475; border-radius: 11px; color: #e5f3ff; background: #b4d2f327; font-size: 25px }
+.panel-symbol { display: block; width: 42px; height: 42px; margin: 0 auto 12px; border-radius: 12px; object-fit: cover; box-shadow: 0 0 24px #48c9ff40 }
 h1 { margin: 0; text-align: center; font-size: 29px; font-weight: 600; letter-spacing: -.04em }
 .intro { margin: 7px 0 18px; color: #c4d0e4; text-align: center; font-size: 13px }
 label { display: block; margin: 12px 0 7px; color: #d7e2f3; font-size: 12px; font-weight: 600 }

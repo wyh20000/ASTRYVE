@@ -113,7 +113,7 @@ beforeEach(() => {
 describe('ChatInput 基本结构', () => {
   it('渲染输入框与提示语', () => {
     render(wrap(<ChatInput sessionId="s1" />))
-    expect(screen.getByPlaceholderText('向 AI Agent 发送消息...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('向 ASTRYVE 发送消息...')).toBeInTheDocument()
     expect(screen.getByText('AI 生成的内容可能不准确，请注意甄别')).toBeInTheDocument()
   })
 
@@ -124,7 +124,7 @@ describe('ChatInput 基本结构', () => {
 
   it('输入内容后发送按钮可用', async () => {
     render(wrap(<ChatInput sessionId="s1" />))
-    await userEvent.type(screen.getByPlaceholderText('向 AI Agent 发送消息...'), '你好')
+    await userEvent.type(screen.getByPlaceholderText('向 ASTRYVE 发送消息...'), '你好')
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
   })
 
@@ -138,7 +138,7 @@ describe('ChatInput 基本结构', () => {
 describe('ChatInput 发送行为', () => {
   it('Enter 触发发送并把内容交给 store', async () => {
     render(wrap(<ChatInput sessionId="s1" />))
-    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')
     await userEvent.type(textarea, '你好{Enter}')
 
     await waitFor(() => expect(chatState.send).toHaveBeenCalled())
@@ -150,7 +150,7 @@ describe('ChatInput 发送行为', () => {
 
   it('一次回车只发送一次（Sender 与本组件不重复提交）', async () => {
     render(wrap(<ChatInput sessionId="s1" />))
-    await userEvent.type(screen.getByPlaceholderText('向 AI Agent 发送消息...'), '你好{Enter}')
+    await userEvent.type(screen.getByPlaceholderText('向 ASTRYVE 发送消息...'), '你好{Enter}')
 
     await waitFor(() => expect(chatState.send).toHaveBeenCalledTimes(1))
     // 再放一拍，确认没有延迟的第二次调用
@@ -160,7 +160,7 @@ describe('ChatInput 发送行为', () => {
 
   it('Shift+Enter 换行而不发送', async () => {
     render(wrap(<ChatInput sessionId="s1" />))
-    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')
     await userEvent.type(textarea, '第一行{Shift>}{Enter}{/Shift}第二行')
 
     expect(chatState.send).not.toHaveBeenCalled()
@@ -185,7 +185,7 @@ describe('ChatInput 排版约束', () => {
 
   it('输入框使用 14px 正文层级', () => {
     render(wrap(<ChatInput sessionId="s1" />))
-    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')
     expect(textarea.getAttribute('class')).toContain('text-[14px]')
   })
 })
@@ -270,7 +270,7 @@ describe('ChatInput 由 Ant Design X Sender 驱动', () => {
       }
     ]
     render(wrap(<ChatInput sessionId="s1" />))
-    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')
     await userEvent.type(textarea, '/dem')
 
     expect(screen.getByRole('listbox', { name: 'Skill 快捷指令' })).toBeInTheDocument()
@@ -293,7 +293,7 @@ describe('ChatInput 由 Ant Design X Sender 驱动', () => {
       }
     ]
     render(wrap(<ChatInput sessionId="s1" />))
-    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')
     await userEvent.type(textarea, '@pl')
 
     expect(screen.getByRole('listbox', { name: '插件快捷选择' })).toBeInTheDocument()
@@ -306,7 +306,7 @@ describe('ChatInput 由 Ant Design X Sender 驱动', () => {
   it('输入历史仍可用：↑ 取回上一条用户消息', async () => {
     chatState.messages = { s1: [{ role: 'user', content: '上一条消息' }] }
     render(wrap(<ChatInput sessionId="s1" />))
-    const textarea = screen.getByPlaceholderText('向 AI Agent 发送消息...')
+    const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')
 
     await userEvent.click(textarea)
     await userEvent.keyboard('{ArrowUp}')

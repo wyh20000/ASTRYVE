@@ -41,6 +41,7 @@ import {
 } from './windowSecurity'
 
 const isDev = !app.isPackaged
+app.setName('ASTRYVE')
 if (isDev && process.env.AI_AGENT_AUTH_SMOKE && process.env.AI_AGENT_AUTH_SMOKE_USER_DATA) {
   app.setPath('userData', process.env.AI_AGENT_AUTH_SMOKE_USER_DATA)
 }
@@ -63,6 +64,8 @@ function createWindow(locked = false): BrowserWindow {
   const windowSymbol = locked ? '#d7e6fb' : firstPaintSymbol
 
   const win = new BrowserWindow({
+    title: 'ASTRYVE',
+    icon: isDev ? join(process.cwd(), 'build', 'icon.png') : join(process.resourcesPath, 'icon.png'),
     width: locked ? 1120 : 1440,
     height: locked ? 760 : 900,
     minWidth: locked ? 430 : 1120,
@@ -122,6 +125,7 @@ function createWindow(locked = false): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'win32') app.setAppUserModelId('com.astryve.app')
   if (isDev && process.env.AI_AGENT_PLUGIN_UI_SMOKE === '1') {
     try {
       const { runPluginUiSmoke } = await import('./services/agent/pluginUiSmoke')

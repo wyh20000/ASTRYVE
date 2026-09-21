@@ -1,4 +1,4 @@
-# AI Agent（桌面智能体客户端）
+# ASTRYVE（桌面智能体客户端）
 
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 

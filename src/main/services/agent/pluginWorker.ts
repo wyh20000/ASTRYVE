@@ -83,7 +83,7 @@ export class PluginWorkerHost {
       this.startupTimer.unref?.()
       try {
         this.child = this.fork(this.options.workerPath, [], {
-          serviceName: `AI Agent plugin ${definition.pluginId}`,
+          serviceName: `ASTRYVE plugin ${definition.pluginId}`,
           env: allowlistedEnvironment(),
           stdio: 'ignore'
         })

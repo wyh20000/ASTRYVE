@@ -15,7 +15,7 @@ export async function runPluginRuntimeSmoke(): Promise<void> {
     const zip = new JSZip()
     zip.file('plugin.json', JSON.stringify({
       schemaVersion: 1, id: 'smoke.market-plugin', name: 'Smoke market plugin', version: '1.0.0',
-      description: 'Verifies the real isolated plugin worker', author: 'AI Agent', permissions: ['workspace.read'],
+      description: 'Verifies the real isolated plugin worker', author: 'ASTRYVE', permissions: ['workspace.read'],
       hooks: { 'task.created': [{ entry: 'hooks/created.mjs', priority: 1, timeoutMs: 500 }] },
       tools: [{
         name: 'echo', description: 'Echo smoke input', entry: 'tools/echo.mjs', operation: 'fs.read',
@@ -26,7 +26,7 @@ export async function runPluginRuntimeSmoke(): Promise<void> {
     zip.file('hooks/created.mjs', 'export default async ()=>{throw new Error("expected smoke hook") }')
     const bytes = await zip.generateAsync({ type: 'nodebuffer' })
     const entry: PluginMarketEntry = {
-      id: 'smoke.market-plugin', name: 'Smoke market plugin', version: '1.0.0', description: 'Smoke', author: 'AI Agent',
+      id: 'smoke.market-plugin', name: 'Smoke market plugin', version: '1.0.0', description: 'Smoke', author: 'ASTRYVE',
       sourceId: 'source-smoke', sourceName: 'Smoke', sourceKind: 'community', verified: false,
       packageUrl: 'https://plugins.invalid/smoke.zip', sha256: createHash('sha256').update(bytes).digest('hex'),
       permissions: ['workspace.read'], categories: ['test'], platforms: [], architectures: [], components: ['tools', 'hooks']

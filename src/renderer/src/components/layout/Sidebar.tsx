@@ -4,6 +4,7 @@ import SessionList from '../sidebar/SessionList'
 import SidebarFooter from '../sidebar/SidebarFooter'
 import { Button, IconButton, SearchInput } from '../ui'
 import { Icon } from '../ui/icons'
+import astryveIcon from '../../assets/astryve-icon.png'
 
 /**
  * 左侧会话管理（文档 8.2）。
@@ -39,10 +40,8 @@ export default function Sidebar(): JSX.Element {
     >
       {/* 顶栏：Logo + 应用名 + 收起 */}
       <div className="flex h-12 items-center gap-2 px-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent">
-          <Icon.Brain size={16} className="text-accent-contrast" />
-        </div>
-        <span className="text-[16px] font-semibold text-txt-primary">AI Agent</span>
+        <img className="h-7 w-7 rounded-lg" src={astryveIcon} alt="" />
+        <span className="text-[16px] font-semibold tracking-[0.08em] text-txt-primary">ASTRYVE</span>
         <span className="ml-auto">
           <IconButton icon={<Icon.Layout size={16} />} label="收起侧栏" onClick={toggle} />
         </span>

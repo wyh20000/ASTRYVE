@@ -209,7 +209,7 @@ export function PluginSection(): JSX.Element {
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
         <h1 className="selectable text-[20px] font-semibold text-txt-primary">插件</h1>
-        <p className="mt-1 text-[14px] text-txt-muted">在你常用的工具中与 AI Agent 协作</p>
+        <p className="mt-1 text-[14px] text-txt-muted">在你常用的工具中与 ASTRYVE 协作</p>
       </div>
       <details ref={importMenuRef} onToggle={(event) => setImportMenuOpen(event.currentTarget.open)} className="group relative shrink-0">
         <summary aria-haspopup="menu" aria-expanded={importMenuOpen} className="inline-flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-bg-raised px-3 py-1.5 text-[14px] font-medium text-txt-secondary transition-colors hover:border-border-strong hover:bg-bg-active hover:text-txt-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">

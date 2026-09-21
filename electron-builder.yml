@@ -1,5 +1,5 @@
-appId: com.aiagent.app
-productName: AI Agent
+appId: com.astryve.app
+productName: ASTRYVE
 directories:
   output: release
   buildResources: build
@@ -9,15 +9,21 @@ files:
 asar: true
 asarUnpack:
   - out/native/**
+extraResources:
+  - from: build/icon.png
+    to: icon.png
 win:
+  icon: build/icon.png
   target:
     - nsis
   artifactName: ${productName}-${version}-setup.${ext}
 mac:
+  icon: build/icon.png
   target:
     - dmg
   category: public.app-category.developer-tools
 linux:
+  icon: build/icon.png
   target:
     - AppImage
   category: Development

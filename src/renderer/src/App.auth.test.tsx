@@ -14,7 +14,7 @@ it('keeps the conversation UI unmounted when the main process denies authenticat
     sessions: { list: listSessions }
   })
   render(<App />)
-  expect(await screen.findByRole('region', { name: '登录 AI Agent' })).toBeInTheDocument()
+  expect(await screen.findByRole('region', { name: '登录 ASTRYVE' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /开始登录/ })).toBeInTheDocument()
   expect(listSessions).not.toHaveBeenCalled()
 })

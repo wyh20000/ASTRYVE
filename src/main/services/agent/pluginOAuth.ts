@@ -198,7 +198,7 @@ async function registerClient(
   const response = await fetchJson(fetcher, new URL(metadata.registrationEndpoint), timeoutMs ?? DEFAULT_TIMEOUT_MS,
     MAX_METADATA_BYTES, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ redirect_uris: [redirectUri], token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'], client_name: 'AI Agent Desktop' })
+      body: JSON.stringify({ redirect_uris: [redirectUri], token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'], client_name: 'ASTRYVE Desktop' })
     }, resolveHostname)
   if (typeof response.client_id !== 'string' || !response.client_id || response.client_id.length > 512 || response.client_secret !== undefined) {
     throw new Error('OAuth 动态客户端注册响应无效')

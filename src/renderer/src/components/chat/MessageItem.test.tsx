@@ -32,7 +32,7 @@ describe('MessageItem', () => {
       id: 'message-2', sessionId: 'session-1', role: 'assistant', content: '完成', status: 'done', timestamp: 1
     }
     const html = renderToStaticMarkup(<MessageItem message={message} />)
-    expect(html).not.toContain('AI Agent')
+    expect(html).not.toContain('ASTRYVE')
     expect(html).toContain('完成')
   })
 

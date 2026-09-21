@@ -49,15 +49,11 @@
 }
 
 .login-lock-logo {
-    display: grid;
-    place-items: center;
     width: 27px;
     height: 27px;
-    border: 1px solid #8ca6cd9c;
     border-radius: 8px;
-    color: #bdd5fa;
-    font-size: 20px;
-    line-height: 1
+    object-fit: cover;
+    box-shadow: 0 0 18px #48c9ff38
 }
 
 .login-lock-main {

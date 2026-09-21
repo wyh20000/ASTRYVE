@@ -188,7 +188,7 @@ describe('Agent 消息 - 保持 borderless 内容流', () => {
 
   it('不渲染 Agent 头像与名称', () => {
     render(wrap(<MessageItem message={assistantMessage()} />))
-    expect(screen.queryByText('AI Agent')).not.toBeInTheDocument()
+    expect(screen.queryByText('ASTRYVE')).not.toBeInTheDocument()
     expect(screen.getByText('完成')).toBeInTheDocument()
   })
 

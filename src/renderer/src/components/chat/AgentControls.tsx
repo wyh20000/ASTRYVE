@@ -123,7 +123,7 @@ export function AgentControls({ workspaceId }: { workspaceId?: string }): JSX.El
       {open && project && (
         <div className="absolute bottom-full left-0 z-40 mb-2 w-[300px] overflow-hidden rounded-lg border border-border bg-bg-raised shadow-2xl">
           <div className="border-b border-border px-3 py-2 text-[14px] text-txt-muted">
-            {open === 'permission' ? 'AI Agent 可以执行哪些操作？'
+            {open === 'permission' ? 'ASTRYVE 可以执行哪些操作？'
               : open === 'environment' ? '代码在哪个环境中执行？' : '使用哪个本机已有镜像？'}
           </div>
           <div className="py-1">

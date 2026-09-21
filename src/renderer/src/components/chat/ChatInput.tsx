@@ -452,7 +452,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             onCancel={() => void stop(sessionId)}
             loading={sending}
             disabled={Boolean(inputRequest)}
-            placeholder={inputRequest ? '请先回答上方问题…' : '向 AI Agent 发送消息...'}
+            placeholder={inputRequest ? '请先回答上方问题…' : '向 ASTRYVE 发送消息...'}
             /* Enter 发送 / Shift+Enter 换行由 Sender 承担，与迁移前规则一致 */
             submitType="enter"
             autoSize={{ minRows: 1, maxRows: MAX_ROWS }}

@@ -184,7 +184,7 @@ function restartClient(): void {
 function callbackPage(res: ServerResponse, code: number, text: string): void {
   res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
     'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'" })
-  res.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>AI Agent 登录</title><body>${text}</body></html>`)
+  res.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>ASTRYVE 登录</title><body>${text}</body></html>`)
 }
 
 async function handleCallback(req: IncomingMessage, res: ServerResponse, login: PendingLogin): Promise<void> {
@@ -215,7 +215,7 @@ async function handleCallback(req: IncomingMessage, res: ServerResponse, login: 
     await verifySession(value)
     if (pending !== login) throw new Error('登录请求已取消')
     await saveSession(value)
-    callbackPage(res, 200, '登录成功，可以返回 AI Agent 客户端。')
+    callbackPage(res, 200, '登录成功，可以返回 ASTRYVE 客户端。')
     closePending()
     setTimeout(restartClient, 100)
   } catch {

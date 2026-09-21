@@ -66,7 +66,7 @@ function htmlResponse(res, status, html, headers = {}) {
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
     'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
-    'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     ...headers
   })
   res.end(html)
@@ -376,7 +376,7 @@ async function linkProviderCallback(req, res, pool, provider, code, state) {
     }
     await commitDb.execute('UPDATE auth_link_flows SET status = ? WHERE id = ?', ['completed', requestId])
     await commitDb.commit()
-    return htmlResponse(res, 200, '<h1>绑定成功，可以返回 AI Agent 客户端</h1>')
+    return htmlResponse(res, 200, '<h1>绑定成功，可以返回 ASTRYVE 客户端</h1>')
   } catch (error) { await commitDb.rollback(); throw error }
   finally { commitDb.release() }
 }
@@ -603,6 +603,9 @@ async function handler(req, res, pool, smsGateway) {
   }
   if (req.method === 'GET' && url.pathname === '/auth/login.css') {
     return staticResponse(res, 'text/css; charset=utf-8', readFileSync(fileURLToPath(new URL('./web/login.css', import.meta.url))))
+  }
+  if (req.method === 'GET' && url.pathname === '/auth/astryve-icon.png') {
+    return staticResponse(res, 'image/png', readFileSync(fileURLToPath(new URL('./web/astryve-icon.png', import.meta.url))))
   }
   if (req.method === 'GET' && url.pathname === '/health') return response(res, 200, { ok: true })
   if (req.method === 'GET' && url.pathname === '/v1/auth/methods') return response(res, 200, {

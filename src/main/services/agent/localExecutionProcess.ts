@@ -14,7 +14,7 @@ export function executeInUtilityProcess(
   if (signal.aborted) return Promise.reject(new Error('COMMAND_CANCELLED'))
   return new Promise((resolve, reject) => {
     const worker = utilityProcess.fork(join(__dirname, 'localExecutionWorker.js'), [], {
-      serviceName: 'AI Agent command worker', env: { ...command.env }, stdio: 'ignore'
+      serviceName: 'ASTRYVE command worker', env: { ...command.env }, stdio: 'ignore'
     })
     let settled = false
     let cancellation = false

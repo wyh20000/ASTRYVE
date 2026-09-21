@@ -14,7 +14,7 @@ export default function StatusBar(): JSX.Element {
 
   return (
     <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-bg-panel px-3 text-[14px] text-txt-muted">
-      <span className="selectable font-medium text-txt-secondary">AI Agent</span>
+      <span className="selectable font-medium tracking-[0.08em] text-txt-secondary">ASTRYVE</span>
       <span className="selectable">模型：{model || '未配置'}</span>
       <span className="selectable">主题：{label}{custom ? '（自定义）' : ''}</span>
       <span className="ml-auto selectable">就绪</span>

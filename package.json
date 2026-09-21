@@ -1,9 +1,9 @@
 {
-  "name": "ai-agent",
+  "name": "astryve",
   "version": "0.1.0",
-  "description": "类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端",
+  "description": "ASTRYVE 桌面智能体客户端",
   "main": "./out/main/index.js",
-  "author": "AI Agent Team",
+  "author": "ASTRYVE Team",
   "license": "MIT",
   "private": true,
   "scripts": {

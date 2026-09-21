@@ -136,7 +136,7 @@ describe('Extensions settings page', () => {
     expect(html).toContain('aria-selected="true"')
     expect(html).toContain('插件</button>')
     expect(html).toContain('技能</button>')
-    expect(html).toContain('在你常用的工具中与 AI Agent 协作')
+    expect(html).toContain('在你常用的工具中与 ASTRYVE 协作')
     expect(html).not.toContain('技能市场')
   })
 
