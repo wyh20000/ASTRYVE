@@ -6,10 +6,14 @@ export type NativeMessagingInvocation =
   | { mode: 'rejected' }
 
 export function resolveNativeMessagingInvocation(args: readonly string[]): NativeMessagingInvocation {
-  const origins = args.filter((argument) => argument.startsWith('chrome-extension://'))
-  if (!origins.length) return { mode: 'desktop' }
-  if (origins.length === 1 && origins[0] === BROWSER_EXTENSION_ORIGIN) {
-    return { mode: 'native-host', origin: BROWSER_EXTENSION_ORIGIN }
+  const containsExtensionOrigin = args.some((argument) =>
+    argument.startsWith('chrome-extension://'))
+  if (!containsExtensionOrigin) return { mode: 'desktop' }
+  if (args[0] !== BROWSER_EXTENSION_ORIGIN) return { mode: 'rejected' }
+  const trailing = args.slice(1)
+  if (trailing.length > 1 ||
+      (trailing.length === 1 && !/^--parent-window=\d+$/.test(trailing[0] ?? ''))) {
+    return { mode: 'rejected' }
   }
-  return { mode: 'rejected' }
+  return { mode: 'native-host', origin: BROWSER_EXTENSION_ORIGIN }
 }

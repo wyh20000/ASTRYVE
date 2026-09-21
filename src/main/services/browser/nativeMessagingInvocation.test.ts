@@ -8,6 +8,10 @@ describe('Native Messaging invocation detection', () => {
       .toEqual({ mode: 'native-host', origin: BROWSER_EXTENSION_ORIGIN })
     expect(resolveNativeMessagingInvocation(['chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/']))
       .toEqual({ mode: 'rejected' })
+    expect(resolveNativeMessagingInvocation(['--parent-window=1', BROWSER_EXTENSION_ORIGIN]))
+      .toEqual({ mode: 'rejected' })
+    expect(resolveNativeMessagingInvocation([BROWSER_EXTENSION_ORIGIN, '--unexpected']))
+      .toEqual({ mode: 'rejected' })
   })
 
   it('keeps ordinary launches on the existing desktop path', () => {
