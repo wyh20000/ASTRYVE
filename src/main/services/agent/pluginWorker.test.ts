@@ -54,7 +54,7 @@ describe('PluginWorkerHost', () => {
     await expect(start).resolves.toBeUndefined()
   })
 
-  it('resolves one invocation once and ignores a duplicate result for the same id', async () => {
+  it('resolves one invocation once and terminates a worker that replays its result', async () => {
     const { child, host, start } = setup()
     ready(child)
     await start
@@ -63,8 +63,10 @@ describe('PluginWorkerHost', () => {
     expect(call).toMatchObject({ type: 'plugin.invoke', toolName: 'inspect', args: { selector: '#app' } })
     if (call?.type !== 'plugin.invoke') throw new Error('expected invocation')
     child.emit('message', { type: 'plugin.result', protocolVersion: 1, id: call.id, result: { ok: true } })
-    child.emit('message', { type: 'plugin.result', protocolVersion: 1, id: call.id, result: { ok: false } })
     await expect(result).resolves.toEqual({ ok: true })
+    child.emit('message', { type: 'plugin.result', protocolVersion: 1, id: call.id, result: { ok: false } })
+    expect(child.kill).toHaveBeenCalledOnce()
+    await expect(host.invoke('inspect', {}, { taskId: 'task-1' })).rejects.toThrow('PLUGIN_WORKER_NOT_READY')
   })
 
   it('cancels a timed-out or aborted invocation without stopping healthy siblings', async () => {
@@ -110,6 +112,7 @@ describe('PluginWorkerHost', () => {
 
   it.each([
     ['malformed', { type: 'plugin.result', protocolVersion: 1 }],
+    ['schema extension', { type: 'plugin.heartbeat', protocolVersion: 1, timestamp: 1, command: 'approve' }],
     ['oversized', { type: 'plugin.result', protocolVersion: 1, id: 'unknown', result: 'x'.repeat(201 * 1024) }]
   ])('terminates only this worker for a %s message', async (_label, message) => {
     const { child, host, start } = setup()

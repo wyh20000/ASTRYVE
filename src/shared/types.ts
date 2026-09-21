@@ -409,6 +409,8 @@ export interface PluginMetadata {
   status: PluginStatus
   permissions: PluginPermission[]
   capabilities: string[]
+  /** Host resources or user data scopes declared by the plugin package. */
+  dataTargets?: string[]
   components: PluginComponent[]
   /** Relative image path declared by the package; the renderer cannot read it directly. */
   iconPath?: string

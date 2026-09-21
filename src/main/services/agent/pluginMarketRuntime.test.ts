@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import JSZip from 'jszip'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ToolExecutionContext } from '../../../shared/agent'
 import type { AuditEvent } from '../../../shared/agent'
 import type { PluginMarketEntry } from '../../../shared/types'
@@ -149,9 +149,10 @@ describe('market plugin runtime', () => {
     await snapshot.dispose()
 
     const events: AuditEvent[] = []
+    const stopReasons: string[] = []
     const failing = await capturePluginTaskTools(['acme.market-runtime'], () => ({
       invoke: async () => { throw new Error('PLUGIN_STARTUP_TIMEOUT') },
-      stop: async () => undefined
+      stop: async (reason) => { stopReasons.push(reason ?? 'unspecified') }
     }), (event) => events.push(event))
     for (let attempt = 0; attempt < 3; attempt += 1) await failing.tools[0].execute({ value: 'fails' }, context)
     expect(events.filter((event) => event.action === 'plugin.start')).toHaveLength(3)
@@ -159,6 +160,7 @@ describe('market plugin runtime', () => {
       action: 'plugin.isolation', reasonCode: 'PLUGIN_ISOLATED', pluginId: 'acme.market-runtime',
       pluginVersion: '1.0.0', taskId: context.taskId, workspaceId: context.workspace.id
     }))
+    await vi.waitFor(() => expect(stopReasons).toContain('plugin_quarantined'))
     await failing.dispose()
   })
 

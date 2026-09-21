@@ -20,6 +20,7 @@ describe('plugin uninstall data boundary', () => {
 
     await uninstallPlugin(id, 'keep', root, installed, { stop, disposeConnections })
     expect(await exists(join(installed, id))).toBe(false)
+    expect(await exists(join(root, 'plugin-history', id))).toBe(false)
     expect(await exists(join(root, 'plugin-data', id))).toBe(true)
     expect(await exists(join(root, 'agent-audit.json'))).toBe(true)
 

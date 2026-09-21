@@ -4,13 +4,13 @@ import { runSafeAutoUpdates, selectSafeAutoUpdates } from './pluginAutoUpdate'
 
 const installed: PluginMetadata = {
   id: 'acme.tools', name: 'Tools', version: '1.0.0', description: '', source: 'installed', sourceFormat: 'native',
-  enabled: true, status: 'ready', permissions: ['workspace.read'], capabilities: [], components: ['tools'], errors: [],
+  enabled: true, status: 'ready', permissions: ['workspace.read'], capabilities: [], dataTargets: ['workspace'], components: ['tools'], errors: [],
   installOrigin: { pluginVersion: '1.0.0', sourceId: 'official', sourceName: 'Official', sourceKind: 'official', verified: true, publisherId: 'publisher:acme' }
 }
 const entry: PluginMarketEntry = {
   id: 'acme.tools', name: 'Tools', version: '2.0.0', description: '', author: 'Acme', sourceId: 'official',
   sourceName: 'Official', sourceKind: 'official', verified: true, publisherId: 'publisher:acme',
-  permissions: ['workspace.read'], categories: [], platforms: [], architectures: [], components: ['tools'], installable: true
+  permissions: ['workspace.read'], categories: [], platforms: [], architectures: [], dataTargets: ['workspace'], components: ['tools'], installable: true
 }
 
 describe('safe plugin auto update', () => {
@@ -25,10 +25,18 @@ describe('safe plugin auto update', () => {
       { ...entry, id: 'wrong-source', sourceId: 'community' },
       { ...entry, id: 'unknown-publisher', publisherId: undefined },
       { ...entry, id: 'changed-publisher', publisherId: 'publisher:other' },
+      { ...entry, id: 'changed-target', dataTargets: ['all-files'] },
       { ...entry, version: '1.0.0' }
     ])
 
     expect(candidates).toEqual([entry])
+  })
+
+  it('requires approval instead of auto updating when declared data targets change', () => {
+    const changedTarget = { ...installed, id: 'changed-target' }
+    expect(selectSafeAutoUpdates([changedTarget], [
+      { ...entry, id: 'changed-target', dataTargets: ['workspace', 'browser'] }
+    ])).toEqual([])
   })
 
   it('updates candidates sequentially and reports a failed plugin without stopping later updates', async () => {

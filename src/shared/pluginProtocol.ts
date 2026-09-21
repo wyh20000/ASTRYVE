@@ -38,15 +38,18 @@ export function isPluginWorkerMessage(value: unknown): value is PluginWorkerMess
   if (!isRecord(value) || value.protocolVersion !== PLUGIN_PROTOCOL_VERSION || typeof value.type !== 'string') return false
   switch (value.type) {
     case 'plugin.ready':
-      return isSafeText(value.pluginId, 64)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'pluginId']) && isSafeText(value.pluginId, 64)
     case 'plugin.heartbeat':
-      return typeof value.timestamp === 'number' && Number.isFinite(value.timestamp)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'timestamp']) &&
+        typeof value.timestamp === 'number' && Number.isFinite(value.timestamp)
     case 'plugin.result':
-      return isCallId(value.id) && Object.prototype.hasOwnProperty.call(value, 'result')
+      return hasExactKeys(value, ['type', 'protocolVersion', 'id', 'result']) && isCallId(value.id)
     case 'plugin.error':
-      return isCallId(value.id) && isSafeText(value.code, 64) && isSafeText(value.message, 2_000)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'id', 'code', 'message']) &&
+        isCallId(value.id) && isSafeText(value.code, 64) && isSafeText(value.message, 2_000)
     case 'plugin.fatal':
-      return isSafeText(value.code, 64) && isSafeText(value.message, 2_000)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'code', 'message']) &&
+        isSafeText(value.code, 64) && isSafeText(value.message, 2_000)
     default:
       return false
   }
@@ -56,29 +59,32 @@ export function isPluginWorkerHostMessage(value: unknown): value is PluginWorker
   if (!isRecord(value) || value.protocolVersion !== PLUGIN_PROTOCOL_VERSION || typeof value.type !== 'string') return false
   switch (value.type) {
     case 'plugin.init':
-      return isPluginWorkerDefinition(value.plugin)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'plugin']) && isPluginWorkerDefinition(value.plugin)
     case 'plugin.invoke':
-      return isCallId(value.id) && isToolName(value.toolName) && Object.prototype.hasOwnProperty.call(value, 'args') && isInvocationContext(value.context)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'id', 'toolName', 'args', 'context']) &&
+        isCallId(value.id) && isToolName(value.toolName) && isInvocationContext(value.context)
     case 'plugin.cancel':
-      return isCallId(value.id) && isSafeText(value.reason, 256)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'id', 'reason']) &&
+        isCallId(value.id) && isSafeText(value.reason, 256)
     case 'plugin.stop':
-      return isSafeText(value.reason, 256)
+      return hasExactKeys(value, ['type', 'protocolVersion', 'reason']) && isSafeText(value.reason, 256)
     default:
       return false
   }
 }
 
 export function isPluginWorkerDefinition(value: unknown): value is PluginWorkerDefinition {
-  return isRecord(value) && isSafeText(value.pluginId, 64) &&
+  return isRecord(value) && hasExactKeys(value, ['pluginId', 'rootPath', 'tools']) && isSafeText(value.pluginId, 64) &&
     typeof value.rootPath === 'string' && value.rootPath.length > 0 && value.rootPath.length <= 4_096 &&
     Array.isArray(value.tools) && value.tools.length > 0 && value.tools.length <= 128 &&
-    value.tools.every((tool) => isRecord(tool) && isToolName(tool.name) &&
+    value.tools.every((tool) => isRecord(tool) && hasExactKeys(tool, ['name', 'entryPath']) && isToolName(tool.name) &&
       typeof tool.entryPath === 'string' && tool.entryPath.length > 0 && tool.entryPath.length <= 1_024) &&
     new Set(value.tools.map((tool) => isRecord(tool) ? tool.name : undefined)).size === value.tools.length
 }
 
 function isInvocationContext(value: unknown): value is PluginInvocationContext {
-  return isRecord(value) && isSafeText(value.taskId, 128) &&
+  return isRecord(value) && hasExactKeys(value, value.workspaceId === undefined ? ['taskId'] : ['taskId', 'workspaceId']) &&
+    isSafeText(value.taskId, 128) &&
     (value.workspaceId === undefined || isSafeText(value.workspaceId, 128))
 }
 
@@ -96,4 +102,9 @@ function isSafeText(value: unknown, max: number): value is string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(value)
+  return keys.length === expected.length && keys.every((key) => expected.includes(key))
 }

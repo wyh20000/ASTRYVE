@@ -56,6 +56,7 @@ export async function installMarketPlugin(
   if (entry.platforms.length && !entry.platforms.includes(process.platform)) throw new Error('插件不支持当前操作系统')
   if (entry.architectures.length && !entry.architectures.includes(process.arch)) throw new Error('插件不支持当前处理器架构')
   if (entry.minAppVersion && compareSemver(process.env.npm_package_version ?? '0.1.0', entry.minAppVersion) < 0) throw new Error('当前应用版本不满足插件要求')
+  await assertMarketVersionTransition(entry, installedRoot)
   if (entry.repository) {
     return installRepositoryPlugin(entry, dataRoot, installedRoot, fetcher, prepareActivation)
   }
@@ -212,8 +213,22 @@ function marketExpectations(entry: PluginMarketEntry, requireAuthor: boolean): P
     expectedAuthor: requireAuthor ? entry.author : undefined,
     expectedPermissions: entry.permissions,
     expectedCapabilities: entry.capabilities,
+    expectedDataTargets: entry.dataTargets,
     expectedComponents: entry.components
   }
+}
+
+async function assertMarketVersionTransition(entry: PluginMarketEntry, installedRoot: string): Promise<void> {
+  const currentRoot = join(installedRoot, entry.id)
+  try { await stat(currentRoot) } catch (error) {
+    if (record(error) && error.code === 'ENOENT') return
+    throw error
+  }
+  const current = await readPluginManifest(currentRoot)
+  if (!current.version) throw new Error('现有插件没有可比较的版本，请先卸载后再安装市场版本')
+  const order = compareSemver(entry.version, current.version)
+  if (order < 0) throw new Error('插件降级必须通过回滚功能完成')
+  if (order === 0) throw new Error('禁止用同版本安装包覆盖现有插件')
 }
 
 async function importMarketPackage(

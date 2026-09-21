@@ -24,6 +24,7 @@ export interface PluginImportExpectations {
   expectedAuthor?: string
   expectedPermissions?: PluginPermission[]
   expectedCapabilities?: string[]
+  expectedDataTargets?: string[]
   expectedComponents?: PluginComponent[]
   beforeReplace?: (manifest: ParsedPluginManifest) => Promise<void>
 }
@@ -57,6 +58,7 @@ export async function importPluginPackage(
     if ((expectations.expectedAuthor && parsed.author !== expectations.expectedAuthor) ||
         (expectations.expectedPermissions && !sameStrings(parsed.permissions, expectations.expectedPermissions)) ||
         (expectations.expectedCapabilities && !sameStrings(parsed.capabilities, expectations.expectedCapabilities)) ||
+        (expectations.expectedDataTargets && !sameStrings(parsed.dataTargets ?? [], expectations.expectedDataTargets)) ||
         (expectations.expectedComponents && !sameStrings(parsed.components, expectations.expectedComponents))) {
       throw new Error('下载包清单与市场展示不一致')
     }

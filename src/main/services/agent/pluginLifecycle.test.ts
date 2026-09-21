@@ -108,4 +108,27 @@ describe('plugin lifecycle verification', () => {
     await expect(installLocalPlugin(source, 'directory', root, installed)).rejects.toThrow('目标目录无效')
     expect(await loadPluginInstallOrigins(root)).toEqual({ 'local.tools': previous })
   })
+
+  it.each([
+    ['1.9.0', '插件降级必须通过回滚功能完成'],
+    ['2.0.0', '禁止用同版本安装包覆盖现有插件']
+  ])('rejects market version %s before downloading over an installed 2.0.0 plugin', async (version, message) => {
+    const root = await mkdtemp(join(tmpdir(), 'market-version-transition-'))
+    const installed = join(root, 'plugins')
+    const destination = join(installed, 'acme.tools')
+    await mkdir(join(destination, 'skills'), { recursive: true })
+    await writeFile(join(destination, 'plugin.json'), JSON.stringify({
+      schemaVersion: 1, id: 'acme.tools', name: 'Acme Tools', version: '2.0.0', skills: './skills'
+    }))
+    const fetcher = vi.fn(async () => new Response('unused')) as unknown as typeof fetch
+    const entry: PluginMarketEntry = {
+      id: 'acme.tools', name: 'Acme Tools', version, description: '', author: 'Acme',
+      sourceId: 'official', sourceName: 'Official', sourceKind: 'official', verified: true,
+      permissions: [], categories: [], platforms: [], architectures: [], components: ['skills'], installable: true,
+      packageUrl: 'https://example.com/acme.zip', sha256: '0'.repeat(64)
+    }
+
+    await expect(installMarketPlugin(entry, root, installed, fetcher)).rejects.toThrow(message)
+    expect(fetcher).not.toHaveBeenCalled()
+  })
 })

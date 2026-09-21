@@ -17,12 +17,12 @@ describe('readPluginManifest', () => {
     const root = await fixture({
       name: 'review-tools', version: '1.2.3', description: 'Review project changes',
       author: { name: 'Example' }, skills: './skills/', hooks: {},
-      interface: { displayName: 'Review Tools', capabilities: ['Read', 'Interactive'] }
+      interface: { displayName: 'Review Tools', capabilities: ['Read', 'Interactive'], dataTargets: ['workspace', 'selection'] }
     }, true)
 
     await expect(readPluginManifest(root)).resolves.toMatchObject({
       id: 'review-tools', name: 'Review Tools', version: '1.2.3', author: 'Example',
-      sourceFormat: 'codex', capabilities: ['Interactive', 'Read'], components: ['skills'], skillsPath: './skills/'
+      sourceFormat: 'codex', capabilities: ['Interactive', 'Read'], dataTargets: ['selection', 'workspace'], components: ['skills'], skillsPath: './skills/'
     })
   })
 

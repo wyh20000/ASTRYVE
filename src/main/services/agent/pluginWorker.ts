@@ -177,11 +177,13 @@ export class PluginWorkerHost {
     }
     if (message.type === 'plugin.result') {
       const pending = this.takePending(message.id)
-      pending?.resolve(message.result)
+      if (!pending) { this.failWorker('PLUGIN_PROTOCOL_REPLAY'); return }
+      pending.resolve(message.result)
       return
     }
     const pending = this.takePending(message.id)
-    pending?.reject(new Error(`PLUGIN_CALL_FAILED:${message.code}:${message.message}`))
+    if (!pending) { this.failWorker('PLUGIN_PROTOCOL_REPLAY'); return }
+    pending.reject(new Error(`PLUGIN_CALL_FAILED:${message.code}:${message.message}`))
   }
 
   private handleExit(_code: number): void {

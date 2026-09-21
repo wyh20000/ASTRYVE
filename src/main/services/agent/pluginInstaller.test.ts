@@ -191,6 +191,20 @@ describe('importPluginPackage', () => {
     await expect(lstat(join(current.installed, 'other.tools'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('rejects data targets that differ from the reviewed market declaration', async () => {
+    const { installed, source } = await roots()
+    await mkdir(join(source, 'skills'))
+    await writeFile(join(source, 'plugin.json'), JSON.stringify({
+      ...manifest('targeted.tools'), interface: { dataTargets: ['all-files'] }
+    }))
+    await writeFile(join(source, 'skills', 'SKILL.md'), '# Targeted')
+
+    await expect(importPluginPackage(installed, source, {
+      expectedId: 'targeted.tools', expectedVersion: '1.0.0', expectedDataTargets: ['workspace']
+    })).rejects.toThrow('下载包清单与市场展示不一致')
+    await expect(lstat(join(installed, 'targeted.tools'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('rejects a duplicate id already owned by a differently named installed directory', async () => {
     const { installed, source } = await roots()
     await mkdir(join(installed, 'legacy-folder'))

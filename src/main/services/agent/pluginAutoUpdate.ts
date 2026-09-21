@@ -12,12 +12,18 @@ export function selectSafeAutoUpdates(
     for (const entry of entries) {
       if (entry.id !== plugin.id || entry.sourceId !== origin.sourceId || entry.publisherId !== origin.publisherId ||
           entry.installable === false || compareSemver(entry.version, plugin.version) <= 0 ||
-          entry.permissions.some((permission) => !plugin.permissions.includes(permission))) continue
+          entry.permissions.some((permission) => !plugin.permissions.includes(permission)) ||
+          !sameStrings(entry.dataTargets ?? [], plugin.dataTargets ?? [])) continue
       const current = candidates.get(plugin.id)
       if (!current || compareSemver(entry.version, current.version) > 0) candidates.set(plugin.id, entry)
     }
   }
   return [...candidates.values()].sort((left, right) => left.id.localeCompare(right.id))
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  const sortedRight = [...right].sort()
+  return left.length === right.length && [...left].sort().every((value, index) => value === sortedRight[index])
 }
 
 export async function runSafeAutoUpdates(

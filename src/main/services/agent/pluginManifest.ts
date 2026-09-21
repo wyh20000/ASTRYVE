@@ -67,6 +67,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
   const author = parseAuthor(value.author)
   const permissions = parsePermissions(value.permissions)
   const capabilities = stringArray(interfaceValue?.capabilities, '插件能力', 32, 64).sort()
+  const dataTargets = stringArray(interfaceValue?.dataTargets, '数据目标', 32, 100).sort()
   const iconPath = parseIconPath(value.icon)
   const assetPaths = parseAssetPaths(value.assets)
   const uiPath = parseUiPath(value.ui)
@@ -114,7 +115,7 @@ export async function readPluginManifest(root: string): Promise<ParsedPluginMani
     }
   }
   return {
-    id, name, version, description, author, sourceFormat, permissions, capabilities, components, tools, hooks, iconPath, assetPaths, uiPath,
+    id, name, version, description, author, sourceFormat, permissions, capabilities, dataTargets, components, tools, hooks, iconPath, assetPaths, uiPath,
     skillsPath: typeof value.skills === 'string' ? value.skills : undefined,
     mcpPath
   }

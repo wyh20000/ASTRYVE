@@ -162,6 +162,7 @@ export async function capturePluginTaskTools(
         } catch { /* preserve the plugin failure result */ }
         const wasQuarantined = isPluginQuarantined(item.manifest.id)
         if (recordPluginFailure(item.manifest.id) && !wasQuarantined) {
+          void activeRuntimes.stopAll(item.manifest.id, 'plugin_quarantined')
           try {
             writeAudit({
               id: randomUUID(), timestamp: Date.now(), taskId: context.taskId,
@@ -269,6 +270,7 @@ function recordHookFailure(
   } catch { /* hook execution is observational */ }
   const wasQuarantined = isPluginQuarantined(failure.pluginId)
   if (recordPluginFailure(failure.pluginId) && !wasQuarantined) {
+    void activeRuntimes.stopAll(failure.pluginId, 'plugin_quarantined')
     try {
       writeAudit({
         id: randomUUID(), timestamp: Date.now(), taskId: failure.taskId, workspaceId: failure.workspaceId,
