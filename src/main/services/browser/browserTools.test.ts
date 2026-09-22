@@ -113,4 +113,26 @@ describe('browser tools', () => {
       .toMatchObject({ mimeType: 'image/jpeg', data: Buffer.from('jpeg-bytes').toString('base64') })
     expect(consumeBrowserScreenshotArtifact(result.value, 'task-browser', 'shot-call')).toBeUndefined()
   })
+
+  it('resolves the active tab at execution time for repeat screenshots', async () => {
+    const gateway = {
+      listTabs: vi.fn(async () => [
+        { id: 'old', title: 'Old', url: 'https://example.com/old', active: false, pageVersion: 1 },
+        { id: 'current', title: 'Current', url: 'https://example.com/current', active: true, pageVersion: 1 }
+      ]),
+      assertTabOrigin: vi.fn(async () => undefined),
+      screenshot: vi.fn(async () => Buffer.from('current-view'))
+    }
+    const screenshot = createBrowserTools(gateway as never)
+      .find((tool) => tool.name === 'browser.screenshotCurrent')!
+    const context = {
+      taskId: 'task-browser', callId: 'current-shot', signal: new AbortController().signal
+    } as never
+
+    const result = await screenshot.execute({}, context)
+
+    expect(gateway.assertTabOrigin).toHaveBeenCalledWith('current', 'https://example.com/current', expect.any(Object))
+    expect(gateway.screenshot).toHaveBeenCalledWith('current', undefined, expect.any(Object))
+    expect(result).toMatchObject({ ok: true, value: { mimeType: 'image/jpeg', byteLength: 12 } })
+  })
 })

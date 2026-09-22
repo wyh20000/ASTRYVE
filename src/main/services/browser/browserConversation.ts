@@ -1,10 +1,11 @@
 import { BROWSER_TOOL_NAMES } from './browserTools'
+import type { Message } from '../../../shared/types'
 
 export const BROWSER_CONVERSATION_PROMPT = [
   '当前请求需要操作用户已授权的 Chrome，请直接调用 browser.* 工具完成，不要让用户去设置页手动连接。',
   '打开网址时 browser.openTab 只调用一次；它会复用相同网址的已有标签页。即使 loaded=false，页面也已经打开，后续只能对返回的 tabId 调用 waitForPage、inspect 或其他工具，禁止再次 openTab。',
   '每次操作使用工具返回的最新 tabId、pageVersion 和元素引用；连接中断后先重新 listTabs，不要重放已经成功的写操作。',
-  '用户要求页面截图时必须调用 browser.screenshot，不能用 browser.screenshotElement 代替。只有用户明确要求某个元素或局部区域截图时，才允许使用 browser.screenshotElement。截图由宿主作为对话图片保存和展示；工具返回 artifactId 即代表成功，不要在正文复述 Base64。',
+  '用户要求当前页面或再次截图时必须调用 browser.screenshotCurrent；指定非活动标签页时使用 browser.screenshot。不能用 browser.screenshotElement 代替页面截图，只有用户明确要求某个元素或局部区域截图时才允许使用。截图由宿主作为对话图片保存和展示；工具返回 artifactId 即代表成功，不要在正文复述 Base64。',
   '完成用户要求后立即给出结论，不为验证而重复打开、刷新或点击页面。'
 ].join('\n')
 
@@ -23,11 +24,34 @@ export function prefersBrowserTools(request: string): boolean {
 export function browserToolNamesForRequest(request: string): Set<string> {
   const names = new Set(BROWSER_TOOL_NAMES)
   if (!prefersElementScreenshot(request)) names.delete('browser.screenshotElement')
+  if (prefersCurrentPageScreenshot(request)) names.delete('browser.screenshot')
   return names
+}
+
+export function prefersBrowserContinuation(request: string): boolean {
+  const text = request.trim()
+  if (!text || text.length > 80) return false
+  return /(?:重新|再|继续|帮我)?\s*(?:截|截图|截屏)|(?:刷新|重载|往下|往上|滚动|后退|前进|返回|关闭)(?:一下|页面|标签页)?/i.test(text)
+}
+
+export function hasRecentBrowserContext(messages: Message[]): boolean {
+  return messages.slice(-8).some((message) =>
+    (message.attachments ?? []).some((attachment) => attachment.meta?.source === 'browser') ||
+    (message.blocks ?? []).some((block) =>
+      block.kind === 'image' ||
+      (block.kind === 'plan' && block.items.some((item) => /(?:浏览器|网页|页面|截图|标签页)/.test(item.title)))
+    )
+  )
 }
 
 function prefersElementScreenshot(request: string): boolean {
   const text = request.trim()
   if (!/(?:截|screenshot)/i.test(text)) return false
   return /(?:元素|区域|局部|部分|头像|按钮|图片|卡片|帖子|表格|输入框|弹窗|菜单|element|region|area|button|image|card|post|table|dialog|menu)/i.test(text)
+}
+
+function prefersCurrentPageScreenshot(request: string): boolean {
+  const text = request.trim()
+  return /(?:截|screenshot)/i.test(text) &&
+    /(?:当前|现在|此刻|这个页面|本页|重新|再截|再来一张|again)/i.test(text)
 }

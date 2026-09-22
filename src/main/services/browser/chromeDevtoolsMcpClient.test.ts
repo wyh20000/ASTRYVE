@@ -16,9 +16,7 @@ describe('official Chrome DevTools MCP configuration', () => {
       '--redact-network-headers',
       '--category-emulation=false',
       '--category-performance=false',
-      '--experimental-structured-content=true',
-      '--screenshot-max-width=1600',
-      '--screenshot-max-height=1200'
+      '--experimental-structured-content=true'
     ])
   })
 })

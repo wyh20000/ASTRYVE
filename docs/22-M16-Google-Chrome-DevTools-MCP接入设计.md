@@ -37,7 +37,9 @@ M16 使用 Google Chrome 团队维护的官方 `chrome-devtools-mcp`，不再继
 - `--no-usage-statistics`、`--no-performance-crux`：关闭非必要遥测与 CrUX 请求。
 - `--redact-network-headers`：要求官方服务先脱敏敏感网络头。
 - `--category-emulation=false`、`--category-performance=false`：不公开当前产品未使用类别。
-- `--screenshot-max-width=1600`、`--screenshot-max-height=1200`：限制截图尺寸。
+- 不启用 `--screenshot-max-width` / `--screenshot-max-height`：Google 官方已确认尺寸下采样在页面
+  滚动后可能截取文档左上角而非当前视口（官方 issue #2684）。截图改由 JPEG 质量与宿主 2 MiB
+  结果上限约束，避免触发该官方缺陷。
 
 应用直接执行已安装包的官方入口，不使用 `npx`、不在运行时下载代码。Electron 打包时将
 该依赖解包，并用 `ELECTRON_RUN_AS_NODE=1` 启动。模型识别到明确浏览器意图后进入受限浏览器
@@ -106,5 +108,8 @@ JavaScript `undefined` 送入严格 JSON 工具结果。截图前使用固定宿
 资源数和页面高度，在连续稳定后才调用官方 `take_screenshot`；图片块按工具完成时刻写入消息时间线，
 只通过附件 ID 引用已持久化 JPEG，并支持独立折叠。页面截图显式传官方 schema 的
 `fullPage: false`；元素截图按用户请求最小授权，普通页面截图任务不可调用，防止模型用根容器
-元素截图替代视口截图。本轮变更通过 145 个测试文件、1116 项测试、Node/Web 类型检查与生产构建；真实 Chrome
-连续调用仍按验证测试单等待用户在官方批准弹窗前完成回归。
+元素截图替代视口截图。当前页及重复截图改用宿主 `browser.screenshotCurrent`：执行时重新调用官方
+`list_pages` 选择 `selected` 页面，再调用官方 `take_screenshot`，不复用上一轮 page ID；“重新截一张”
+等短句仅在最近消息存在浏览器截图/操作证据时继承浏览器上下文。真实 Chrome
+连续调用仍按验证测试单等待用户在官方批准弹窗前完成回归。本轮自动化为 145 个测试文件、
+1121 项测试，Node/Web 类型检查与生产构建通过。

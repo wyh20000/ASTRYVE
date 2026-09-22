@@ -28,7 +28,7 @@ export const BROWSER_TOOL_NAMES = new Set([
   'browser.inspect', 'browser.find', 'browser.click', 'browser.confirmClick',
   'browser.doubleClick', 'browser.hover', 'browser.scroll', 'browser.type',
   'browser.key', 'browser.select', 'browser.check', 'browser.drag',
-  'browser.screenshot', 'browser.screenshotElement', 'browser.diagnostics'
+  'browser.screenshot', 'browser.screenshotCurrent', 'browser.screenshotElement', 'browser.diagnostics'
 ])
 
 export function createBrowserTools(gateway: BrowserGateway): ToolDefinition<any, any>[] {
@@ -114,6 +114,16 @@ export function createBrowserTools(gateway: BrowserGateway): ToolDefinition<any,
         await gateway.assertTabOrigin(args.tabId, args.url, call)
         const image = await gateway.screenshot(args.tabId, undefined, call)
         if (image.byteLength > 2 * 1024 * 1024) throw new Error('截图较大，请缩小窗口或改用页面文本审查')
+        return storeScreenshot(context.taskId, context.callId, image)
+      }),
+    tool('browser.screenshotCurrent', 'Capture the currently active browser page viewport at call time. Use this for current-page and repeat screenshot requests.', 'browser.read',
+      {}, [], async (_args, context) => {
+        const call = callContext(context, 'low')
+        const active = (await gateway.listTabs(call)).find((tab) => tab.active)
+        if (!active) throw new Error('未找到当前活动的浏览器标签页')
+        await gateway.assertTabOrigin(active.id, active.url, call)
+        const image = await gateway.screenshot(active.id, undefined, call)
+        if (image.byteLength > 2 * 1024 * 1024) throw new Error('截图较大，请缩小浏览器窗口后重试')
         return storeScreenshot(context.taskId, context.callId, image)
       }),
     tool('browser.screenshotElement', 'Capture a bounded screenshot of a previously located element.', 'browser.read',

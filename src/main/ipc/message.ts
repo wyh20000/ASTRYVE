@@ -75,6 +75,8 @@ import {
 import {
   BROWSER_CONVERSATION_PROMPT,
   browserToolNamesForRequest,
+  hasRecentBrowserContext,
+  prefersBrowserContinuation,
   prefersBrowserTools
 } from '../services/browser/browserConversation'
 import { acquireOfficialChromeBrowserLease } from '../services/browser/officialChromeBrowserRuntime'
@@ -222,7 +224,11 @@ async function runReply(
     const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
     selectedPluginIds = pluginSelection.pluginIds
     if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
-    const browserIntent = projectEligible && prefersBrowserTools(userRequest)
+    const browserIntent = projectEligible && (
+      prefersBrowserTools(userRequest) ||
+      (prefersBrowserContinuation(userRequest) &&
+        hasRecentBrowserContext(await getStore().listMessages(sessionId)))
+    )
     if (projectEligible) {
       await restoreSessionWorkspace(sessionId, session?.projectPath)
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
@@ -615,7 +621,8 @@ async function runModelReply(
               }
             }
             if (tool.status === 'completed' && tool.ok === true && agentTaskId &&
-                (tool.toolName === 'browser.screenshot' || tool.toolName === 'browser.screenshotElement')) {
+                (tool.toolName === 'browser.screenshot' || tool.toolName === 'browser.screenshotCurrent' ||
+                  tool.toolName === 'browser.screenshotElement')) {
               const artifact = consumeBrowserScreenshotArtifact(tool.result, agentTaskId, tool.callId)
               if (artifact) {
                 const attachment: Attachment = {
@@ -777,7 +784,8 @@ function describeToolActivity(toolName: string, args: unknown, result?: unknown)
   if (toolName === 'browser.waitForPage') return '等待已有页面完成加载'
   if (toolName === 'browser.inspect') return '检查当前网页内容'
   if (toolName === 'browser.find') return '定位网页元素'
-  if (toolName === 'browser.screenshot' || toolName === 'browser.screenshotElement') return result
+  if (toolName === 'browser.screenshot' || toolName === 'browser.screenshotCurrent' ||
+      toolName === 'browser.screenshotElement') return result
     ? '网页截图已保存到对话'
     : '截取网页画面'
   if (toolName.startsWith('browser.')) return `操作浏览器：${toolName.slice('browser.'.length)}`
