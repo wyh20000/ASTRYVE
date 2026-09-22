@@ -284,6 +284,7 @@ export class ChromeDevtoolsMcpAdapter implements BrowserAdapter {
       pageId: pageId(tabId),
       format: 'jpeg',
       quality: 70,
+      fullPage: false,
       ...(elementBackendNodeId === undefined
         ? {}
         : { uid: this.element(tabId, elementBackendNodeId) })

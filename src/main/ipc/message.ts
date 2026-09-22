@@ -70,11 +70,11 @@ import {
   updateToolTimeline
 } from '../services/agent/toolTimeline'
 import {
-  BROWSER_TOOL_NAMES,
   consumeBrowserScreenshotArtifact
 } from '../services/browser/browserTools'
 import {
   BROWSER_CONVERSATION_PROMPT,
+  browserToolNamesForRequest,
   prefersBrowserTools
 } from '../services/browser/browserConversation'
 import { acquireOfficialChromeBrowserLease } from '../services/browser/officialChromeBrowserRuntime'
@@ -255,8 +255,13 @@ async function runReply(
           skillTrigger = resolved.trigger
           if (browserIntent) {
             skillPrompt = [skillPrompt, BROWSER_CONVERSATION_PROMPT].filter(Boolean).join('\n\n')
-            if (allowedToolNames) {
-              for (const name of BROWSER_TOOL_NAMES) allowedToolNames.add(name)
+            const browserToolNames = browserToolNamesForRequest(userRequest)
+            allowedToolNames ??= new Set(
+              getTaskRuntime().listNativeFunctionTools(agentTask.id).map((tool) => tool.function.name)
+            )
+            for (const name of browserToolNames) allowedToolNames.add(name)
+            if (!browserToolNames.has('browser.screenshotElement')) {
+              allowedToolNames.delete('browser.screenshotElement')
             }
           }
           auditSkillUse(agentTask.id, agentTask.workspaceId, resolved.skills)
@@ -286,7 +291,7 @@ async function runReply(
         agentTaskId = agentTask.id
         agentWorkspaceId = agentTask.workspaceId
         agentExecutionEnvironment = agentTask.environment
-        allowedToolNames = new Set(BROWSER_TOOL_NAMES)
+        allowedToolNames = browserToolNamesForRequest(userRequest)
         skillPrompt = BROWSER_CONVERSATION_PROMPT
       } catch (error) {
         sendMessageNotice(wc, {

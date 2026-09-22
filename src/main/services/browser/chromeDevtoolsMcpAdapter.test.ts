@@ -157,6 +157,22 @@ describe('ChromeDevtoolsMcpAdapter', () => {
     }, undefined)
   })
 
+  it('captures the visible viewport explicitly instead of a full-page or element region', async () => {
+    const fake = session((name) => name === 'take_screenshot'
+      ? { content: [{ type: 'image', mimeType: 'image/jpeg', data: 'anBlZw==' }] }
+      : { content: [] })
+    const adapter = new ChromeDevtoolsMcpAdapter(fake)
+
+    await adapter.screenshot('4')
+
+    expect(fake.callTool).toHaveBeenCalledWith('take_screenshot', {
+      pageId: 4,
+      format: 'jpeg',
+      quality: 70,
+      fullPage: false
+    }, undefined)
+  })
+
   it('turns the official unavailable error into actionable Chrome setup guidance', async () => {
     const adapter = new ChromeDevtoolsMcpAdapter(session(() => ({
       isError: true,

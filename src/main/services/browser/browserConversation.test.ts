@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { prefersBrowserTools } from './browserConversation'
+import { browserToolNamesForRequest, prefersBrowserTools } from './browserConversation'
 
 describe('prefersBrowserTools', () => {
   it.each([
@@ -19,5 +19,21 @@ describe('prefersBrowserTools', () => {
     '你好'
   ])('keeps ordinary chat out of browser tools: %s', (request) => {
     expect(prefersBrowserTools(request)).toBe(false)
+  })
+})
+
+describe('browserToolNamesForRequest', () => {
+  it('only exposes viewport screenshot for an ordinary page capture request', () => {
+    const names = browserToolNamesForRequest('查看当前页面，截一张图给我')
+    expect(names.has('browser.screenshot')).toBe(true)
+    expect(names.has('browser.screenshotElement')).toBe(false)
+  })
+
+  it.each([
+    '截一下页面里的头像',
+    '把这个帖子区域截图给我',
+    'take a screenshot of the login button element'
+  ])('exposes element screenshot only for an explicit local capture: %s', (request) => {
+    expect(browserToolNamesForRequest(request).has('browser.screenshotElement')).toBe(true)
   })
 })
