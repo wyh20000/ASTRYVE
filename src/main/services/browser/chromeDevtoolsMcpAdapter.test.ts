@@ -141,14 +141,15 @@ describe('ChromeDevtoolsMcpAdapter', () => {
       ? {
           content: [{
             type: 'text',
-            text: '```json\n{"title":"Ready","url":"https://example.com/","readyState":"interactive"}\n```'
+            text: '```json\n{"title":"Ready","url":"https://example.com/","readyState":"interactive","pendingImages":2,"fontsLoaded":false,"resourceCount":14,"scrollHeight":2400}\n```'
           }]
         }
       : { content: [] })
     const adapter = new ChromeDevtoolsMcpAdapter(fake)
 
     await expect(adapter.pageState('3')).resolves.toEqual({
-      title: 'Ready', url: 'https://example.com/', readyState: 'interactive'
+      title: 'Ready', url: 'https://example.com/', readyState: 'interactive',
+      pendingImages: 2, fontsLoaded: false, resourceCount: 14, scrollHeight: 2400
     })
     expect(fake.callTool).toHaveBeenCalledWith('evaluate_script', {
       pageId: 3,

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import hljs from 'highlight.js'
 import { Sources, Think } from '@ant-design/x'
-import type { MessageBlock, MessageStatus, PatchDiffBlock, PatchDiffFile, SourceCitation } from '@shared/types'
+import type { Attachment, MessageBlock, MessageStatus, PatchDiffBlock, PatchDiffFile, SourceCitation } from '@shared/types'
 import MarkdownRenderer from './MarkdownRenderer'
 import { Button, IconButton } from '../ui'
 import { Icon } from '../ui/icons'
 import { escapeHtml } from '../../lib/escape'
+import { ImageAttachments } from './ImageAttachments'
 
 /** 将 markdown 文本切分成「普通段落」与「代码块」，代码块走自定义渲染（带语言 + 复制） */
 const FENCE = /```([\w+-]*)\n?([\s\S]*?)(?:```|$)/g
@@ -58,11 +59,13 @@ export function RichText({ text }: { text: string }): JSX.Element {
 export function Blocks({
   blocks,
   status,
+  attachments = [],
   thinkingOpen,
   onToggleThinking
 }: {
   blocks: MessageBlock[]
   status: MessageStatus
+  attachments?: Attachment[]
   /** key 为 `${kind}-${同类序号}` */
   thinkingOpen?: Record<string, boolean>
   onToggleThinking?: (key: string, next: boolean) => void
@@ -85,6 +88,7 @@ export function Blocks({
             key={key}
             block={b}
             status={status}
+            attachments={attachments}
             open={open[key] ?? false}
             onToggle={(next) => toggle(key, next)}
           />
@@ -97,11 +101,13 @@ export function Blocks({
 function Block({
   block,
   status,
+  attachments,
   open,
   onToggle
 }: {
   block: MessageBlock
   status: MessageStatus
+  attachments: Attachment[]
   open: boolean
   onToggle: (next: boolean) => void
 }): JSX.Element | null {
@@ -125,6 +131,14 @@ function Block({
       return <CodeBlock language={block.language} code={block.code} filename={block.filename} />
     case 'sources':
       return <SourcesBlock sources={block.sources} />
+    case 'image': {
+      const attachment = attachments.find((item) =>
+        item.id === block.attachmentId && item.kind === 'image'
+      )
+      return attachment
+        ? <ImageAttachments images={[attachment]} collapsible title={block.title ?? '图片'} />
+        : null
+    }
     case 'skills':
       return null
     case 'plugins':

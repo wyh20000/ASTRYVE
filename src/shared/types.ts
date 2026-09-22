@@ -100,6 +100,7 @@ export type MessageBlock =
   | { kind: 'files'; files: GeneratedFile[] }
   | { kind: 'code'; language: string; code: string; filename?: string }
   | { kind: 'sources'; sources: SourceCitation[] }
+  | { kind: 'image'; attachmentId: string; title?: string }
   | { kind: 'skills'; skills: Array<{ name: string; displayName: string; source: SkillSource; version?: string }>; trigger?: string }
   | { kind: 'plugins'; plugins: Array<{ id: string; version?: string }>; model: string }
   | PatchDiffBlock

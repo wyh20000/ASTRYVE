@@ -26,6 +26,15 @@ export function appendToolTimelineThinking(state: ToolTimelineState, delta: stri
   else state.blocks.push({ kind: 'thinking', content: delta })
 }
 
+export function appendToolTimelineImage(
+  state: ToolTimelineState,
+  attachmentId: string,
+  title = '网页截图'
+): void {
+  finishThinking(state)
+  state.blocks.push({ kind: 'image', attachmentId, title })
+}
+
 export function updateToolTimeline(
   state: ToolTimelineState,
   callId: string,

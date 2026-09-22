@@ -60,6 +60,7 @@ import { composeSkillSystemPrompt, replaceActiveUserRequest } from '../services/
 import {
   appendToolTimelineText,
   appendToolTimelineThinking,
+  appendToolTimelineImage,
   appendPatchTimeline,
   appendCommandTimeline,
   appendTaskReport,
@@ -612,7 +613,7 @@ async function runModelReply(
                 (tool.toolName === 'browser.screenshot' || tool.toolName === 'browser.screenshotElement')) {
               const artifact = consumeBrowserScreenshotArtifact(tool.result, agentTaskId, tool.callId)
               if (artifact) {
-                generatedAttachments.push({
+                const attachment: Attachment = {
                   id: artifact.id,
                   kind: 'image',
                   name: tool.toolName === 'browser.screenshotElement'
@@ -625,7 +626,13 @@ async function runModelReply(
                     toolName: tool.toolName,
                     byteLength: artifact.byteLength
                   }
-                })
+                }
+                generatedAttachments.push(attachment)
+                appendToolTimelineImage(
+                  timeline,
+                  attachment.id,
+                  tool.toolName === 'browser.screenshotElement' ? '元素截图' : '网页截图'
+                )
               }
             }
             await emit('streaming')

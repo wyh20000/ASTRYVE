@@ -300,6 +300,33 @@ describe('BrowserGateway', () => {
     expect(fake.screenshot).toHaveBeenCalledTimes(100)
   })
 
+  it('waits for complete images, fonts and a stable layout before taking a screenshot', async () => {
+    const fake = adapter()
+    fake.pageState = vi.fn()
+      .mockResolvedValueOnce({
+        title: 'X', url: 'https://x.com', readyState: 'complete', pendingImages: 1,
+        fontsLoaded: false, resourceCount: 10, scrollHeight: 1000
+      })
+      .mockResolvedValueOnce({
+        title: 'X', url: 'https://x.com', readyState: 'complete', pendingImages: 0,
+        fontsLoaded: true, resourceCount: 12, scrollHeight: 1200
+      })
+      .mockResolvedValue({
+        title: 'X', url: 'https://x.com', readyState: 'complete', pendingImages: 0,
+        fontsLoaded: true, resourceCount: 12, scrollHeight: 1200
+      })
+    const gateway = new BrowserGateway(fake)
+
+    await gateway.screenshot('tab-1', undefined, {
+      ...context('stable-shot'), deadline: Date.now() + 3_000
+    })
+
+    expect(fake.pageState).toHaveBeenCalledTimes(4)
+    expect(fake.screenshot).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(fake.pageState).mock.invocationCallOrder.at(-1))
+      .toBeLessThan(vi.mocked(fake.screenshot).mock.invocationCallOrder[0])
+  })
+
   it('blocks navigation denied by site policy', async () => {
     const gateway = new BrowserGateway(adapter(), { canNavigate: (url) => url.hostname !== 'blocked.test' })
     await expect(gateway.createTab('https://blocked.test')).rejects.toThrow('阻止')

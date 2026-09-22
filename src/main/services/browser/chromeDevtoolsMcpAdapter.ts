@@ -49,7 +49,11 @@ const PAGE_INSPECTION_FUNCTION = `() => ({
 const PAGE_STATE_FUNCTION = `() => ({
   title: document.title,
   url: location.href,
-  readyState: document.readyState
+  readyState: document.readyState,
+  pendingImages: Array.from(document.images).filter((image) => !image.complete).length,
+  fontsLoaded: !document.fonts || document.fonts.status === 'loaded',
+  resourceCount: performance.getEntriesByType('resource').length,
+  scrollHeight: document.documentElement?.scrollHeight || document.body?.scrollHeight || 0
 })`
 const PERFORMANCE_FUNCTION = `() => {
   const navigation = performance.getEntriesByType('navigation')[0]
@@ -136,13 +140,27 @@ export class ChromeDevtoolsMcpAdapter implements BrowserAdapter {
     title: string
     url: string
     readyState: string
+    pendingImages: number
+    fontsLoaded: boolean
+    resourceCount: number
+    scrollHeight: number
   }> {
     const state = await this.evaluate(tabId, PAGE_STATE_FUNCTION, context)
     if (!record(state) || typeof state.title !== 'string' ||
-        typeof state.url !== 'string' || typeof state.readyState !== 'string') {
+        typeof state.url !== 'string' || typeof state.readyState !== 'string' ||
+        !Number.isSafeInteger(state.pendingImages) || typeof state.fontsLoaded !== 'boolean' ||
+        !Number.isSafeInteger(state.resourceCount) || !Number.isFinite(state.scrollHeight)) {
       throw new Error('Chrome DevTools MCP 页面状态无效')
     }
-    return { title: state.title, url: state.url, readyState: state.readyState }
+    return {
+      title: state.title,
+      url: state.url,
+      readyState: state.readyState,
+      pendingImages: Number(state.pendingImages),
+      fontsLoaded: state.fontsLoaded,
+      resourceCount: Number(state.resourceCount),
+      scrollHeight: Number(state.scrollHeight)
+    }
   }
 
   async inspect(tabId: string, context?: BrowserCallContext): Promise<{

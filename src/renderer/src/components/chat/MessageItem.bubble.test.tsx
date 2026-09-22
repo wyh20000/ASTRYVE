@@ -223,6 +223,31 @@ describe('Agent 消息 - 保持 borderless 内容流', () => {
     expect(screen.getByRole('dialog', { name: '图片预览 browser-screenshot.jpg' })).toBeInTheDocument()
   })
 
+  it('按工具时间线展示截图，并支持单独收起和展开', async () => {
+    render(wrap(<MessageItem message={assistantMessage({
+      blocks: [
+        { kind: 'text', content: '截图之前' },
+        { kind: 'image', attachmentId: 'ordered-shot', title: '网页截图' },
+        { kind: 'text', content: '截图之后' }
+      ],
+      attachments: [{
+        id: 'ordered-shot', kind: 'image', name: 'ordered.jpg',
+        contentType: 'image/jpeg', dataRef: 'data:image/jpeg;base64,AA=='
+      }]
+    })} />))
+
+    const before = screen.getByText('截图之前')
+    const image = screen.getByRole('button', { name: '预览图片 ordered.jpg' })
+    const after = screen.getByText('截图之后')
+    expect(before.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(image.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await userEvent.click(screen.getByRole('button', { name: '收起网页截图' }))
+    expect(screen.queryByRole('button', { name: '预览图片 ordered.jpg' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '展开网页截图' }))
+    expect(screen.getByRole('button', { name: '预览图片 ordered.jpg' })).toBeInTheDocument()
+  })
+
   it('失败且无内容时显示可复现的占位说明', () => {
     render(wrap(<MessageItem message={assistantMessage({ content: '', status: 'error' })} />))
     expect(screen.getByText(/本次执行未完成/)).toBeInTheDocument()

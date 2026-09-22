@@ -5,6 +5,7 @@ import {
   appendTaskReport,
   appendToolTimelineText,
   appendToolTimelineThinking,
+  appendToolTimelineImage,
   createToolTimeline,
   settleToolTimeline,
   updateToolTimeline
@@ -19,6 +20,19 @@ describe('tool activity timeline', () => {
     appendToolTimelineText(state, '入口没有问题，继续检查存储。')
     updateToolTimeline(state, 'call-2', '读取存储', false)
     expect(state.blocks.map((block) => block.kind)).toEqual(['text', 'plan', 'text', 'plan'])
+  })
+
+  it('keeps a screenshot at the exact point where the browser tool completed', () => {
+    const state = createToolTimeline()
+    updateToolTimeline(state, 'shot', '截取网页画面', false)
+    updateToolTimeline(state, 'shot', '网页截图已保存到对话', true)
+    appendToolTimelineImage(state, 'attachment-1', '网页截图')
+    appendToolTimelineThinking(state, '继续读取截图后的页面内容。')
+
+    expect(state.blocks.map((block) => block.kind)).toEqual(['plan', 'image', 'thinking'])
+    expect(state.blocks[1]).toEqual({
+      kind: 'image', attachmentId: 'attachment-1', title: '网页截图'
+    })
   })
 
   it('groups contiguous calls from the same model round and updates them in place', () => {

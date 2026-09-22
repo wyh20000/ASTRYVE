@@ -13,6 +13,10 @@ export interface BrowserAdapter {
     title: string
     url: string
     readyState: string
+    pendingImages?: number
+    fontsLoaded?: boolean
+    resourceCount?: number
+    scrollHeight?: number
   }>
   inspect(tabId: string, context?: BrowserCallContext): Promise<{ title: string; url: string; text: string; readyState: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }>
   find(tabId: string, locator: BrowserLocator, context?: BrowserCallContext): Promise<Array<Omit<BrowserElementResult, 'id' | 'tabId' | 'pageVersion'> & { backendNodeId: number }>>
@@ -207,6 +211,7 @@ export class BrowserGateway {
       if (record.ref.pageVersion !== reference.pageVersion || reference.pageVersion !== this.version(tabId)) throw new Error('元素引用已过期，请重新定位')
       backendNodeId = record.backendNodeId
     }
+    await this.waitForScreenshotReady(tabId, context)
     const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId, context), context)
     if (image.byteLength > 2 * 1024 * 1024) throw new Error('截图超过大小限制')
     return image
@@ -322,6 +327,33 @@ export class BrowserGateway {
         context.signal?.addEventListener('abort', aborted, { once: true })
       }
     })
+  }
+
+  private async waitForScreenshotReady(tabId: string, context?: BrowserCallContext): Promise<void> {
+    if (!context) return
+    this.assertContext(context)
+    const deadline = Math.min(context.deadline, Date.now() + 8_000)
+    let previousSignature = ''
+    let stableSamples = 0
+    while (Date.now() < deadline) {
+      const state = await this.withReadPermit(
+        () => this.adapter.pageState(tabId, { ...context, deadline }),
+        { ...context, deadline }
+      )
+      const ready = state.readyState === 'complete' &&
+        (state.pendingImages ?? 0) === 0 &&
+        (state.fontsLoaded ?? true)
+      const signature = `${state.url}|${state.resourceCount ?? 0}|${state.scrollHeight ?? 0}`
+      stableSamples = ready && signature === previousSignature ? stableSamples + 1 : 0
+      previousSignature = signature
+      if (stableSamples >= 2) {
+        await pause(Math.min(150, Math.max(1, deadline - Date.now())), context.signal)
+        return
+      }
+      await pause(Math.min(250, Math.max(1, deadline - Date.now())), context.signal)
+    }
+    // Dynamic feeds may never become fully idle. Capture the best settled state
+    // instead of turning a requested screenshot into a timeout failure.
   }
 
   private releaseReadPermit(): void {
