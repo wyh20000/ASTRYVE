@@ -90,7 +90,8 @@ export class ToolRegistry {
 
   async execute(
     invocation: ToolInvocation,
-    context: ToolExecutionContext
+    context: ToolExecutionContext,
+    onExecutionStart?: () => void
   ): Promise<ToolResult<unknown>> {
     if (
       invocation.taskId !== context.taskId ||
@@ -112,6 +113,7 @@ export class ToolRegistry {
     if (context.signal.aborted) {
       return { ok: false, error: { code: 'TASK_CANCELLED', message: '任务已取消' } }
     }
+    onExecutionStart?.()
     return definition.execute(frozenInvocation.args, context)
   }
 }

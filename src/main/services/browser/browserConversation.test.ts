@@ -56,6 +56,8 @@ describe('browserToolNamesForRequest', () => {
 
   it('recognizes a short repeat request only when recent messages prove browser context', () => {
     expect(prefersBrowserContinuation('重新截一张')).toBe(true)
+    expect(prefersBrowserContinuation('这个bug是什么原因导致的')).toBe(true)
+    expect(prefersBrowserContinuation('你好')).toBe(false)
     expect(hasRecentBrowserContext([{
       id: 'assistant', sessionId: 'session', role: 'assistant', content: '', status: 'done', timestamp: 1,
       attachments: [{

@@ -604,6 +604,20 @@ async function runModelReply(
                 getPatchWorkspaceService().previewContents(agentTaskId)
               )
             }
+            if (tool.status === 'completed' && tool.ok === true && tool.toolName === 'browser.inspect' &&
+                tool.result && typeof tool.result === 'object' && !Array.isArray(tool.result)) {
+              const inspected = tool.result as { title?: unknown; url?: unknown; text?: unknown }
+              if (typeof inspected.url === 'string' && typeof inspected.text === 'string') {
+                timeline.blocks.push({
+                  kind: 'toolContext', toolName: 'browser.inspect',
+                  content: JSON.stringify({
+                    title: typeof inspected.title === 'string' ? inspected.title.slice(0, 300) : '',
+                    url: inspected.url.slice(0, 2_000),
+                    text: inspected.text.slice(0, 16_000)
+                  })
+                })
+              }
+            }
             if (tool.status === 'completed' && tool.ok === true && tool.toolName === 'workspace.applyPatch' &&
                 isPatchManifest(tool.result) && agentWorkspaceId && !wc.isDestroyed()) {
               wc.send(EVENTS.workspaceFilesChanged, {

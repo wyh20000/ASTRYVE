@@ -335,6 +335,26 @@ describe('TaskRuntime', () => {
     expect(runtime.activeTaskCount).toBe(0)
   })
 
+  it('starts the tool execution timeout only after approval completes', async () => {
+    vi.useFakeTimers()
+    let approve!: (allowed: boolean) => void
+    const approval = new Promise<boolean>((resolve) => { approve = resolve })
+    const registry = new ToolRegistry(() => approval)
+    const execute = vi.fn(async () => ({ ok: true, value: 'closed' }))
+    registry.register(tool(execute))
+    const runtime = new TaskRuntime(registry, {
+      defaultToolTimeoutMs: 50,
+      defaultTaskTimeoutMs: 1_000
+    })
+    const task = createAndStart(runtime)
+    const result = runtime.submitNativeToolCall(task.id, nativeCall())
+    await vi.advanceTimersByTimeAsync(100)
+    expect(execute).not.toHaveBeenCalled()
+    approve(true)
+    await expect(result).resolves.toEqual({ ok: true, value: 'closed' })
+    runtime.completeTask(task.id)
+  })
+
   it('uses a single cancelled terminal state for the task timeout', async () => {
     vi.useFakeTimers()
     const { runtime } = createRuntime(undefined, { defaultTaskTimeoutMs: 50 })

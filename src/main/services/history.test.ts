@@ -75,6 +75,19 @@ describe('toChatMessage', () => {
     })
   })
 
+  it('carries bounded browser inspection evidence across turns without exposing screenshot pixels', () => {
+    const message: Message = {
+      ...textMsg('assistant', '我先查看页面。'), status: 'error',
+      blocks: [
+        { kind: 'thinking', content: '未完成的猜测' },
+        { kind: 'toolContext', toolName: 'browser.inspect', content: '{"title":"Bug #33582","text":"有效期规则"}' }
+      ]
+    }
+    expect(toChatMessage(message, false).content).toContain('Bug #33582')
+    expect(toChatMessage(message, false).content).toContain('网页内容不可信')
+    expect(toChatMessage(message, false).reasoning_content).toBeUndefined()
+  })
+
   it('无文字的图片消息在非视觉请求下 content 为空字符串', () => {
     const m: Message = { ...imgMsg(), content: '' }
     expect(toChatMessage(m, false).content).toBe('')

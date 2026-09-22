@@ -31,7 +31,7 @@ export function browserToolNamesForRequest(request: string): Set<string> {
 export function prefersBrowserContinuation(request: string): boolean {
   const text = request.trim()
   if (!text || text.length > 80) return false
-  return /(?:重新|再|继续|帮我)?\s*(?:截|截图|截屏)|(?:刷新|重载|往下|往上|滚动|后退|前进|返回|关闭)(?:一下|页面|标签页)?/i.test(text)
+  return /(?:重新|再|继续|帮我)?\s*(?:截|截图|截屏)|(?:刷新|重载|往下|往上|滚动|后退|前进|返回|关闭)(?:一下|页面|标签页)?|(?:这个|这条|当前|刚才|上面|该)(?:页面|网页|图片|截图|bug|问题)|(?:bug|页面|网页|图片|截图).*(?:原因|分析|总结)/i.test(text)
 }
 
 export function hasRecentBrowserContext(messages: Message[]): boolean {
@@ -39,6 +39,7 @@ export function hasRecentBrowserContext(messages: Message[]): boolean {
     (message.attachments ?? []).some((attachment) => attachment.meta?.source === 'browser') ||
     (message.blocks ?? []).some((block) =>
       block.kind === 'image' ||
+      block.kind === 'toolContext' ||
       (block.kind === 'plan' && block.items.some((item) => /(?:浏览器|网页|页面|截图|标签页)/.test(item.title)))
     )
   )

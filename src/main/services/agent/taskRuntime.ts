@@ -423,7 +423,16 @@ export class TaskRuntime {
     task.controller.signal.addEventListener('abort', onTaskAbort, { once: true })
 
     let timeout: TimerHandle | undefined
+    let startTimeout!: () => void
     try {
+      const timeoutResult = new Promise<{ kind: 'timeout' }>((resolve) => {
+        startTimeout = () => {
+          timeout = setTimeout(() => {
+            controller.abort('tool_timeout')
+            resolve({ kind: 'timeout' })
+          }, task.toolTimeoutMs)
+        }
+      })
       const execution = task.registry
         .execute(invocation, {
           taskId: invocation.taskId,
@@ -433,15 +442,9 @@ export class TaskRuntime {
           permissionMode: invocation.permissionMode,
           dockerImageId: task.dockerImageId,
           signal: controller.signal
-        })
+        }, startTimeout)
         .then((result) => ({ kind: 'result' as const, result }))
         .catch((error: unknown) => ({ kind: 'error' as const, error }))
-      const timeoutResult = new Promise<{ kind: 'timeout' }>((resolve) => {
-        timeout = setTimeout(() => {
-          controller.abort('tool_timeout')
-          resolve({ kind: 'timeout' })
-        }, task.toolTimeoutMs)
-      })
       const cancellation = createCancellationRace(task.controller.signal)
       const outcome = await Promise.race([execution, timeoutResult, cancellation.promise])
       cancellation.cleanup()
