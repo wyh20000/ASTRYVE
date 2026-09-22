@@ -153,7 +153,7 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
   }
 
   if (images.length > 0) {
-    body = <div className="space-y-3"><ImageAttachments images={images} />{body}</div>
+    body = <div className="space-y-3">{body}<ImageAttachments images={images} /></div>
   }
 
   const showDots = message.status === 'streaming' && (hasText || !hasThinking)

@@ -147,9 +147,13 @@ export class BrowserGateway {
     return (await this.withReadPermit(() => this.adapter.find(tabId, locator, context), context)).slice(0, 100).map((item) => {
       const id = `element-${randomUUID()}`
       const ref: BrowserElementResult = {
-        id, tabId, pageVersion: version, role: short(item.role), name: short(item.name), tag: short(item.tag),
+        id, tabId, pageVersion: version,
+        ...(short(item.role) ? { role: short(item.role) } : {}),
+        ...(short(item.name) ? { name: short(item.name) } : {}),
+        ...(short(item.tag) ? { tag: short(item.tag) } : {}),
         visible: Boolean(item.visible), disabled: Boolean(item.disabled), sensitive: Boolean(item.sensitive),
-        highRisk: Boolean(item.highRisk), bounds: item.bounds
+        highRisk: Boolean(item.highRisk),
+        ...(item.bounds ? { bounds: item.bounds } : {})
       }
       this.elements.set(id, { backendNodeId: item.backendNodeId, ref })
       this.trimElementReferences()
@@ -364,12 +368,16 @@ function cleanMetadata(value: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(value).slice(0, 50).map(([key, child]) => [clean(key, 100), clean(child, 500)]))
 }
 function cleanOutline(value: BrowserSemanticNode[]): BrowserSemanticNode[] {
-  return value.slice(0, 200).map((node) => ({
-    role: short(node.role),
-    name: node.name && sensitiveText(node.name) ? '[已脱敏]' : short(node.name),
-    tag: clean(node.tag, 50),
-    disabled: Boolean(node.disabled)
-  }))
+  return value.slice(0, 200).map((node) => {
+    const role = short(node.role)
+    const name = node.name && sensitiveText(node.name) ? '[已脱敏]' : short(node.name)
+    return {
+      ...(role ? { role } : {}),
+      ...(name ? { name } : {}),
+      tag: clean(node.tag, 50),
+      disabled: Boolean(node.disabled)
+    }
+  })
 }
 function finiteMetric(value: number): number { return Number.isFinite(value) && value > 0 ? Math.round(value) : 0 }
 function normalizeReadyState(value: string): BrowserInspectResult['readyState'] {

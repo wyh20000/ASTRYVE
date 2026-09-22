@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { BrowserGateway, type BrowserAdapter } from './browserGateway'
+import { hasSafeValueShape } from '../agent/validation'
 
 function adapter(): BrowserAdapter {
   return {
@@ -226,6 +227,34 @@ describe('BrowserGateway', () => {
       { role: 'heading', name: 'Account', tag: 'h1', disabled: false },
       { role: 'textbox', name: '[已脱敏]', tag: 'input', disabled: false }
     ])
+  })
+
+  it('omits absent optional snapshot and element fields so real results remain JSON-safe', async () => {
+    const fake = adapter()
+    fake.inspect = vi.fn(async () => ({
+      title: 'X', url: 'https://x.com/home', text: '', readyState: 'complete', meta: {},
+      outline: [
+        { tag: 'node', disabled: false },
+        { role: 'link', tag: 'node', disabled: false }
+      ]
+    }))
+    fake.find = vi.fn(async () => [{
+      backendNodeId: 7, visible: true, disabled: false, sensitive: false, highRisk: false
+    }])
+    const gateway = new BrowserGateway(fake)
+
+    const inspection = await gateway.inspect('tab-1')
+    const [element] = await gateway.find('tab-1', { text: 'anything' })
+
+    expect(inspection.outline).toEqual([
+      { tag: 'node', disabled: false },
+      { role: 'link', tag: 'node', disabled: false }
+    ])
+    expect(element).not.toHaveProperty('role')
+    expect(element).not.toHaveProperty('name')
+    expect(element).not.toHaveProperty('bounds')
+    expect(hasSafeValueShape(inspection)).toBe(true)
+    expect(hasSafeValueShape(element)).toBe(true)
   })
 
   it('returns bounded diagnostics with a numeric performance summary', async () => {
