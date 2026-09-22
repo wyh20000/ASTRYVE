@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { ToolDefinition } from '../../../shared/agent'
 import type { BrowserElementRef } from '../../../shared/browser'
 import { BrowserGateway } from './browserGateway'
@@ -6,13 +7,56 @@ const refProperties = {
   elementId: { type: 'string' }, tabId: { type: 'string' }, pageVersion: { type: 'integer' }
 }
 const BROWSER_CALL_TIMEOUT_MS = 30_000
+const MAX_SCREENSHOT_ARTIFACTS = 20
+const SCREENSHOT_ARTIFACT_TTL_MS = 60_000
+
+export interface ScreenshotArtifact {
+  id: string
+  taskId: string
+  callId: string
+  mimeType: 'image/jpeg'
+  data: string
+  byteLength: number
+  expiresAt: number
+}
+
+const screenshotArtifacts = new Map<string, ScreenshotArtifact>()
+
+export const BROWSER_TOOL_NAMES = new Set([
+  'browser.listTabs', 'browser.openTab', 'browser.closeTab', 'browser.selectTab',
+  'browser.navigate', 'browser.history', 'browser.reload', 'browser.waitForPage',
+  'browser.inspect', 'browser.find', 'browser.click', 'browser.confirmClick',
+  'browser.doubleClick', 'browser.hover', 'browser.scroll', 'browser.type',
+  'browser.key', 'browser.select', 'browser.check', 'browser.drag',
+  'browser.screenshot', 'browser.screenshotElement', 'browser.diagnostics'
+])
 
 export function createBrowserTools(gateway: BrowserGateway): ToolDefinition<any, any>[] {
   return [
     tool('browser.listTabs', 'List tabs exposed by the connected browser adapter.', 'browser.read', {}, [],
       (_args, context) => gateway.listTabs(callContext(context, 'low'))),
-    tool('browser.openTab', 'Open an HTTP(S) URL in a new connected browser tab.', 'browser.interact',
-      { url: { type: 'string' } }, ['url'], async (args, context) => ({ tabId: await gateway.createTab(args.url, callContext(context)) })),
+    tool('browser.openTab', 'Open an HTTP(S) URL once. Reuses an existing tab with the same URL. The result is final: never call openTab again merely because loading is incomplete; inspect or wait on the returned tabId instead.', 'browser.interact',
+      { url: { type: 'string' } }, ['url'], async (args, context) => {
+        const call = callContext(context)
+        const opened = await gateway.createTab(args.url, call)
+        try {
+          const page = await gateway.waitForPage(opened.tabId, args.url, 12_000, call)
+          return {
+            ...opened,
+            loaded: true,
+            title: page.title,
+            url: page.url,
+            readyState: page.readyState
+          }
+        } catch (error) {
+          if (context.signal.aborted) throw error
+          return {
+            ...opened,
+            loaded: false,
+            message: '页面已经打开。不要再次打开；如需继续，请检查这个 tabId。'
+          }
+        }
+      }),
     tool('browser.closeTab', 'Close a connected browser tab.', 'browser.interact',
       { tabId: { type: 'string' } }, ['tabId'], async (args, context) => { await gateway.closeTab(args.tabId, callContext(context)); return { closed: true } }),
     tool('browser.selectTab', 'Bring a connected browser tab to the foreground.', 'browser.interact',
@@ -70,7 +114,7 @@ export function createBrowserTools(gateway: BrowserGateway): ToolDefinition<any,
         await gateway.assertTabOrigin(args.tabId, args.url, call)
         const image = await gateway.screenshot(args.tabId, undefined, call)
         if (image.byteLength > 2 * 1024 * 1024) throw new Error('截图较大，请缩小窗口或改用页面文本审查')
-        return { mimeType: 'image/png', data: image.toString('base64') }
+        return storeScreenshot(context.taskId, context.callId, image)
       }),
     tool('browser.screenshotElement', 'Capture a bounded screenshot of a previously located element.', 'browser.read',
       { ...refProperties, url: { type: 'string' } }, ['elementId', 'tabId', 'pageVersion', 'url'], async (args, context) => {
@@ -78,11 +122,56 @@ export function createBrowserTools(gateway: BrowserGateway): ToolDefinition<any,
         await gateway.assertTabOrigin(args.tabId, args.url, call)
         const image = await gateway.screenshot(args.tabId, ref(args), call)
         if (image.byteLength > 2 * 1024 * 1024) throw new Error('元素截图较大，请改用页面文本审查')
-        return { mimeType: 'image/png', data: image.toString('base64') }
+        return storeScreenshot(context.taskId, context.callId, image)
       }),
     tool('browser.diagnostics', 'Read bounded, redacted browser diagnostics.', 'browser.read',
       { tabId: { type: 'string' }, url: { type: 'string' } }, ['tabId', 'url'], async (args, context) => { const call = callContext(context, 'low'); await gateway.assertTabOrigin(args.tabId, args.url, call); return gateway.diagnostics(args.tabId, call) })
   ]
+}
+
+export function consumeBrowserScreenshotArtifact(
+  value: unknown,
+  taskId: string,
+  callId: string
+): ScreenshotArtifact | undefined {
+  if (!record(value) || typeof value.artifactId !== 'string') return undefined
+  pruneScreenshotArtifacts()
+  const artifact = screenshotArtifacts.get(value.artifactId)
+  if (!artifact || artifact.taskId !== taskId || artifact.callId !== callId) return undefined
+  screenshotArtifacts.delete(artifact.id)
+  return artifact
+}
+
+function storeScreenshot(taskId: string, callId: string, image: Buffer): Record<string, unknown> {
+  pruneScreenshotArtifacts()
+  const artifact: ScreenshotArtifact = {
+    id: `browser-image-${randomUUID()}`,
+    taskId,
+    callId,
+    mimeType: 'image/jpeg',
+    data: image.toString('base64'),
+    byteLength: image.byteLength,
+    expiresAt: Date.now() + SCREENSHOT_ARTIFACT_TTL_MS
+  }
+  screenshotArtifacts.set(artifact.id, artifact)
+  while (screenshotArtifacts.size > MAX_SCREENSHOT_ARTIFACTS) {
+    const oldest = screenshotArtifacts.keys().next().value
+    if (oldest === undefined) break
+    screenshotArtifacts.delete(oldest)
+  }
+  return {
+    artifactId: artifact.id,
+    mimeType: artifact.mimeType,
+    byteLength: artifact.byteLength,
+    persistedByHost: true
+  }
+}
+
+function pruneScreenshotArtifacts(): void {
+  const now = Date.now()
+  for (const [id, artifact] of screenshotArtifacts) {
+    if (artifact.expiresAt <= now) screenshotArtifacts.delete(id)
+  }
 }
 
 function tool(name: string, description: string, operation: 'browser.read' | 'browser.interact', properties: Record<string, unknown>, required: string[], action: (args: any, context: Parameters<ToolDefinition<any, any>['execute']>[1]) => Promise<any>): ToolDefinition<any, any> {

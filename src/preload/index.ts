@@ -186,9 +186,7 @@ const api: AgentApi = {
     clearAudit: () => ipcRenderer.invoke(IPC.settings.clearAudit),
     getAudit: () => ipcRenderer.invoke(IPC.settings.getAudit),
     getBrowserPreferences: () => ipcRenderer.invoke(IPC.settings.getBrowserPreferences),
-    setBrowserPreferences: (value: BrowserPreferences) => ipcRenderer.invoke(IPC.settings.setBrowserPreferences, value),
-    testBrowserConnection: () => ipcRenderer.invoke(IPC.settings.testBrowserConnection),
-    disconnectBrowser: () => ipcRenderer.invoke(IPC.settings.disconnectBrowser)
+    setBrowserPreferences: (value: BrowserPreferences) => ipcRenderer.invoke(IPC.settings.setBrowserPreferences, value)
   },
   window: {
     setTitleBarOverlay: (opts) => ipcRenderer.invoke(IPC.window.setTitleBarOverlay, opts)

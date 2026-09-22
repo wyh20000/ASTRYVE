@@ -8,6 +8,7 @@ import { getBrowserPreferences } from '../settings'
 
 let session: ChromeDevtoolsMcpSession | null = null
 let gateway: BrowserGateway | null = null
+let conversationLeases = 0
 
 /** Registers the trusted adapter without prompting Chrome until a browser tool is used. */
 export async function initOfficialChromeBrowserRuntime(): Promise<BrowserGateway> {
@@ -24,6 +25,7 @@ export async function closeOfficialChromeBrowserRuntime(): Promise<void> {
   const active = session
   session = null
   gateway = null
+  conversationLeases = 0
   await active?.close()
 }
 
@@ -31,13 +33,20 @@ export function getOfficialChromeBrowserGateway(): BrowserGateway | null {
   return gateway
 }
 
-export async function testOfficialChromeBrowserConnection(): Promise<number> {
-  if (!gateway) throw new Error('浏览器运行时尚未初始化')
-  return (await gateway.listTabs()).length
-}
-
 export async function disconnectOfficialChromeBrowserRuntime(): Promise<void> {
   if (session instanceof LazyChromeDevtoolsMcpSession) await session.disconnect()
+}
+
+/** Keeps one shared official connection alive only while a model reply is active. */
+export function acquireOfficialChromeBrowserLease(): () => Promise<void> {
+  conversationLeases += 1
+  let released = false
+  return async () => {
+    if (released) return
+    released = true
+    conversationLeases = Math.max(0, conversationLeases - 1)
+    if (conversationLeases === 0) await disconnectOfficialChromeBrowserRuntime()
+  }
 }
 
 function isOriginAllowed(url: URL): boolean {
@@ -63,7 +72,15 @@ export class LazyChromeDevtoolsMcpSession implements ChromeDevtoolsMcpSession {
     signal?: AbortSignal
   ) {
     const active = await this.ensureConnected()
-    return active.callTool(name, args, signal)
+    try {
+      return await active.callTool(name, args, signal)
+    } catch (error) {
+      if (this.active === active && isConnectionFailure(error)) {
+        await this.disconnect()
+        throw new Error('Chrome 官方 MCP 连接已中断，请重新获取标签页后继续', { cause: error })
+      }
+      throw error
+    }
   }
 
   async close(): Promise<void> {
@@ -105,4 +122,9 @@ export class LazyChromeDevtoolsMcpSession implements ChromeDevtoolsMcpSession {
     }
     return this.pending
   }
+}
+
+function isConnectionFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /(?:request timed out|not connected|connection (?:closed|lost)|transport|socket|broken pipe|econnreset|eof)/i.test(message)
 }

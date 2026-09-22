@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createBrowserTools } from './browserTools'
+import { consumeBrowserScreenshotArtifact, createBrowserTools } from './browserTools'
 
 describe('browser tools', () => {
   afterEach(() => vi.useRealTimers())
@@ -88,5 +88,29 @@ describe('browser tools', () => {
     expect(scroll.validateArgs(valid)).toBe(true)
     expect(scroll.validateArgs({ ...valid, y: '200' })).toBe(false)
     expect(scroll.validateArgs({ ...valid, action: 'harmless-read' })).toBe(false)
+  })
+
+  it('returns compact screenshot metadata and transfers image bytes through the host artifact channel', async () => {
+    const screenshot = createBrowserTools({
+      assertTabOrigin: vi.fn(async () => undefined),
+      screenshot: vi.fn(async () => Buffer.from('jpeg-bytes'))
+    } as never).find((tool) => tool.name === 'browser.screenshot')!
+    const context = {
+      taskId: 'task-browser', callId: 'shot-call', signal: new AbortController().signal
+    } as never
+
+    const result = await screenshot.execute({
+      tabId: 'tab-1', url: 'https://example.com'
+    }, context)
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { mimeType: 'image/jpeg', byteLength: 10, persistedByHost: true }
+    })
+    expect(JSON.stringify(result)).not.toContain('anBlZy1ieXRlcw')
+    if (!result.ok) throw new Error('expected screenshot success')
+    expect(consumeBrowserScreenshotArtifact(result.value, 'task-browser', 'shot-call'))
+      .toMatchObject({ mimeType: 'image/jpeg', data: Buffer.from('jpeg-bytes').toString('base64') })
+    expect(consumeBrowserScreenshotArtifact(result.value, 'task-browser', 'shot-call')).toBeUndefined()
   })
 })

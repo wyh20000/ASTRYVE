@@ -120,21 +120,10 @@ describe('Browser settings', () => {
       data: { allowAllSites: false, allowedOrigins: [], blockedOrigins: [] }
     }))
     const setBrowserPreferences = vi.fn(async (value) => ({ ok: true as const, data: value }))
-    const testBrowserConnection = vi.fn(async () => ({
-      ok: true as const, data: { tabCount: 2 }
-    }))
-    const disconnectBrowser = vi.fn(async () => ({
-      ok: true as const, data: { disconnected: true as const }
-    }))
     const previous = Object.getOwnPropertyDescriptor(window.agent, 'settings')
     Object.defineProperty(window.agent, 'settings', {
       configurable: true,
-      value: {
-        getBrowserPreferences,
-        setBrowserPreferences,
-        testBrowserConnection,
-        disconnectBrowser
-      }
+      value: { getBrowserPreferences, setBrowserPreferences }
     })
     try {
       const user = userEvent.setup()
@@ -152,13 +141,6 @@ describe('Browser settings', () => {
       }))
       expect(screen.getByRole('status')).toHaveTextContent('浏览器网站权限已保存')
 
-      await user.click(screen.getByRole('button', { name: '测试官方连接' }))
-      await waitFor(() => expect(testBrowserConnection).toHaveBeenCalledTimes(1))
-      expect(screen.getByRole('status')).toHaveTextContent('发现 2 个标签页')
-
-      await user.click(screen.getByRole('button', { name: '断开连接' }))
-      await waitFor(() => expect(disconnectBrowser).toHaveBeenCalledTimes(1))
-      expect(screen.getByRole('status')).toHaveTextContent('已断开 Google 官方 MCP')
     } finally {
       if (previous) Object.defineProperty(window.agent, 'settings', previous)
       else Reflect.deleteProperty(window.agent, 'settings')

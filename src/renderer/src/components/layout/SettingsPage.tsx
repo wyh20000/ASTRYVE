@@ -108,7 +108,6 @@ export function BrowserSection(): JSX.Element {
   const [blockedOrigins, setBlockedOrigins] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [connectionBusy, setConnectionBusy] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -147,24 +146,6 @@ export function BrowserSection(): JSX.Element {
     }
   }
 
-  const testConnection = async (): Promise<void> => {
-    setConnectionBusy(true)
-    setMessage('')
-    const result = await window.agent.settings.testBrowserConnection()
-    setConnectionBusy(false)
-    setMessage(result.ok
-      ? `已通过 Google 官方 MCP 连接，发现 ${result.data.tabCount} 个标签页`
-      : result.error.message)
-  }
-
-  const disconnect = async (): Promise<void> => {
-    setConnectionBusy(true)
-    setMessage('')
-    const result = await window.agent.settings.disconnectBrowser()
-    setConnectionBusy(false)
-    setMessage(result.ok ? '已断开 Google 官方 MCP；下次使用浏览器工具时可重新连接' : result.error.message)
-  }
-
   return <div>
     <h1 className="selectable text-[20px] font-semibold text-txt-primary">浏览器</h1>
     <p className="mt-1 text-[14px] text-txt-muted">通过 Google 官方 Chrome DevTools MCP 连接你当前使用的 Chrome。</p>
@@ -172,11 +153,7 @@ export function BrowserSection(): JSX.Element {
       <div className="space-y-2 text-[14px] leading-6 text-txt-secondary">
         <p>要求 Chrome 144 或更高版本。请在 Chrome 中手动打开 <code>chrome://inspect/#remote-debugging</code>，开启远程调试，并在连接提示中点击允许。</p>
         <p className="text-txt-muted">ASTRYVE 不会自动修改这个 Chrome 安全设置。官方连接能够看到已打开标签页和已登录页面，请只在你信任当前任务时启用。</p>
-        <p className="text-txt-muted">ASTRYVE 仅在测试连接或首次使用浏览器工具时启动官方 MCP；连接失败后可直接重试，无需重启应用。</p>
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Button variant="primary" disabled={connectionBusy} onClick={() => void testConnection()}>{connectionBusy ? '处理中…' : '测试官方连接'}</Button>
-          <Button disabled={connectionBusy} onClick={() => void disconnect()}>断开连接</Button>
-        </div>
+        <p className="text-txt-muted">直接在对话中要求打开、检查、操作或截图网页即可。ASTRYVE 会按需启动官方 MCP，并在本轮对话结束后自动断开。</p>
       </div>
     </Group>
     <Group title="网站权限">

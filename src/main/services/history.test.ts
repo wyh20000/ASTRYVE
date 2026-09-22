@@ -60,6 +60,21 @@ describe('toChatMessage', () => {
     })
   })
 
+  it('助手截图保留在消息存储中，但不会伪装成下一轮用户图片', () => {
+    const message: Message = {
+      ...textMsg('assistant', '截图完成'),
+      attachments: [{
+        id: 'browser-shot', kind: 'image', name: 'browser-screenshot.jpg',
+        contentType: 'image/jpeg', dataRef: 'data:image/jpeg;base64,AAA',
+        meta: { source: 'browser' }
+      }]
+    }
+
+    expect(toChatMessage(message, true)).toMatchObject({
+      role: 'assistant', content: '截图完成'
+    })
+  })
+
   it('无文字的图片消息在非视觉请求下 content 为空字符串', () => {
     const m: Message = { ...imgMsg(), content: '' }
     expect(toChatMessage(m, false).content).toBe('')

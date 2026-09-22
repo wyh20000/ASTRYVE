@@ -70,4 +70,35 @@ describe('LazyChromeDevtoolsMcpSession', () => {
     expect(connect).toHaveBeenCalledTimes(2)
     expect(second.callTool).toHaveBeenCalledTimes(1)
   })
+
+  it('invalidates a broken active connection so the next call reconnects', async () => {
+    const first = connectedSession()
+    vi.mocked(first.callTool).mockRejectedValueOnce(new Error('socket connection closed'))
+    const second = connectedSession()
+    const connect = vi.fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+    const lazy = new LazyChromeDevtoolsMcpSession(connect)
+
+    await expect(lazy.callTool('list_pages', {})).rejects.toThrow('连接已中断')
+    expect(first.close).toHaveBeenCalledTimes(1)
+    await expect(lazy.callTool('list_pages', {})).resolves.toEqual({ content: [] })
+    expect(connect).toHaveBeenCalledTimes(2)
+  })
+
+  it('invalidates an official MCP request timeout without replaying the call', async () => {
+    const first = connectedSession()
+    vi.mocked(first.callTool).mockRejectedValueOnce(new Error('Request timed out'))
+    const second = connectedSession()
+    const connect = vi.fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+    const lazy = new LazyChromeDevtoolsMcpSession(connect)
+
+    await expect(lazy.callTool('list_pages', {})).rejects.toThrow('连接已中断')
+    expect(first.callTool).toHaveBeenCalledTimes(1)
+    expect(first.close).toHaveBeenCalledTimes(1)
+    await expect(lazy.callTool('list_pages', {})).resolves.toEqual({ content: [] })
+    expect(connect).toHaveBeenCalledTimes(2)
+  })
 })

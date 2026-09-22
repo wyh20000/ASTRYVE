@@ -122,6 +122,24 @@ describe('用户消息 - 迁移后仍保留全部能力', () => {
     expect(screen.getByAltText('reference.png')).toBeInTheDocument()
   })
 
+  it('图片预览支持放大、缩小和关闭', async () => {
+    render(wrap(<MessageItem message={userMessage({
+      attachments: [{
+        id: 'zoom-image', kind: 'image', name: 'zoom.png',
+        contentType: 'image/png', dataRef: 'data:image/png;base64,AA=='
+      }]
+    })} />))
+
+    await userEvent.click(screen.getByRole('button', { name: '预览图片 zoom.png' }))
+    expect(screen.getByRole('dialog', { name: '图片预览 zoom.png' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '放大' }))
+    expect(screen.getByRole('button', { name: '125%' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '缩小' }))
+    expect(screen.getByRole('button', { name: '100%' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '关闭预览' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('保留文件附件的解析状态', () => {
     render(
       wrap(
@@ -190,6 +208,19 @@ describe('Agent 消息 - 保持 borderless 内容流', () => {
     render(wrap(<MessageItem message={assistantMessage()} />))
     expect(screen.queryByText('ASTRYVE')).not.toBeInTheDocument()
     expect(screen.getByText('完成')).toBeInTheDocument()
+  })
+
+  it('展示并可重新打开持久化的浏览器截图附件', async () => {
+    render(wrap(<MessageItem message={assistantMessage({
+      attachments: [{
+        id: 'browser-shot', kind: 'image', name: 'browser-screenshot.jpg',
+        contentType: 'image/jpeg', dataRef: 'data:image/jpeg;base64,AA==',
+        meta: { source: 'browser' }
+      }]
+    })} />))
+
+    await userEvent.click(screen.getByRole('button', { name: '预览图片 browser-screenshot.jpg' }))
+    expect(screen.getByRole('dialog', { name: '图片预览 browser-screenshot.jpg' })).toBeInTheDocument()
   })
 
   it('失败且无内容时显示可复现的占位说明', () => {

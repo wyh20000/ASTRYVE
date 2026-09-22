@@ -46,6 +46,11 @@ const PAGE_INSPECTION_FUNCTION = `() => ({
     .slice(0, 50)
     .map((node) => [node.getAttribute('name') || node.getAttribute('property') || '', node.getAttribute('content') || '']))
 })`
+const PAGE_STATE_FUNCTION = `() => ({
+  title: document.title,
+  url: location.href,
+  readyState: document.readyState
+})`
 const PERFORMANCE_FUNCTION = `() => {
   const navigation = performance.getEntriesByType('navigation')[0]
   const resources = performance.getEntriesByType('resource')
@@ -125,6 +130,19 @@ export class ChromeDevtoolsMcpAdapter implements BrowserAdapter {
       url
     }, context)
     this.clearTabElements(tabId)
+  }
+
+  async pageState(tabId: string, context?: BrowserCallContext): Promise<{
+    title: string
+    url: string
+    readyState: string
+  }> {
+    const state = await this.evaluate(tabId, PAGE_STATE_FUNCTION, context)
+    if (!record(state) || typeof state.title !== 'string' ||
+        typeof state.url !== 'string' || typeof state.readyState !== 'string') {
+      throw new Error('Chrome DevTools MCP 页面状态无效')
+    }
+    return { title: state.title, url: state.url, readyState: state.readyState }
   }
 
   async inspect(tabId: string, context?: BrowserCallContext): Promise<{

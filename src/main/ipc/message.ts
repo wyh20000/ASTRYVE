@@ -41,6 +41,7 @@ import {
 } from '../services/generationTasks'
 import {
   cancelTasksForSession,
+  createBrowserTask,
   createProjectTask,
   getPatchWorkspaceService,
   getTaskRuntime,
@@ -67,6 +68,15 @@ import {
   settleToolTimeline,
   updateToolTimeline
 } from '../services/agent/toolTimeline'
+import {
+  BROWSER_TOOL_NAMES,
+  consumeBrowserScreenshotArtifact
+} from '../services/browser/browserTools'
+import {
+  BROWSER_CONVERSATION_PROMPT,
+  prefersBrowserTools
+} from '../services/browser/browserConversation'
+import { acquireOfficialChromeBrowserLease } from '../services/browser/officialChromeBrowserRuntime'
 import {
   assertTrustedIpcSender,
   validateSendMessageInput,
@@ -211,15 +221,14 @@ async function runReply(
     const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
     selectedPluginIds = pluginSelection.pluginIds
     if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
+    const browserIntent = projectEligible && prefersBrowserTools(userRequest)
     if (projectEligible) {
       await restoreSessionWorkspace(sessionId, session?.projectPath)
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
       const explicitPlugin = selectedPluginIds.length > 0
       useProjectAgent = shouldUseProjectAgent(sessionId) &&
-        (explicitSkill || explicitPlugin || !prefersBuiltInSearch(userRequest))
+        (explicitSkill || explicitPlugin || browserIntent || !prefersBuiltInSearch(userRequest))
     }
-    // 普通问答自动开放模型厂商的联网工具；项目编码任务优先保留本地工具链。
-    const useSearch = !vision && !useProjectAgent && supportsBuiltInSearch(preset.provider)
     if (useProjectAgent) {
       cancelTasksForSession(sessionId, 'replaced')
       try {
@@ -243,6 +252,12 @@ async function runReply(
           }
           activeSkills = resolved.skills
           skillTrigger = resolved.trigger
+          if (browserIntent) {
+            skillPrompt = [skillPrompt, BROWSER_CONVERSATION_PROMPT].filter(Boolean).join('\n\n')
+            if (allowedToolNames) {
+              for (const name of BROWSER_TOOL_NAMES) allowedToolNames.add(name)
+            }
+          }
           auditSkillUse(agentTask.id, agentTask.workspaceId, resolved.skills)
           for (const pluginId of agentTask.pluginIds ?? []) {
             writeAgentAudit({
@@ -263,6 +278,22 @@ async function runReply(
         })
         return
       }
+    } else if (browserIntent) {
+      cancelTasksForSession(sessionId, 'replaced')
+      try {
+        const agentTask = await createBrowserTask(sessionId, wc.id)
+        agentTaskId = agentTask.id
+        agentWorkspaceId = agentTask.workspaceId
+        agentExecutionEnvironment = agentTask.environment
+        allowedToolNames = new Set(BROWSER_TOOL_NAMES)
+        skillPrompt = BROWSER_CONVERSATION_PROMPT
+      } catch (error) {
+        sendMessageNotice(wc, {
+          id: randomUUID(), sessionId, level: 'error',
+          message: error instanceof Error ? error.message : '浏览器任务无法启动'
+        })
+        return
+      }
     } else {
       try {
         const resolved = await resolveSkills(userRequest, explicitSkillIds)
@@ -279,27 +310,34 @@ async function runReply(
         return
       }
     }
-    await runModelReply(
-      wc,
-      preset,
-      useProjectAgent ? codingReasoningEffort(cfg.reasoningEffort, userRequest) : cfg.reasoningEffort,
-      sessionId,
-      vision,
-      docTexts,
-      useSearch,
-      task.controller.signal,
-      agentTaskId,
-      agentWorkspaceId,
-      agentWorkspaceRoot,
-      agentExecutionEnvironment,
-      skillPrompt,
-      allowedToolNames,
-      modelUserRequest,
-      activeSkills,
-      skillTrigger,
-      selectedPluginIds,
-      selectedPluginVersions
-    )
+    const useSearch = !vision && !agentTaskId && supportsBuiltInSearch(preset.provider)
+    const releaseBrowserLease = agentTaskId ? acquireOfficialChromeBrowserLease() : undefined
+    try {
+      await runModelReply(
+        wc,
+        preset,
+        useProjectAgent ? codingReasoningEffort(cfg.reasoningEffort, userRequest) : cfg.reasoningEffort,
+        sessionId,
+        vision,
+        docTexts,
+        useSearch,
+        task.controller.signal,
+        agentTaskId,
+        agentWorkspaceId,
+        agentWorkspaceRoot,
+        agentExecutionEnvironment,
+        useProjectAgent,
+        skillPrompt,
+        allowedToolNames,
+        modelUserRequest,
+        activeSkills,
+        skillTrigger,
+        selectedPluginIds,
+        selectedPluginVersions
+      )
+    } finally {
+      await releaseBrowserLease?.()
+    }
   } finally {
     finishGeneration(sessionId, task)
   }
@@ -357,6 +395,7 @@ async function runModelReply(
   agentWorkspaceId?: string,
   agentWorkspaceRoot?: string,
   agentExecutionEnvironment?: 'local' | 'docker',
+  codingAgent = false,
   skillPrompt = '',
   allowedToolNames?: ReadonlySet<string>,
   activeRequest?: string,
@@ -370,6 +409,7 @@ async function runModelReply(
   let reasoning = ''
   let content = ''
   let sources: SourceCitation[] = []
+  const generatedAttachments: Attachment[] = []
   const timeline = createToolTimeline()
   if (activePluginIds.length) {
     timeline.blocks.push({
@@ -437,7 +477,8 @@ async function runModelReply(
       content,
       blocks: blocks.length ? blocks : undefined,
       status,
-      timestamp
+      timestamp,
+      attachments: generatedAttachments.length ? [...generatedAttachments] : undefined
     }
     if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, msg)
     await queuePersist(msg, status !== 'streaming')
@@ -450,7 +491,7 @@ async function runModelReply(
     vision,
     docTexts,
     preset.contextTokens ?? 128_000,
-    Boolean(agentTaskId),
+    codingAgent,
     agentWorkspaceRoot,
     agentExecutionEnvironment,
     skillPrompt,
@@ -567,12 +608,32 @@ async function runModelReply(
                 wc.send(EVENTS.workspaceFilesChanged, { workspaceId: agentWorkspaceId, paths: [] })
               }
             }
+            if (tool.status === 'completed' && tool.ok === true && agentTaskId &&
+                (tool.toolName === 'browser.screenshot' || tool.toolName === 'browser.screenshotElement')) {
+              const artifact = consumeBrowserScreenshotArtifact(tool.result, agentTaskId, tool.callId)
+              if (artifact) {
+                generatedAttachments.push({
+                  id: artifact.id,
+                  kind: 'image',
+                  name: tool.toolName === 'browser.screenshotElement'
+                    ? 'browser-element-screenshot.jpg'
+                    : 'browser-screenshot.jpg',
+                  contentType: artifact.mimeType,
+                  dataRef: `data:${artifact.mimeType};base64,${artifact.data}`,
+                  meta: {
+                    source: 'browser',
+                    toolName: tool.toolName,
+                    byteLength: artifact.byteLength
+                  }
+                })
+              }
+            }
             await emit('streaming')
           },
           maxToolResultChars: Math.max(20_000, Math.min(400_000, Math.floor((preset.contextTokens ?? 128_000) * 1.4)))
         }) } finally { unsubscribeApprovals() }
         if (result.status === 'failed') {
-          const failureMessage = result.error?.message ?? 'Coding 任务执行失败'
+          const failureMessage = result.error?.message ?? '任务执行失败'
           appendTaskReport(timeline, approvals, failureMessage)
           if (!content.trim()) {
             appendToolTimelineText(timeline, `本次执行未完成：${failureMessage}。请重试。`)
@@ -697,6 +758,17 @@ function describeToolActivity(toolName: string, args: unknown, result?: unknown)
   if (toolName === 'workspace.patch') return `生成沙箱补丁：${clean(input.path) || '项目文件'}`
   if (toolName === 'workspace.applyPatch') return result ? '已验证并写回补丁' : '等待批准写回补丁'
   if (toolName.startsWith('git.')) return `查看 Git：${toolName.slice(4)}`
+  if (toolName === 'browser.listTabs') return '读取当前浏览器标签页'
+  if (toolName === 'browser.openTab') return result
+    ? `网页已打开：${clean(input.url) || '目标网址'}`
+    : `等待批准打开网页：${clean(input.url) || '目标网址'}`
+  if (toolName === 'browser.waitForPage') return '等待已有页面完成加载'
+  if (toolName === 'browser.inspect') return '检查当前网页内容'
+  if (toolName === 'browser.find') return '定位网页元素'
+  if (toolName === 'browser.screenshot' || toolName === 'browser.screenshotElement') return result
+    ? '网页截图已保存到对话'
+    : '截取网页画面'
+  if (toolName.startsWith('browser.')) return `操作浏览器：${toolName.slice('browser.'.length)}`
   return `使用工具：${toolName.slice(0, 100)}`
 }
 
@@ -738,6 +810,7 @@ function approvalTarget(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '已批准操作'
   const input = value as Record<string, unknown>
   if (typeof input.path === 'string') return input.path.slice(0, 160)
+  if (typeof input.url === 'string') return input.url.slice(0, 160)
   if (Array.isArray(input.paths)) return input.paths.filter((path) => typeof path === 'string').slice(0, 5).join(', ').slice(0, 160)
   if (typeof input.executable === 'string') {
     const args = Array.isArray(input.args) ? input.args.filter((arg) => typeof arg === 'string').slice(0, 5).join(' ') : ''

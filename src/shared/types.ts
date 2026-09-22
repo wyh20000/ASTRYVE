@@ -669,8 +669,6 @@ export interface AgentApi {
     getAudit: () => Promise<IpcResult<AuditEvent[]>>
     getBrowserPreferences: () => Promise<IpcResult<BrowserPreferences>>
     setBrowserPreferences: (value: BrowserPreferences) => Promise<IpcResult<BrowserPreferences>>
-    testBrowserConnection: () => Promise<IpcResult<{ tabCount: number }>>
-    disconnectBrowser: () => Promise<IpcResult<{ disconnected: true }>>
   }
   window: {
     setTitleBarOverlay: (opts?: { color: string; symbolColor: string }) => Promise<IpcResult<boolean>>

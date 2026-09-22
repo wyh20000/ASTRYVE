@@ -9,6 +9,11 @@ export interface BrowserAdapter {
   history(tabId: string, direction: 'back' | 'forward', context?: BrowserCallContext): Promise<void>
   reload(tabId: string, context?: BrowserCallContext): Promise<void>
   navigate(tabId: string, url: string, context?: BrowserCallContext): Promise<void>
+  pageState(tabId: string, context?: BrowserCallContext): Promise<{
+    title: string
+    url: string
+    readyState: string
+  }>
   inspect(tabId: string, context?: BrowserCallContext): Promise<{ title: string; url: string; text: string; readyState: string; meta: Record<string, string>; outline: BrowserSemanticNode[] }>
   find(tabId: string, locator: BrowserLocator, context?: BrowserCallContext): Promise<Array<Omit<BrowserElementResult, 'id' | 'tabId' | 'pageVersion'> & { backendNodeId: number }>>
   interact(tabId: string, backendNodeId: number, action: BrowserInteraction, context?: BrowserCallContext): Promise<unknown>
@@ -72,12 +77,20 @@ export class BrowserGateway {
     })
   }
 
-  async createTab(rawUrl = 'about:blank', context?: BrowserCallContext): Promise<string> {
+  async createTab(rawUrl = 'about:blank', context?: BrowserCallContext): Promise<{ tabId: string; reused: boolean }> {
     const url = rawUrl === 'about:blank' ? rawUrl : safeWebUrl(rawUrl)
     if (url !== 'about:blank' && this.canNavigate && !this.canNavigate(new URL(url))) throw new Error('该网站已被浏览器设置阻止')
+    if (url !== 'about:blank') {
+      const existing = (await this.withReadPermit(() => this.adapter.listTabs(context), context))
+        .find((tab) => comparableUrl(tab.url) === comparableUrl(url))
+      if (existing) {
+        this.versions.set(existing.id, this.version(existing.id))
+        return { tabId: existing.id, reused: true }
+      }
+    }
     const id = await this.withOptionalDeadline(context, () => this.adapter.createTab(url, context))
     this.versions.set(id, 1)
-    return id
+    return { tabId: id, reused: false }
   }
   async selectTab(tabId: string, context?: BrowserCallContext): Promise<void> { await this.withOptionalDeadline(context, () => this.adapter.activateTab(tabId, context)) }
   async closeTab(tabId: string, context?: BrowserCallContext): Promise<void> {
@@ -114,11 +127,16 @@ export class BrowserGateway {
     const expectedOrigin = new URL(safeWebUrl(rawUrl)).origin.toLowerCase()
     const deadline = Math.min(context.deadline, Date.now() + Math.max(100, Math.min(timeoutMs, 30_000)))
     while (Date.now() < deadline) {
-      const result = await this.inspect(tabId, { ...context, deadline })
+      const state = await this.withReadPermit(
+        () => this.adapter.pageState(tabId, { ...context, deadline }),
+        { ...context, deadline }
+      )
       let currentOrigin = ''
-      try { currentOrigin = new URL(result.url).origin.toLowerCase() } catch { /* still loading */ }
-      if (result.readyState === 'complete' && currentOrigin === expectedOrigin) return result
-      await pause(Math.min(100, Math.max(1, deadline - Date.now())), context.signal)
+      try { currentOrigin = new URL(state.url).origin.toLowerCase() } catch { /* still loading */ }
+      if ((state.readyState === 'interactive' || state.readyState === 'complete') && currentOrigin === expectedOrigin) {
+        return this.inspect(tabId, { ...context, deadline })
+      }
+      await pause(Math.min(500, Math.max(1, deadline - Date.now())), context.signal)
     }
     throw new Error('等待页面稳定超时')
   }
@@ -320,6 +338,15 @@ function safeDisplayUrl(raw: string): string {
     url.search = ''
     url.hash = ''
     return url.toString().slice(0, 2048)
+  } catch {
+    return ''
+  }
+}
+function comparableUrl(raw: string): string {
+  try {
+    const url = new URL(safeWebUrl(raw))
+    url.hash = ''
+    return url.toString()
   } catch {
     return ''
   }

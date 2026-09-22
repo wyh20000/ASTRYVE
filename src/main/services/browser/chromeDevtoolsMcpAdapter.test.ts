@@ -136,6 +136,26 @@ describe('ChromeDevtoolsMcpAdapter', () => {
     }, undefined)
   })
 
+  it('polls page readiness through the official evaluate_script schema', async () => {
+    const fake = session((name) => name === 'evaluate_script'
+      ? {
+          content: [{
+            type: 'text',
+            text: '```json\n{"title":"Ready","url":"https://example.com/","readyState":"interactive"}\n```'
+          }]
+        }
+      : { content: [] })
+    const adapter = new ChromeDevtoolsMcpAdapter(fake)
+
+    await expect(adapter.pageState('3')).resolves.toEqual({
+      title: 'Ready', url: 'https://example.com/', readyState: 'interactive'
+    })
+    expect(fake.callTool).toHaveBeenCalledWith('evaluate_script', {
+      pageId: 3,
+      function: expect.stringContaining('document.readyState')
+    }, undefined)
+  })
+
   it('turns the official unavailable error into actionable Chrome setup guidance', async () => {
     const adapter = new ChromeDevtoolsMcpAdapter(session(() => ({
       isError: true,

@@ -7,6 +7,9 @@ function adapter(): BrowserAdapter {
     createTab: vi.fn(async () => 'tab-2'), activateTab: vi.fn(async () => undefined), closeTab: vi.fn(async () => undefined),
     history: vi.fn(async () => undefined), reload: vi.fn(async () => undefined),
     navigate: vi.fn(async () => undefined),
+    pageState: vi.fn(async () => ({
+      title: 'Example', url: 'https://example.com', readyState: 'complete'
+    })),
     inspect: vi.fn(async () => ({
       title: 'Example', url: 'https://example.com', text: 'password=secret token abc',
       readyState: 'complete',
@@ -273,6 +276,16 @@ describe('BrowserGateway', () => {
     await expect(gateway.createTab('https://blocked.test')).rejects.toThrow('阻止')
   })
 
+  it('reuses an already open identical URL instead of creating duplicate tabs', async () => {
+    const fake = adapter()
+    const gateway = new BrowserGateway(fake)
+
+    await expect(gateway.createTab('https://example.com')).resolves.toEqual({
+      tabId: 'tab-1', reused: true
+    })
+    expect(fake.createTab).not.toHaveBeenCalled()
+  })
+
   it('binds reads and writes to the tab origin reported by Chrome', async () => {
     const gateway = new BrowserGateway(adapter())
     await expect(gateway.assertTabOrigin('tab-1', 'https://example.com/page')).resolves.toBeUndefined()
@@ -354,15 +367,19 @@ describe('BrowserGateway', () => {
 
   it('waits until the page reports a complete ready state', async () => {
     const fake = adapter()
-    fake.inspect = vi.fn()
-      .mockResolvedValueOnce({ title: '', url: 'https://example.com', text: '', meta: {}, outline: [], readyState: 'loading' })
-      .mockResolvedValueOnce({ title: 'Ready', url: 'https://example.com', text: 'done', meta: {}, outline: [], readyState: 'complete' })
+    fake.pageState = vi.fn()
+      .mockResolvedValueOnce({ title: '', url: 'https://example.com', readyState: 'loading' })
+      .mockResolvedValueOnce({ title: 'Ready', url: 'https://example.com', readyState: 'interactive' })
+    fake.inspect = vi.fn(async () => ({
+      title: 'Ready', url: 'https://example.com', text: 'done', meta: {}, outline: [], readyState: 'interactive'
+    }))
     const gateway = new BrowserGateway(fake)
 
     await expect(gateway.waitForPage('tab-1', 'https://example.com/page', 1_000, context('wait'))).resolves.toMatchObject({
       title: 'Ready', text: 'done'
     })
-    expect(fake.inspect).toHaveBeenCalledTimes(2)
+    expect(fake.pageState).toHaveBeenCalledTimes(2)
+    expect(fake.inspect).toHaveBeenCalledTimes(1)
   })
 })
 

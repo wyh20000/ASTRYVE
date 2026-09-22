@@ -10,7 +10,7 @@ export function toChatMessage(m: Message, vision: boolean): ChatMessage {
   const reasoningContent = m.role === 'assistant'
     ? m.blocks?.find((block) => block.kind === 'thinking')?.content
     : undefined
-  const images = vision
+  const images = vision && m.role === 'user'
     ? (m.attachments ?? []).filter(
         (a): a is Attachment & { kind: 'image' } => a.kind === 'image' && a.dataRef.startsWith('data:')
       )

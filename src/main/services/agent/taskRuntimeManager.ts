@@ -64,6 +64,31 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
   }
 }
 
+/** Starts a browser-only tool task without requiring the user to attach a project workspace. */
+export async function createBrowserTask(sessionId: string, ownerWebContentsId: number) {
+  const [{ app, BrowserWindow }, { getStore }] = await Promise.all([
+    import('electron'), import('../../db')
+  ])
+  if (!(await getStore().getSession(sessionId))) throw new Error('会话不存在或已删除')
+  if (!BrowserWindow.getAllWindows().some((window) =>
+    !window.isDestroyed() && window.webContents.id === ownerWebContentsId)) {
+    throw new Error('任务窗口已关闭')
+  }
+  const runtimeRoot = app.getPath('userData')
+  return getTaskRuntime().createTask({
+    sessionId,
+    ownerWebContentsId,
+    workspace: {
+      id: `browser:${sessionId}`,
+      rootPath: runtimeRoot,
+      realRootPath: runtimeRoot,
+      createdAt: Date.now()
+    },
+    permissionMode: 'ask-every-time',
+    environment: 'local'
+  })
+}
+
 let registry: ToolRegistry | null = null
 let runtime: TaskRuntime | null = null
 let journal: TaskEventJournal | null = null
