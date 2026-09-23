@@ -66,6 +66,84 @@ function finalTurn(): ChatCompletionTurn {
 }
 
 describe('runToolCallingLoop', () => {
+  it('refreshes the trusted tool directory after activation without forcing an optional first call', async () => {
+    const registry = new ToolRegistry()
+    let activated = false
+    let inspected = false
+    const activate = echoTool()
+    activate.name = 'test.activate'
+    activate.execute = async () => {
+      activated = true
+      return { ok: true, value: 'activated' }
+    }
+    const inspect = echoTool()
+    inspect.name = 'test.inspect'
+    inspect.execute = async () => {
+      inspected = true
+      return { ok: true, value: 'inspected' }
+    }
+    registry.register(activate)
+    registry.register(inspect)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-dynamic' })
+    const task = runtime.createTask({ sessionId: 'session-dynamic', workspace, ownerWebContentsId: 1,
+      permissionMode: 'ask-every-time', environment: 'docker' })
+    const visible: string[][] = []
+    const choices: unknown[] = []
+    let round = 0
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, requireInitialTool: false,
+      resolveAllowedToolNames: () => new Set(activated ? ['test.inspect'] : ['test.activate']),
+      runRound: async (_model, _messages, _event, options) => {
+        round += 1
+        visible.push((options.tools ?? []).map((tool) => tool.function.name))
+        choices.push(options.toolChoice)
+        if (round === 3) return finalTurn()
+        return { message: { role: 'assistant', content: null, tool_calls: [{
+          id: `call-${round}`, type: 'function', function: {
+            name: round === 1 ? 'test.activate' : 'test.inspect', arguments: '{"value":"hello"}'
+          }
+        }] }, finishReason: 'tool_calls' }
+      }
+    })
+    expect(result.status).toBe('completed')
+    expect(visible).toEqual([['test.activate'], ['test.inspect'], ['test.inspect']])
+    expect(choices).toEqual(['auto', 'auto', 'auto'])
+    expect(inspected).toBe(true)
+  })
+
+  it('rejects a registered tool omitted from the current round, even if the model invents its name', async () => {
+    const registry = new ToolRegistry()
+    registry.register(echoTool())
+    const hidden = echoTool()
+    hidden.name = 'test.hidden'
+    const executeHidden = vi.fn(async () => ({ ok: true as const, value: 'unsafe' }))
+    hidden.execute = executeHidden
+    registry.register(hidden)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-hidden' })
+    const task = runtime.createTask({ sessionId: 'session-hidden', workspace, ownerWebContentsId: 1,
+      permissionMode: 'ask-every-time', environment: 'docker' })
+    let round = 0
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, requireInitialTool: false,
+      resolveAllowedToolNames: () => new Set(['test.echo']),
+      runRound: async (_model, messages, _event, options) => {
+        round += 1
+        expect(options.tools?.map((tool) => tool.function.name)).toEqual(['test.echo'])
+        if (round === 1) return { message: { role: 'assistant', content: null, tool_calls: [{
+          id: 'hidden-call', type: 'function', function: { name: 'test.hidden', arguments: '{"value":"hello"}' }
+        }] }, finishReason: 'tool_calls' }
+        expect(messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('TOOL_NOT_AVAILABLE') })
+        return finalTurn()
+      }
+    })
+    expect(result.status).toBe('completed')
+    expect(executeHidden).not.toHaveBeenCalled()
+  })
+
   it('does not display model text from a round that opens the user-input dialog', async () => {
     const { registry, runtime, task } = setup()
     const displayed: string[] = []

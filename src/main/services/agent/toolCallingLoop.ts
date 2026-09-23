@@ -48,6 +48,8 @@ export interface RunToolCallingLoopInput {
   maxToolResultChars?: number
   runRound?: RunRound
   allowedToolNames?: ReadonlySet<string>
+  /** Trusted host policy, evaluated before every model round. Never derive this from model or tool text. */
+  resolveAllowedToolNames?: (round: number) => ReadonlySet<string>
   requireInitialTool?: boolean
   requestUserInput?: (args: unknown) => Promise<ToolResult<unknown>>
 }
@@ -76,13 +78,9 @@ export async function runToolCallingLoop(
   }
 
   const messages = [...input.messages]
-  const nativeTools = input.taskRuntime.listNativeFunctionTools(input.taskId, input.allowedToolNames)
-  const tools = [
-    ...nativeTools,
-    ...(input.requestUserInput ? [REQUEST_USER_INPUT_TOOL] : [])
-  ]
-  if (nativeTools.length) messages.push({ role: 'system', content: UNTRUSTED_TOOL_RESULT_BOUNDARY })
-  const exposedToolNames = new Set(tools.map((tool) => tool.function.name))
+  if (input.resolveAllowedToolNames || input.taskRuntime.listNativeFunctionTools(input.taskId, input.allowedToolNames).length) {
+    messages.push({ role: 'system', content: UNTRUSTED_TOOL_RESULT_BOUNDARY })
+  }
   const runRound = input.runRound ?? streamChatTurn
   let acceptedToolResultBytes = 0
   let hasUsedTool = false
@@ -99,6 +97,12 @@ export async function runToolCallingLoop(
 
   try {
     for (let round = 1; round <= maxRounds; round += 1) {
+      const allowedNames = input.resolveAllowedToolNames?.(round) ?? input.allowedToolNames
+      const tools = [
+        ...input.taskRuntime.listNativeFunctionTools(input.taskId, allowedNames),
+        ...(input.requestUserInput ? [REQUEST_USER_INPUT_TOOL] : [])
+      ]
+      const exposedToolNames = new Set(tools.map((tool) => tool.function.name))
       const requireTool = input.requireInitialTool !== false && tools.length > 0 && !hasUsedTool
       const bufferForUserInput = Boolean(input.requestUserInput)
       const bufferedEvents: StreamEvent[] = []
@@ -162,7 +166,7 @@ export async function runToolCallingLoop(
         } else {
           result = call.type !== 'function' || exposedToolNames.has(call.function.name)
             ? await input.taskRuntime.submitNativeToolCall(input.taskId, call)
-            : { ok: false, error: { code: 'SKILL_TOOL_NOT_ALLOWED', message: '当前 Skill 未声明此工具，调用已阻止' } }
+            : { ok: false, error: { code: 'TOOL_NOT_AVAILABLE', message: '此工具未在当前轮次开放，调用已阻止' } }
         }
         if (!isUserInput) await input.onToolActivity?.({
           callId: call.id, toolName: call.function.name, args: parsedArgs,
