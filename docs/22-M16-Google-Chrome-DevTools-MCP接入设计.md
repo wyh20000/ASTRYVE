@@ -12,8 +12,7 @@ M16 使用 Google Chrome 团队维护的官方 `chrome-devtools-mcp`，不再继
 - [Chrome DevTools MCP 入门](https://developer.chrome.com/docs/devtools/agents/get-started)
 - [配置参考](https://developer.chrome.com/docs/devtools/agents/get-started/configuration)
 - [自动连接现有 Chrome](https://developer.chrome.com/docs/devtools/agents/use-cases/auto-connect)
-- [官方工具参考](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/tool-reference.md)
-- [官方高级用法](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md)
+- [官方 1.7.0 固定版本源码](https://github.com/ChromeDevTools/chrome-devtools-mcp/tree/chrome-devtools-mcp-v1.7.0)；本项目的实际工具参数以 [1.7.0 契约核验](verification/M16-Google-MCP-1.7.0工具映射.md)为准，不将官方 `main` 分支文档视为该版本事实。
 
 ## 固定架构
 

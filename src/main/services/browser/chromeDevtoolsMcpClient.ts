@@ -8,26 +8,10 @@ import {
   StdioClientTransport,
   getDefaultEnvironment
 } from '@modelcontextprotocol/client/stdio'
+import { assertOfficialToolContract, REQUIRED_OFFICIAL_TOOLS } from './chromeDevtoolsMcpContract'
 
 const OFFICIAL_SERVER_VERSION = '1.7.0'
 const MAX_RESULT_BYTES = 4 * 1024 * 1024
-const REQUIRED_TOOLS = new Set([
-  'click',
-  'close_page',
-  'drag',
-  'evaluate_script',
-  'fill',
-  'hover',
-  'list_console_messages',
-  'list_network_requests',
-  'list_pages',
-  'navigate_page',
-  'new_page',
-  'press_key',
-  'select_page',
-  'take_screenshot',
-  'take_snapshot'
-])
 
 export interface ChromeDevtoolsMcpResult {
   content: CallToolResult['content']
@@ -87,11 +71,8 @@ export async function createChromeDevtoolsMcpSession(
       timeout: 10_000,
       cacheMode: 'refresh'
     })
+    assertOfficialToolContract(listed.tools)
     available = new Map(listed.tools.map((tool) => [tool.name, tool.inputSchema]))
-    const missing = [...REQUIRED_TOOLS].filter((name) => !available.has(name))
-    if (missing.length) {
-      throw new Error(`Chrome DevTools MCP 缺少必需工具: ${missing.join(', ')}`)
-    }
   } catch (error) {
     await client.close().catch(() => undefined)
     throw error
@@ -101,7 +82,7 @@ export async function createChromeDevtoolsMcpSession(
   return {
     async callTool(name, args, signal) {
       if (closed) throw new Error('Chrome DevTools MCP 已关闭')
-      if (!REQUIRED_TOOLS.has(name)) throw new Error('Chrome DevTools MCP 工具不在受信白名单')
+      if (!REQUIRED_OFFICIAL_TOOLS.has(name)) throw new Error('Chrome DevTools MCP 工具不在受信白名单')
       validateArguments(name, args, available.get(name))
       const result = await client.callTool(
         { name, arguments: structuredClone(args) },
