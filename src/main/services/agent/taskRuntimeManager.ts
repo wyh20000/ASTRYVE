@@ -33,6 +33,8 @@ import type { PluginConnectionManager } from './pluginConnectionManager'
 import { getBrowserPreferences } from '../settings'
 import { createBrowserTools } from '../browser/browserTools'
 import type { BrowserGateway } from '../browser/browserGateway'
+import { BrowserCapability } from '../browser/browserCapability'
+import { acquireOfficialChromeBrowserLease, getOfficialChromeBrowserGeneration } from '../browser/officialChromeBrowserRuntime'
 
 export async function createProjectTask(sessionId: string, ownerWebContentsId: number, pluginIds?: readonly string[]) {
   const [{ BrowserWindow }, { getStore }, settings, workspaces] = await Promise.all([
@@ -149,8 +151,11 @@ let unsubscribeJournal: (() => void) | null = null
 let auditJournal: AuditJournal | null = null
 let patchWorkspace: PatchWorkspaceService | null = null
 let pluginConnectionManager: PluginConnectionManager | null = null
+let browserCapability: BrowserCapability | null = null
 
 export function initTaskRuntime(browserGateway?: BrowserGateway): TaskRuntime {
+  void browserCapability?.releaseAll()
+  browserCapability = null
   unsubscribeJournal?.()
   unsubscribeJournal = null
   journal = null
@@ -189,6 +194,9 @@ export function initTaskRuntime(browserGateway?: BrowserGateway): TaskRuntime {
   for (const tool of createGitReadTools(localBackend)) registry.register(tool)
   if (browserGateway) {
     for (const tool of createBrowserTools(browserGateway)) registry.register(tool)
+    browserCapability = new BrowserCapability(browserGateway, acquireOfficialChromeBrowserLease, writeAudit,
+      getOfficialChromeBrowserGeneration)
+    registry.register(browserCapability.tool())
   }
   runtime.subscribe((event) => {
     const status = runtime?.getTaskSnapshot(event.taskId)?.status
@@ -236,6 +244,8 @@ export function getToolRegistry(): ToolRegistry {
   if (!registry) throw new Error('Tool registry not initialized')
   return registry
 }
+
+export function getBrowserCapability(): BrowserCapability | null { return browserCapability }
 
 export function getPluginConnectionManager(): PluginConnectionManager {
   if (!pluginConnectionManager) throw new Error('插件连接服务尚未初始化')
@@ -286,6 +296,8 @@ export async function flushTaskPersistence(): Promise<void> {
 }
 
 export function resetTaskRuntimeForTests(): void {
+  void browserCapability?.releaseAll()
+  browserCapability = null
   unsubscribeJournal?.()
   unsubscribeJournal = null
   void journal?.close()

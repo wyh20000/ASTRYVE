@@ -66,6 +66,62 @@ function finalTurn(): ChatCompletionTurn {
 }
 
 describe('runToolCallingLoop', () => {
+  it('rejects a model call that targets an unbound page despite an exposed tool name', async () => {
+    const registry = new ToolRegistry()
+    const inspect = echoTool(); inspect.name = 'browser.inspect'
+    const execute = vi.fn(inspect.execute)
+    inspect.execute = execute
+    registry.register(inspect)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-bound' })
+    const task = runtime.createTask({ sessionId: 'session-bound', workspace,
+      ownerWebContentsId: 1, permissionMode: 'ask-every-time', environment: 'docker' })
+    const activities: Array<{ ok?: boolean; result?: unknown }> = []
+    let round = 0
+    await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, requireInitialTool: false,
+      authorizeToolCall: (_name, args) => (args as { value?: string }).value === 'bound',
+      onToolActivity: (activity) => { if (activity.status === 'completed') activities.push(activity) },
+      runRound: async () => {
+        round += 1
+        return round === 1 ? { message: { role: 'assistant', content: null, tool_calls: [{
+          id: 'wrong-page', type: 'function', function: { name: 'browser.inspect', arguments: '{"value":"other"}' }
+        }] }, finishReason: 'tool_calls' } : finalTurn()
+      }
+    })
+    expect(execute).not.toHaveBeenCalled()
+    expect(activities[0]).toMatchObject({ ok: false, result: { error: { code: 'TOOL_NOT_AVAILABLE' } } })
+  })
+
+  it('does not let browser activation satisfy the initial project observation', async () => {
+    const registry = new ToolRegistry()
+    const observe = echoTool(); observe.name = 'workspace.listFiles'
+    const activate = echoTool(); activate.name = 'browser.activate'
+    registry.register(observe)
+    registry.register(activate)
+    const runtime = new TaskRuntime(registry, { createTaskId: () => 'task-observe' })
+    const task = runtime.createTask({ sessionId: 'session-observe', workspace,
+      ownerWebContentsId: 1, permissionMode: 'ask-every-time', environment: 'docker' })
+    const directories: string[][] = []
+    let round = 0
+    await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'model' }, messages: [],
+      onEvent: () => undefined, requireInitialTool: true,
+      requiredInitialToolNames: new Set(['workspace.listFiles']),
+      runRound: async (_model, _messages, _event, options) => {
+        round += 1
+        directories.push((options.tools ?? []).map((tool) => tool.function.name))
+        return round === 1
+          ? { message: { role: 'assistant', content: null, tool_calls: [{ id: 'observe-1', type: 'function',
+            function: { name: 'workspace.listFiles', arguments: '{"value":"."}' } }] }, finishReason: 'tool_calls' }
+          : finalTurn()
+      }
+    })
+    expect(directories).toEqual([['workspace.listFiles'], ['workspace.listFiles', 'browser.activate']])
+  })
+
   it('refreshes the trusted tool directory after activation without forcing an optional first call', async () => {
     const registry = new ToolRegistry()
     let activated = false

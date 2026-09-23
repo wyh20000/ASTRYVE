@@ -98,6 +98,8 @@
 
 ### Task 4：实现 `browser.activate` 内置能力工具
 
+代码进展（2026-09-23）：按锁定的官方 1.7.0 `list_pages` 契约接入；单页或唯一清洗 hint 可激活，多页只返回 `needs-selection` 并释放租约。已覆盖惰性连接、幂等、失败清理与审计的自动化；真实 Chrome 验收仍属 Task 14。
+
 涉及：
 
 - 新增 `src/main/services/browser/browserCapability.ts`
@@ -107,17 +109,19 @@
 
 任务：
 
-- [ ] 定义最小 schema：`purpose` 和可选清洗后 `targetHint`。
-- [ ] 工具注册不启动 MCP、不读取页面。
-- [ ] 工具执行时获取回复级租约，懒启动官方 MCP 并调用官方 `list_pages`。
-- [ ] 同一回复重复 activate 返回同一能力状态，保持幂等。
-- [ ] 审计 `requested/activated/needs-selection/failed`，不记录完整敏感 URL。
-- [ ] 删除 `prefersBrowserTools()`、`prefersBrowserContinuation()` 对任务创建和工具可见性的决定权。
-- [ ] 旧函数如暂留，只能用于非安全性的 UI 文案实验，默认关闭并不得连接 MCP。
+- [x] 定义最小 schema：`purpose` 和可选清洗后 `targetHint`。
+- [x] 工具注册不启动 MCP、不读取页面。
+- [x] 工具执行时获取回复级租约，懒启动官方 MCP 并调用官方 `list_pages`。
+- [x] 同一回复重复 activate 返回同一能力状态，保持幂等。
+- [x] 审计 `requested/activated/needs-selection/failed`，不记录完整敏感 URL。
+- [x] 删除 `prefersBrowserTools()`、`prefersBrowserContinuation()` 对任务创建和工具可见性的决定权。
+- [x] 只保留无原生工具模型的明确 Chrome 请求提示；它不连接 MCP，也不改变工具目录。
 
 完成条件：是否进入浏览器流程完全由模型原生 tool call 决定。
 
 ### Task 5：支持逐轮动态工具目录
+
+代码进展（2026-09-23）：已按可信宿主状态逐轮重算浏览器工具目录，校验当前页面 ID/URL，拒绝未暴露或不符的调用；Coding 首轮仍限定项目观察工具。正式 `bindingId + mcpGeneration` 与对话内多页面选择属于 Task 6/7，完成前不得把本任务整体勾为完成。
 
 涉及：
 
@@ -129,11 +133,11 @@
 任务：
 
 - [ ] 将固定 `tools` 数组改成每轮从可信 `CapabilitySnapshot` 生成。
-- [ ] `browser.activate` 成功前只暴露激活工具；成功后按 purpose 暴露最小浏览器工具集。
+- [x] `browser.activate` 成功前只暴露激活工具；成功后按 purpose 暴露最小浏览器工具集（浏览器能力范围内）。
 - [ ] 每轮保存工具目录哈希和激活来源，便于审计。
-- [ ] 工具结果、网页内容和模型正文不能扩大下一轮目录。
+- [x] 工具结果、网页内容和模型正文不能扩大下一轮目录。
 - [ ] 工具被撤销、绑定 stale 或租约释放后，从下一轮目录移除。
-- [ ] 模型调用未暴露工具时返回确定性 `TOOL_NOT_AVAILABLE`，不得执行注册表中的隐藏工具。
+- [x] 模型调用未暴露工具时返回确定性 `TOOL_NOT_AVAILABLE`，不得执行注册表中的隐藏工具。
 - [ ] 覆盖多轮激活、目录增加、目录收窄、取消和模型伪造工具名。
 
 完成条件：同一个模型回复中可以先 activate，再在下一轮使用正式浏览器工具。

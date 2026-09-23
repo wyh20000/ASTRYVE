@@ -51,6 +51,10 @@ export interface RunToolCallingLoopInput {
   /** Trusted host policy, evaluated before every model round. Never derive this from model or tool text. */
   resolveAllowedToolNames?: (round: number) => ReadonlySet<string>
   requireInitialTool?: boolean
+  /** Coding must first observe its granted project, not activate another capability. */
+  requiredInitialToolNames?: ReadonlySet<string>
+  /** Trusted per-call authorization, checked again after parsing model arguments. */
+  authorizeToolCall?: (name: string, args: unknown) => boolean
   requestUserInput?: (args: unknown) => Promise<ToolResult<unknown>>
 }
 
@@ -98,10 +102,14 @@ export async function runToolCallingLoop(
   try {
     for (let round = 1; round <= maxRounds; round += 1) {
       const allowedNames = input.resolveAllowedToolNames?.(round) ?? input.allowedToolNames
-      const tools = [
+      const availableTools = [
         ...input.taskRuntime.listNativeFunctionTools(input.taskId, allowedNames),
         ...(input.requestUserInput ? [REQUEST_USER_INPUT_TOOL] : [])
       ]
+      const initialOnly = input.requireInitialTool !== false && !hasUsedTool && Boolean(input.requiredInitialToolNames)
+      const tools = initialOnly
+        ? availableTools.filter((tool) => input.requiredInitialToolNames!.has(tool.function.name))
+        : availableTools
       const exposedToolNames = new Set(tools.map((tool) => tool.function.name))
       const requireTool = input.requireInitialTool !== false && tools.length > 0 && !hasUsedTool
       const bufferForUserInput = Boolean(input.requestUserInput)
@@ -164,7 +172,8 @@ export async function runToolCallingLoop(
           try { result = await input.requestUserInput(parsedArgs) }
           catch (error) { result = { ok: false, error: { code: 'INVALID_USER_INPUT_REQUEST', message: String((error as Error)?.message ?? error) } } }
         } else {
-          result = call.type !== 'function' || exposedToolNames.has(call.function.name)
+          result = call.type !== 'function' || (exposedToolNames.has(call.function.name) &&
+              (!input.authorizeToolCall || input.authorizeToolCall(call.function.name, parsedArgs)))
             ? await input.taskRuntime.submitNativeToolCall(input.taskId, call)
             : { ok: false, error: { code: 'TOOL_NOT_AVAILABLE', message: '此工具未在当前轮次开放，调用已阻止' } }
         }

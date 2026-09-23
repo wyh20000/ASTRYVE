@@ -33,6 +33,11 @@ export function getOfficialChromeBrowserGateway(): BrowserGateway | null {
   return gateway
 }
 
+/** Monotonic within this runtime; a reconnect makes prior page IDs unusable. */
+export function getOfficialChromeBrowserGeneration(): number {
+  return session instanceof LazyChromeDevtoolsMcpSession ? session.currentGeneration : -1
+}
+
 export async function disconnectOfficialChromeBrowserRuntime(): Promise<void> {
   if (session instanceof LazyChromeDevtoolsMcpSession) await session.disconnect()
 }
@@ -61,6 +66,8 @@ export class LazyChromeDevtoolsMcpSession implements ChromeDevtoolsMcpSession {
   private active: ChromeDevtoolsMcpSession | null = null
   private closed = false
   private generation = 0
+
+  get currentGeneration(): number { return this.generation }
 
   constructor(
     private readonly connect: () => Promise<ChromeDevtoolsMcpSession>

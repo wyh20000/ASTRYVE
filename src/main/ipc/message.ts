@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { ipcMain, type WebContents } from 'electron'
 import { IPC, EVENTS } from '@shared/ipc'
 import type {
@@ -49,6 +49,7 @@ import {
   cancelTasksForSession,
   createCapabilityTask,
   createProjectTask,
+  getBrowserCapability,
   getPatchWorkspaceService,
   getTaskRuntime,
   getToolRegistry,
@@ -77,16 +78,10 @@ import {
   updateToolTimeline
 } from '../services/agent/toolTimeline'
 import {
+  BROWSER_TOOL_NAMES,
   consumeBrowserScreenshotArtifact
 } from '../services/browser/browserTools'
-import {
-  BROWSER_CONVERSATION_PROMPT,
-  browserToolNamesForRequest,
-  hasRecentBrowserContext,
-  prefersBrowserContinuation,
-  prefersBrowserTools
-} from '../services/browser/browserConversation'
-import { acquireOfficialChromeBrowserLease } from '../services/browser/officialChromeBrowserRuntime'
+import { isExplicitChromeRequestForUnsupportedModel } from '../services/browser/browserConversation'
 import {
   assertTrustedIpcSender,
   validateSendMessageInput,
@@ -347,21 +342,17 @@ async function runReply(
       await failGenerationSetup(wc, task, '插件与供应商联网搜索暂不能同时使用，请分两轮完成。')
       return
     }
-    const browserRequest = !searchRequested && (
-      prefersBrowserTools(userRequest) ||
-      (prefersBrowserContinuation(userRequest) &&
-        hasRecentBrowserContext(await getStore().listMessages(sessionId)))
-    )
-    if (browserRequest && !supportsNativeToolCalling(preset)) {
+    // This hint is only for models without tools. It never creates a browser
+    // task, connects MCP or changes the tool directory.
+    if (isExplicitChromeRequestForUnsupportedModel(userRequest) && !supportsNativeToolCalling(preset)) {
       await failGenerationSetup(wc, task, '当前模型不支持原生工具调用。请切换支持工具的模型后重试 Chrome 请求。')
       return
     }
-    const browserIntent = browserRequest
     if (projectEligible) {
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
       const explicitPlugin = selectedPluginIds.length > 0
       useProjectAgent = supportsNativeToolCalling(preset) && shouldUseProjectAgent(sessionId) &&
-        (explicitSkill || explicitPlugin || browserIntent || !searchRequested)
+        (explicitSkill || explicitPlugin || !searchRequested)
     }
     if (useProjectAgent) {
       cancelTasksForSession(sessionId, 'replaced')
@@ -379,23 +370,16 @@ async function runReply(
           skillPrompt = resolved.prompt
           modelUserRequest = resolved.cleanedRequest
           allowedToolNames = resolved.allowedToolNames
-          if (allowedToolNames) {
-            for (const name of agentTask.capabilityToolNames) allowedToolNames.add(name)
-          }
+          allowedToolNames ??= new Set(getTaskRuntime().listNativeFunctionTools(agentTask.id)
+            .map((tool) => tool.function.name).filter((name) => !BROWSER_TOOL_NAMES.has(name)))
+          for (const name of BROWSER_TOOL_NAMES) allowedToolNames.delete(name)
+          for (const name of agentTask.capabilityToolNames) allowedToolNames.add(name)
+          allowedToolNames.add('workspace.listFiles')
+          allowedToolNames.add('git.status')
+          allowedToolNames.add('browser.activate')
           activeSkills = resolved.skills
           skillTrigger = resolved.trigger
           skillActivation = resolved.activation
-          if (browserIntent) {
-            skillPrompt = [skillPrompt, BROWSER_CONVERSATION_PROMPT].filter(Boolean).join('\n\n')
-            const browserToolNames = browserToolNamesForRequest(userRequest)
-            allowedToolNames ??= new Set(
-              getTaskRuntime().listNativeFunctionTools(agentTask.id).map((tool) => tool.function.name)
-            )
-            for (const name of browserToolNames) allowedToolNames.add(name)
-            if (!browserToolNames.has('browser.screenshotElement')) {
-              allowedToolNames.delete('browser.screenshotElement')
-            }
-          }
           auditSkillUse(agentTask.id, agentTask.workspaceId, resolved.skills)
           for (const pluginId of agentTask.pluginIds ?? []) {
             writeAgentAudit({
@@ -415,28 +399,6 @@ async function runReply(
           message: error instanceof Error ? error.message : '项目任务无法启动'
         })
         await failGenerationSetup(wc, task, error instanceof Error ? error.message : '项目任务无法启动')
-        return
-      }
-    } else if (browserIntent) {
-      cancelTasksForSession(sessionId, 'replaced')
-      try {
-        const agentTask = await createCapabilityTask(
-          sessionId, wc.id, selectedPluginIds.length ? selectedPluginIds : undefined
-        )
-        agentTaskId = agentTask.id
-        agentWorkspaceId = agentTask.workspaceId
-        agentExecutionEnvironment = agentTask.environment
-        selectedPluginIds = agentTask.pluginIds ?? []
-        selectedPluginVersions = agentTask.pluginVersions ?? {}
-        allowedToolNames = browserToolNamesForRequest(userRequest)
-        for (const name of agentTask.capabilityToolNames) allowedToolNames.add(name)
-        skillPrompt = BROWSER_CONVERSATION_PROMPT
-      } catch (error) {
-        sendMessageNotice(wc, {
-          id: randomUUID(), sessionId, level: 'error',
-          message: error instanceof Error ? error.message : '浏览器任务无法启动'
-        })
-        await failGenerationSetup(wc, task, error instanceof Error ? error.message : '浏览器任务无法启动')
         return
       }
     } else if (!searchRequested) {
@@ -469,7 +431,7 @@ async function runReply(
         selectedPluginVersions = capabilityTask.pluginVersions ?? {}
         // The internal capability scope is never a workspace grant. Only
         // explicitly selected plugin tools are visible to a model.
-        allowedToolNames = new Set(capabilityTask.capabilityToolNames)
+        allowedToolNames = new Set([...capabilityTask.capabilityToolNames, 'browser.activate'])
       } catch (error) {
         if (agentTaskId) cancelTasksForSession(sessionId, 'capability_setup_failed')
         await failGenerationSetup(wc, task, error instanceof Error ? error.message : '对话工具无法启动')
@@ -480,7 +442,6 @@ async function runReply(
       return
     }
     const useSearch = searchRequested && !vision && !agentTaskId && supportsBuiltInSearch(preset.provider)
-    const releaseBrowserLease = browserIntent ? acquireOfficialChromeBrowserLease() : undefined
     try {
       await runModelReply(
         wc,
@@ -496,7 +457,7 @@ async function runReply(
         agentWorkspaceRoot,
         agentExecutionEnvironment,
         useProjectAgent,
-        useProjectAgent || browserIntent,
+        useProjectAgent,
         skillPrompt,
         allowedToolNames,
         modelUserRequest,
@@ -510,7 +471,7 @@ async function runReply(
         waiting.timestamp
       )
     } finally {
-      try { await releaseBrowserLease?.() }
+      try { if (agentTaskId) await getBrowserCapability()?.release(agentTaskId) }
       finally { if (agentTaskId) getTaskRuntime().cancelTask(agentTaskId, 'reply_finished') }
     }
   } catch (error) {
@@ -529,7 +490,8 @@ const AGENT_SYSTEM_PROMPT = [
   '- 分析图片时描述其内容并回答相关问题；分析文档或表格时先理解数据再作答。',
   '- 需要给出代码时，将代码放在 markdown 代码块并标注语言。',
   '- 使用外部资料或联网信息时，必须在相关结论后给出可点击的 Markdown 来源链接。',
-  '- 不编造事实；不确定时如实说明。'
+  '- 不编造事实；不确定时如实说明。',
+  '- 未实际调用浏览器工具时，不得声称已经查看用户实时 Chrome 页面。'
 ].join('\n')
 
 export async function buildHistory(
@@ -776,6 +738,7 @@ async function runModelReply(
           }
         })
         let result
+        let lastDirectoryHash = ''
         try { result = await runToolCallingLoop({
           taskRuntime,
           registry: getToolRegistry(),
@@ -784,13 +747,37 @@ async function runModelReply(
           messages: history,
           onEvent,
           allowedToolNames,
+          resolveAllowedToolNames: (round) => {
+            const browser = getBrowserCapability()
+            const names = new Set([
+              ...(allowedToolNames ?? []),
+              ...(browser?.allowedToolNames(agentTaskId) ?? [])
+            ])
+            const hash = createHash('sha256').update([...names].sort().join('\n')).digest('hex')
+            if (hash !== lastDirectoryHash) {
+              lastDirectoryHash = hash
+              writeAgentAudit({
+                id: randomUUID(), timestamp: Date.now(), taskId: agentTaskId,
+                workspaceId: agentWorkspaceId ?? 'none', actor: 'system',
+                action: 'capability.directory', outcome: 'success',
+                metadata: { round, hash, activationSource: browser?.isActivated(agentTaskId) ? 'model' : 'host' }
+              })
+            }
+            return names
+          },
+          authorizeToolCall: (name, args) => getBrowserCapability()?.mayUseTool(agentTaskId, name, args) ?? true,
           requireInitialTool: requireInitialTool && activeSkills.length === 0,
+          requiredInitialToolNames: codingAgent && activeSkills.length === 0
+            ? new Set(['workspace.listFiles', 'git.status']) : undefined,
           requestUserInput: activeSkills.length
             ? (args) => requestUserInput(wc, sessionId, args, taskRuntime.getTaskSignal(agentTaskId))
             : undefined,
           onToolActivity: async (tool) => {
             hasToolActivity = true
             activeTool = tool.status === 'requested' ? { toolName: tool.toolName, args: tool.args } : undefined
+            if (tool.status === 'completed' && tool.ok === true) {
+              await getBrowserCapability()?.observeToolResult(agentTaskId, tool.toolName, tool.args, tool.result)
+            }
             if (tool.toolName.startsWith('plugin.')) {
               const pluginId = activePluginIds.find((id: string) => tool.toolName.startsWith(`plugin.${id}.`)) ?? 'unknown'
               const toolName = pluginId === 'unknown' ? tool.toolName.slice('plugin.'.length) : tool.toolName.slice(`plugin.${pluginId}.`.length)

@@ -7,6 +7,13 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   store: undefined as unknown,
   projectEnabled: false,
+  browserCapability: null as null | {
+    allowedToolNames: (taskId: string) => Set<string>
+    isActivated: (taskId: string) => boolean
+    mayUseTool: (taskId: string, name: string, args: unknown) => boolean
+    observeToolResult: (taskId: string, name: string, args: unknown, result: unknown) => Promise<void>
+    release: (taskId: string) => Promise<void>
+  },
   workspaceGrant: null as null | { id: string; rootPath: string },
   plugins: [] as Array<{ id: string; status: string; enabled: boolean }>,
   availableTools: [] as Array<{ function: { name: string } }>,
@@ -53,6 +60,7 @@ vi.mock('../services/agent/taskRuntimeManager', () => ({
   cancelTasksForSession: () => 0,
   createBrowserTask: vi.fn(), createCapabilityTask: mocks.createCapabilityTask,
   createProjectTask: mocks.createProjectTask, getPatchWorkspaceService: vi.fn(),
+  getBrowserCapability: () => mocks.browserCapability,
   getTaskRuntime: () => ({
     listNativeFunctionTools: () => mocks.availableTools, subscribe: () => () => undefined,
     getTaskSignal: () => new AbortController().signal,
@@ -97,6 +105,7 @@ describe('message IPC send lifecycle', () => {
     mocks.handlers.clear()
     mocks.store = new MemoryStore()
     mocks.projectEnabled = false
+    mocks.browserCapability = null
     mocks.workspaceGrant = null
     mocks.plugins = []
     mocks.availableTools = []
@@ -149,7 +158,7 @@ describe('message IPC send lifecycle', () => {
     await vi.runAllTimersAsync()
     expect(mocks.runToolCallingLoop).toHaveBeenCalledTimes(1)
     expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({
-      requireInitialTool: false, allowedToolNames: new Set()
+      requireInitialTool: false, allowedToolNames: new Set(['browser.activate'])
     })
     expect(mocks.streamChat).not.toHaveBeenCalled()
     expect(mocks.acquireBrowserLease).not.toHaveBeenCalled()
@@ -274,7 +283,7 @@ describe('message IPC send lifecycle', () => {
       expect(mocks.createCapabilityTask).toHaveBeenCalledWith(session.id, 42, ['test'])
       await vi.waitFor(() => expect(mocks.runToolCallingLoop).toHaveBeenCalled())
       expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({
-        allowedToolNames: new Set(['plugin.test.run', 'mcp__test__api__search']),
+        allowedToolNames: new Set(['plugin.test.run', 'mcp__test__api__search', 'browser.activate']),
         requireInitialTool: false,
         model: expect.objectContaining({ vision: true })
       })
@@ -318,7 +327,7 @@ describe('message IPC send lifecycle', () => {
     }
   })
 
-  it('does not silently drop an explicitly selected plugin on the legacy browser route', async () => {
+  it('does not let browser wording bypass model activation or drop selected plugins', async () => {
     mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
       baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
     mocks.plugins = [{ id: 'test', status: 'ready', enabled: true }]
@@ -334,14 +343,43 @@ describe('message IPC send lifecycle', () => {
     })
     await vi.runAllTimersAsync()
     expect(mocks.createCapabilityTask).toHaveBeenCalledWith(session.id, 42, ['test'])
-    expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({ requireInitialTool: true })
+    expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({ requireInitialTool: false })
     const allowed = (mocks.runToolCallingLoop.mock.calls[0][0] as unknown as {
       allowedToolNames: Set<string>
     }).allowedToolNames
     expect(allowed.has('plugin.test.run')).toBe(true)
     expect(allowed.has('mcp__test__api__search')).toBe(true)
-    expect(allowed.has('browser.listTabs')).toBe(true)
-    expect(mocks.acquireBrowserLease).toHaveBeenCalledTimes(1)
+    expect(allowed.has('browser.activate')).toBe(true)
+    expect(allowed.has('browser.listTabs')).toBe(false)
+    expect(mocks.acquireBrowserLease).not.toHaveBeenCalled()
+  })
+
+  it('expands the next tool round only after trusted browser activation state changes', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    let activated = false
+    const release = vi.fn(async () => undefined)
+    mocks.browserCapability = {
+      allowedToolNames: () => new Set(activated ? ['browser.inspect'] : []),
+      isActivated: () => activated,
+      mayUseTool: () => true,
+      observeToolResult: async () => undefined,
+      release
+    }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('dynamic browser')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '看看这个'
+    })
+    await vi.runAllTimersAsync()
+    await vi.waitFor(() => expect(mocks.runToolCallingLoop).toHaveBeenCalled())
+    const loop = mocks.runToolCallingLoop.mock.calls[0][0] as unknown as {
+      resolveAllowedToolNames: (round: number) => Set<string>
+    }
+    expect(loop.resolveAllowedToolNames(1)).toEqual(new Set(['browser.activate']))
+    activated = true
+    expect(loop.resolveAllowedToolNames(2)).toEqual(new Set(['browser.activate', 'browser.inspect']))
+    expect(release).toHaveBeenCalledTimes(1)
   })
 
   it('keeps visual input available when a supported model uses Chrome tools', async () => {
@@ -361,11 +399,12 @@ describe('message IPC send lifecycle', () => {
       })
       await vi.runAllTimersAsync()
       await vi.waitFor(() => expect(mocks.runToolCallingLoop).toHaveBeenCalled())
-      expect(mocks.acquireBrowserLease).toHaveBeenCalledTimes(1)
+      expect(mocks.acquireBrowserLease).not.toHaveBeenCalled()
       const loop = mocks.runToolCallingLoop.mock.calls[0][0] as unknown as {
         allowedToolNames: Set<string>; model: { vision: boolean }
       }
-      expect(loop.allowedToolNames.has('browser.listTabs')).toBe(true)
+      expect(loop.allowedToolNames.has('browser.activate')).toBe(true)
+      expect(loop.allowedToolNames.has('browser.listTabs')).toBe(false)
       expect(loop.model.vision).toBe(true)
       expect(JSON.stringify(loop)).toContain('image_url')
     } finally {
