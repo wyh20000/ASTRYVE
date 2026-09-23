@@ -81,7 +81,7 @@ describe('SQLite and Artifact Store', () => {
     const root = await directory()
     const legacy = join(root, 'ai-agent-data.json')
     const session: Session = {
-      id: crypto.randomUUID(), title: 'old', projectPath: null,
+      id: crypto.randomUUID(), title: 'old', kind: 'chat', projectPath: null,
       pinned: false, createdAt: 1, updatedAt: 2
     }
     await writeFile(legacy, JSON.stringify({ sessions: [session], messages: [{
@@ -98,7 +98,7 @@ describe('SQLite and Artifact Store', () => {
   it('moves legacy inline images into the artifact store during import', async () => {
     const root = await directory()
     const legacy = join(root, 'ai-agent-data.json')
-    const session: Session = { id: crypto.randomUUID(), title: 'old image', projectPath: null,
+    const session: Session = { id: crypto.randomUUID(), title: 'old image', kind: 'chat', projectPath: null,
       pinned: false, createdAt: 1, updatedAt: 2 }
     const dataRef = `data:image/png;base64,${Buffer.from('legacy pixels').toString('base64')}`
     await writeFile(legacy, JSON.stringify({ sessions: [session], messages: [{

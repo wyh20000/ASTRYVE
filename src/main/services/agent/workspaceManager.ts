@@ -3,6 +3,8 @@ import {
   WorkspaceBoundaryService,
   type WorkspaceGrantStorage
 } from './workspace'
+import { sameProjectPath } from './projectPath'
+export { sameProjectPath } from './projectPath'
 
 const settingsStorage: WorkspaceGrantStorage = {
   load: getWorkspaceGrants,
@@ -33,14 +35,6 @@ export async function restoreSessionWorkspace(
   return match.id
 }
 
-export function sameProjectPath(left: string, right: string): boolean {
-  const normalize = (value: string): string => value.replace(/[\\/]+$/, '').replace(/\\/g, '/')
-  const normalizedLeft = normalize(left)
-  const normalizedRight = normalize(right)
-  return process.platform === 'win32'
-    ? normalizedLeft.toLocaleLowerCase('en-US') === normalizedRight.toLocaleLowerCase('en-US')
-    : normalizedLeft === normalizedRight
-}
 const switchListeners = new Set<
   (sessionId: string, previousWorkspaceId: string | undefined, workspaceId: string | undefined) => void
 >()

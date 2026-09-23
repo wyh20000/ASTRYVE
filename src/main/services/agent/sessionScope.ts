@@ -1,6 +1,6 @@
 import type { PluginPermission, Session } from '../../../shared/types'
 import type { WorkspaceGrant } from '../../../shared/agent'
-import { sameProjectPath } from './workspaceManager'
+import { sameProjectPath } from './projectPath'
 
 /** Session ownership, not renderer state or model text, grants access to a project. */
 export function isWorkSessionForWorkspace(

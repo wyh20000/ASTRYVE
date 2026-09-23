@@ -5,7 +5,7 @@ import { useChatStore } from './chatStore'
 import { useUiStore } from './uiStore'
 
 const session = (id: string, title: string, updatedAt: number): Session => ({
-  id, title, projectPath: null, pinned: false, createdAt: updatedAt, updatedAt
+  id, title, kind: 'chat', projectPath: null, pinned: false, createdAt: updatedAt, updatedAt
 })
 
 describe('session store empty conversation reuse', () => {

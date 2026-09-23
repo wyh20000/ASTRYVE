@@ -81,7 +81,7 @@ export type SessionKind = 'work' | 'chat'
 export interface Session {
   id: string
   title: string
-  kind?: SessionKind
+  kind: SessionKind
   workspaceId?: string | null
   projectPath?: string | null
   pinned: boolean
