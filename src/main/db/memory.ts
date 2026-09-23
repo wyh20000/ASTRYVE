@@ -131,7 +131,10 @@ export class MemoryStore implements DbStore {
       blocks: input.blocks,
       attachments: input.attachments,
       status: input.status ?? 'done',
-      timestamp: input.timestamp ?? Date.now()
+      timestamp: input.timestamp ?? Date.now(),
+      generationId: input.generationId,
+      revision: input.revision,
+      finishReason: input.finishReason
     }
     const list = this.messages.get(m.sessionId) ?? []
     list.push(m)
@@ -143,7 +146,11 @@ export class MemoryStore implements DbStore {
   async upsertMessage(msg: Message): Promise<Message> {
     const list = this.messages.get(msg.sessionId) ?? []
     const idx = list.findIndex((m) => m.id === msg.id)
-    if (idx >= 0) list[idx] = msg
+    if (idx >= 0) {
+      const current = list[idx]
+      if ((current.revision ?? 0) > (msg.revision ?? 0)) return current
+      list[idx] = msg
+    }
     else list.push(msg)
     this.messages.set(msg.sessionId, list)
     await this.persist()

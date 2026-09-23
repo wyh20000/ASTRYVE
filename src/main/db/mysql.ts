@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import mysql, { type Pool } from 'mysql2/promise'
-import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus } from '@shared/types'
+import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus, GenerationFinishReason } from '@shared/types'
 import type { DbStore, InsertMessageInput } from './index'
 
 export interface MySqlConfig {
@@ -29,6 +29,9 @@ interface MessageRow {
   attachments: string | null
   status: string
   timestamp: number | string
+  generation_id: string | null
+  revision: number | string
+  finish_reason: string | null
 }
 
 const num = (v: number | string | null | undefined): number => (v == null ? 0 : Number(v))
@@ -53,7 +56,10 @@ function toMessage(r: MessageRow): Message {
     blocks: r.blocks ? (JSON.parse(r.blocks) as MessageBlock[]) : undefined,
     attachments: r.attachments ? (JSON.parse(r.attachments) as Attachment[]) : undefined,
     status: r.status as MessageStatus,
-    timestamp: num(r.timestamp)
+    timestamp: num(r.timestamp),
+    generationId: r.generation_id ?? undefined,
+    revision: num(r.revision),
+    finishReason: (r.finish_reason as GenerationFinishReason | null) ?? undefined
   }
 }
 
@@ -76,6 +82,9 @@ const SCHEMA_STATEMENTS = [
      attachments MEDIUMTEXT,
      status VARCHAR(16) NOT NULL DEFAULT 'done',
      timestamp BIGINT NOT NULL,
+     generation_id VARCHAR(64),
+     revision BIGINT NOT NULL DEFAULT 0,
+     finish_reason VARCHAR(32),
      INDEX idx_messages_session_time (session_id, timestamp),
      CONSTRAINT fk_messages_session FOREIGN KEY (session_id)
        REFERENCES sessions(id) ON DELETE CASCADE
@@ -121,12 +130,19 @@ export class MySqlStore implements DbStore {
     for (const stmt of SCHEMA_STATEMENTS) {
       await pool.query(stmt)
     }
-    // 迁移：老库补 attachments 列（重复列错误忽略）
-    try {
-      await pool.query('ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL')
-    } catch (error) {
-      const code = (error as { code?: string })?.code
-      if (code !== 'ER_DUP_FIELDNAME') throw error
+    // 迁移：老库补消息事务字段（重复列错误忽略）
+    for (const statement of [
+      'ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL',
+      'ALTER TABLE messages ADD COLUMN generation_id VARCHAR(64) NULL',
+      'ALTER TABLE messages ADD COLUMN revision BIGINT NOT NULL DEFAULT 0',
+      'ALTER TABLE messages ADD COLUMN finish_reason VARCHAR(32) NULL'
+    ]) {
+      try {
+        await pool.query(statement)
+      } catch (error) {
+        const code = (error as { code?: string })?.code
+        if (code !== 'ER_DUP_FIELDNAME') throw error
+      }
     }
     await pool.query('SELECT 1')
     return new MySqlStore(pool)
@@ -202,11 +218,14 @@ export class MySqlStore implements DbStore {
       blocks: input.blocks,
       attachments: input.attachments,
       status: input.status ?? 'done',
-      timestamp
+      timestamp,
+      generationId: input.generationId,
+      revision: input.revision,
+      finishReason: input.finishReason
     }
     await this.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp, generation_id, revision, finish_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         m.sessionId,
@@ -215,7 +234,10 @@ export class MySqlStore implements DbStore {
         m.blocks ? JSON.stringify(m.blocks) : null,
         m.attachments ? JSON.stringify(m.attachments) : null,
         m.status,
-        timestamp
+        timestamp,
+        m.generationId ?? null,
+        m.revision ?? 0,
+        m.finishReason ?? null
       ]
     )
     return m
@@ -223,14 +245,17 @@ export class MySqlStore implements DbStore {
 
   async upsertMessage(msg: Message): Promise<Message> {
     await this.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp, generation_id, revision, finish_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         content = VALUES(content),
-         blocks = VALUES(blocks),
-         attachments = VALUES(attachments),
-         status = VALUES(status),
-         timestamp = VALUES(timestamp)`,
+         content = IF(VALUES(revision) >= revision, VALUES(content), content),
+         blocks = IF(VALUES(revision) >= revision, VALUES(blocks), blocks),
+         attachments = IF(VALUES(revision) >= revision, VALUES(attachments), attachments),
+         status = IF(VALUES(revision) >= revision, VALUES(status), status),
+         timestamp = IF(VALUES(revision) >= revision, VALUES(timestamp), timestamp),
+         generation_id = IF(VALUES(revision) >= revision, VALUES(generation_id), generation_id),
+         finish_reason = IF(VALUES(revision) >= revision, VALUES(finish_reason), finish_reason),
+         revision = GREATEST(revision, VALUES(revision))`,
       [
         msg.id,
         msg.sessionId,
@@ -239,7 +264,10 @@ export class MySqlStore implements DbStore {
         msg.blocks ? JSON.stringify(msg.blocks) : null,
         msg.attachments ? JSON.stringify(msg.attachments) : null,
         msg.status,
-        msg.timestamp
+        msg.timestamp,
+        msg.generationId ?? null,
+        msg.revision ?? 0,
+        msg.finishReason ?? null
       ]
     )
     return msg

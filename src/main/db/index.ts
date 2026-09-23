@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus } from '@shared/types'
+import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus, GenerationFinishReason } from '@shared/types'
 import { MySqlStore, type MySqlConfig } from './mysql'
 import { MemoryStore } from './memory'
 import { getDbSettings } from '../services/settings'
@@ -28,6 +28,9 @@ export interface InsertMessageInput {
   attachments?: Attachment[]
   status?: MessageStatus
   timestamp?: number
+  generationId?: string
+  revision?: number
+  finishReason?: GenerationFinishReason
 }
 
 export function defaultMySqlConfig(): MySqlConfig {
@@ -50,6 +53,7 @@ export async function initStore(accountScoped = false): Promise<DbStore> {
     // The legacy MySQL schema has no account key. Authenticated clients use
     // the account-specific local store until a scoped server schema exists.
     store = new MemoryStore(join(app.getPath('userData'), 'ai-agent-data.json'))
+    await recoverInterruptedMessages(store)
     return store
   }
   try {
@@ -59,7 +63,26 @@ export async function initStore(accountScoped = false): Promise<DbStore> {
     console.warn('[db] MySQL unavailable, using local file store (persistent):', String(e))
     store = new MemoryStore(join(app.getPath('userData'), 'ai-agent-data.json'))
   }
+  await recoverInterruptedMessages(store)
   return store
+}
+
+/** 应用异常退出后，不让历史中的未完成消息永久显示为“生成中”。 */
+export async function recoverInterruptedMessages(target: DbStore): Promise<number> {
+  let recovered = 0
+  for (const session of await target.listSessions()) {
+    for (const message of await target.listMessages(session.id)) {
+      if (!['pending', 'waiting', 'streaming'].includes(message.status)) continue
+      await target.upsertMessage({
+        ...message,
+        status: 'interrupted',
+        revision: (message.revision ?? 0) + 1,
+        finishReason: 'app_restarted'
+      })
+      recovered += 1
+    }
+  }
+  return recovered
 }
 
 export function getStore(): DbStore {

@@ -7,6 +7,7 @@ import type {
   MessageBlock,
   Attachment,
   MessageStatus,
+  GenerationFinishReason,
   ModelConfig,
   MessageNotice,
   SourceCitation,
@@ -37,7 +38,10 @@ import {
   beginGeneration,
   cancelGeneration,
   finishGeneration,
-  isCurrentGeneration
+  isCurrentGeneration,
+  setGenerationCancelHandler,
+  updateGenerationSnapshot,
+  type GenerationTask
 } from '../services/generationTasks'
 import {
   cancelTasksForSession,
@@ -104,24 +108,41 @@ export function registerMessageIpc(): void {
       assertTrustedIpcSender(event)
       input = validateSendMessageInput(input)
       if (!(await getStore().getSession(input.sessionId))) return err('NOT_FOUND', '会话不存在')
+      const existing = (await getStore().listMessages(input.sessionId))
+        .find((message) => message.id === input.clientMessageId && message.role === 'user')
+      if (existing) return ok(existing)
+      const sendKey = `${input.sessionId}:${input.clientMessageId}`
+      const activeSend = pendingSends.get(sendKey)
+      if (activeSend) return ok(await activeSend)
       const hasImages = (input.attachments ?? []).some((attachment) => attachment.kind === 'image')
       const activeModel = getActivePreset()
       if (hasImages && (!activeModel || !supportsImageInput(activeModel))) {
         return err('VISION_UNSUPPORTED', '信息不能发送，此模型无法进行图片处理')
       }
       // 图片保留 base64；文档在主进程提取文本，剥离原始 base64（避免落库膨胀）
-      const { stored, docTexts } = await prepareAttachments(input.attachments ?? [])
-      const user = await getStore().insertMessage({
-        sessionId: input.sessionId,
-        role: 'user',
-        content: input.content,
-        attachments: stored
-      })
-      await autoTitle(input.sessionId, input.content)
-      await getStore().touchSession(input.sessionId)
-      // 触发回复（配置了模型则调用真实流式，否则回退 Mock）
-      void runReply(event.sender, input.sessionId, input.content, input.skillIds ?? [], input.pluginIds ?? [], stored, docTexts)
-      return ok(user)
+      const sendPromise = (async (): Promise<Message> => {
+        const { stored, docTexts } = await prepareAttachments(input.attachments ?? [])
+        const user = await getStore().insertMessage({
+          id: input.clientMessageId,
+          sessionId: input.sessionId,
+          role: 'user',
+          content: input.content,
+          attachments: stored
+        })
+        await autoTitle(input.sessionId, input.content)
+        await getStore().touchSession(input.sessionId)
+        void runReply(
+          event.sender, input.sessionId, input.clientMessageId, input.content,
+          input.skillIds ?? [], input.pluginIds ?? [], stored, docTexts
+        ).catch((error) => console.warn('[message] reply transaction failed:', error))
+        return user
+      })()
+      pendingSends.set(sendKey, sendPromise)
+      try {
+        return ok(await sendPromise)
+      } finally {
+        pendingSends.delete(sendKey)
+      }
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
     }
@@ -150,6 +171,8 @@ export function registerMessageIpc(): void {
     }
   })
 }
+
+const pendingSends = new Map<string, Promise<Message>>()
 
 /** 处理附件：文档在主进程提取文本，剥离原始 base64；返回可落库的附件 + 文档文本 */
 async function prepareAttachments(attachments: Attachment[]): Promise<{
@@ -192,17 +215,55 @@ async function prepareAttachments(attachments: Attachment[]): Promise<{
 async function runReply(
   wc: WebContents,
   sessionId: string,
+  generationId: string,
   userRequest: string,
   explicitSkillIds: string[],
   explicitPluginIds: string[],
   attachments: Attachment[],
   docTexts: string[]
 ): Promise<void> {
-  const task = beginGeneration(sessionId, wc.id)
+  const task = beginGeneration(sessionId, wc.id, generationId)
+  const assistantId = randomUUID()
+  const waiting: Message = {
+    id: assistantId,
+    sessionId,
+    generationId,
+    revision: 0,
+    role: 'assistant',
+    content: '',
+    status: 'waiting',
+    timestamp: Date.now()
+  }
+  updateGenerationSnapshot(task, waiting)
+  setGenerationCancelHandler(task, async (reason, snapshot = waiting) => {
+    if (isTerminalStatus(snapshot.status)) return
+    if (reason === 'session_deleted') return
+    const terminal: Message = {
+      ...snapshot,
+      status: reason === 'user' ? 'cancelled' : 'interrupted',
+      revision: (snapshot.revision ?? 0) + 1,
+      finishReason: cancellationFinishReason(reason)
+    }
+    updateGenerationSnapshot(task, terminal)
+    if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, terminal)
+    await getStore().upsertMessage(terminal)
+    if (reason === 'user') {
+      sendMessageNotice(wc, { id: randomUUID(), sessionId, level: 'warning', message: '已停止生成' })
+    }
+  })
+  if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, waiting)
+  try {
+    await getStore().upsertMessage(waiting)
+  } catch (error) {
+    await failGenerationSetup(wc, task, '无法保存本次回答')
+    finishGeneration(sessionId, task)
+    console.warn('[message] assistant shell persist failed:', error)
+    return
+  }
   const cfg = getModelConfig()
   const preset = getActivePreset()
   if (!preset || !preset.apiKey || !preset.baseUrl || !preset.model) {
-    scheduleMockReply(wc, sessionId, task)
+    scheduleMockReply(wc, sessionId, task, assistantId)
     return
   }
   const vision = attachments.some((a) => a.kind === 'image')
@@ -288,6 +349,7 @@ async function runReply(
           id: randomUUID(), sessionId, level: 'error',
           message: error instanceof Error ? error.message : '项目任务无法启动'
         })
+        await failGenerationSetup(wc, task, error instanceof Error ? error.message : '项目任务无法启动')
         return
       }
     } else if (browserIntent) {
@@ -304,6 +366,7 @@ async function runReply(
           id: randomUUID(), sessionId, level: 'error',
           message: error instanceof Error ? error.message : '浏览器任务无法启动'
         })
+        await failGenerationSetup(wc, task, error instanceof Error ? error.message : '浏览器任务无法启动')
         return
       }
     } else {
@@ -319,6 +382,7 @@ async function runReply(
           id: randomUUID(), sessionId, level: 'error',
           message: error instanceof Error ? error.message : 'Skill 无法加载'
         })
+        await failGenerationSetup(wc, task, error instanceof Error ? error.message : 'Skill 无法加载')
         return
       }
     }
@@ -345,7 +409,10 @@ async function runReply(
         activeSkills,
         skillTrigger,
         selectedPluginIds,
-        selectedPluginVersions
+        selectedPluginVersions,
+        task,
+        assistantId,
+        waiting.timestamp
       )
     } finally {
       await releaseBrowserLease?.()
@@ -414,10 +481,17 @@ async function runModelReply(
   activeSkills: SkillMetadata[] = [],
   skillTrigger?: string,
   activePluginIds: string[] = [],
-  activePluginVersions: Record<string, string | undefined> = {}
+  activePluginVersions: Record<string, string | undefined> = {},
+  generationTask?: GenerationTask,
+  assistantId?: string,
+  assistantTimestamp?: number
 ): Promise<void> {
-  const id = randomUUID()
-  const timestamp = Date.now()
+  if (!generationTask || !assistantId || assistantTimestamp == null) {
+    throw new Error('Generation transaction is missing')
+  }
+  const id = assistantId
+  const timestamp = assistantTimestamp
+  let revision = generationTask.snapshot?.revision ?? 0
   let reasoning = ''
   let content = ''
   let sources: SourceCitation[] = []
@@ -444,7 +518,6 @@ async function runModelReply(
     pendingPersist = null
     if (!msg) return
     persistChain = persistChain.then(async () => {
-      if (signal.aborted && String(signal.reason ?? '') !== 'user') return
       await getStore().upsertMessage(msg)
       hasPersisted = true
     })
@@ -465,7 +538,8 @@ async function runModelReply(
     }
   }
 
-  const emit = async (status: MessageStatus): Promise<void> => {
+  const emit = async (status: MessageStatus, finishReason?: GenerationFinishReason): Promise<void> => {
+    if (signal.aborted && !isTerminalStatus(status)) return
     const blocks: MessageBlock[] = []
     if (activeSkills.length) blocks.push({ kind: 'skills', trigger: skillTrigger, skills: activeSkills.map((skill) => ({
       name: skill.name, displayName: skill.displayName, source: skill.source, version: skill.version
@@ -490,8 +564,12 @@ async function runModelReply(
       blocks: blocks.length ? blocks : undefined,
       status,
       timestamp,
+      generationId: generationTask.generationId,
+      revision: ++revision,
+      finishReason,
       attachments: generatedAttachments.length ? [...generatedAttachments] : undefined
     }
+    updateGenerationSnapshot(generationTask, msg)
     if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, msg)
     await queuePersist(msg, status !== 'streaming')
   }
@@ -671,7 +749,7 @@ async function runModelReply(
           if (!content.trim()) {
             appendToolTimelineText(timeline, `本次执行未完成：${failureMessage}。请重试。`)
           }
-          await emit('error')
+          await emit('error', 'error')
           sendMessageNotice(wc, {
             id: randomUUID(), sessionId, level: 'error',
             message: failureMessage
@@ -697,21 +775,11 @@ async function runModelReply(
         for (const source of extracted) merged.set(source.url, source)
         sources = [...merged.values()].slice(0, 12)
       }
-      await emit('done')
+      await emit('done', 'completed')
       return
     } catch (e) {
       if (signal.aborted) {
         if (persistTimer) clearTimeout(persistTimer)
-        const reason = String(signal.reason ?? 'user')
-        if (reason === 'user') {
-          await emit('done')
-          sendMessageNotice(wc, {
-            id: randomUUID(),
-            sessionId,
-            level: 'warning',
-            message: '已停止生成'
-          })
-        }
         return
       }
       if (useSearch && !searchFallbackUsed) {
@@ -750,7 +818,7 @@ async function runModelReply(
         if (agentTaskId) appendToolTimelineText(timeline, `本次执行未完成：${placeholder}。请重试。`)
         else content = `本次回答未完成：${placeholder}。请重试。`
       }
-      await emit('error')
+      await emit('error', 'error')
       sendMessageNotice(wc, {
         id: randomUUID(),
         sessionId,
@@ -863,6 +931,37 @@ function modelErrorMessage(detail: string, retryable: boolean, retried: boolean,
   return '模型请求失败，请检查模型配置或稍后再试'
 }
 
+function isTerminalStatus(status: MessageStatus): boolean {
+  return status === 'done' || status === 'error' || status === 'cancelled' || status === 'interrupted'
+}
+
+function cancellationFinishReason(reason: string): GenerationFinishReason {
+  if (reason === 'user') return 'user_cancelled'
+  if (reason === 'window_closed' || reason === 'session_deleted' || reason === 'workspace_switched' ||
+      reason === 'app_quit' || reason === 'replaced') return reason
+  return 'error'
+}
+
+async function failGenerationSetup(wc: WebContents, task: GenerationTask, message: string): Promise<void> {
+  const snapshot = task.snapshot
+  if (!snapshot || isTerminalStatus(snapshot.status)) return
+  const terminal: Message = {
+    ...snapshot,
+    content: message,
+    blocks: [{ kind: 'text', content: `本次执行未能启动：${message}。请检查配置后重试。` }],
+    status: 'error',
+    revision: (snapshot.revision ?? 0) + 1,
+    finishReason: 'setup_error'
+  }
+  updateGenerationSnapshot(task, terminal)
+  if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, terminal)
+  try {
+    await getStore().upsertMessage(terminal)
+  } catch (error) {
+    console.warn('[message] terminal message persist failed:', error)
+  }
+}
+
 function sendMessageNotice(wc: WebContents, notice: MessageNotice): void {
   if (!wc.isDestroyed()) wc.send(EVENTS.messageNotice, notice)
 }
@@ -870,19 +969,30 @@ function sendMessageNotice(wc: WebContents, notice: MessageNotice): void {
 function scheduleMockReply(
   wc: WebContents,
   sessionId: string,
-  task: ReturnType<typeof beginGeneration>
+  task: ReturnType<typeof beginGeneration>,
+  assistantId: string
 ): void {
-  const steps = buildMockReply(sessionId)
+  const steps = buildMockReply(sessionId, {
+    id: assistantId,
+    generationId: task.generationId,
+    startRevision: task.snapshot?.revision,
+    timestamp: task.snapshot?.timestamp
+  })
   for (const [index, step] of steps.entries()) {
     addGenerationTimer(task, () => {
       if (wc.isDestroyed() || !isCurrentGeneration(sessionId, task)) return
       void getStore()
         .upsertMessage(step.message)
         .then(() => {
+          updateGenerationSnapshot(task, step.message)
           wc.send(EVENTS.messageStreamed, step.message)
           if (index === steps.length - 1) finishGeneration(sessionId, task)
         })
-        .catch((e) => console.warn('[mock] upsert failed:', e))
+        .catch(async (error) => {
+          await failGenerationSetup(wc, task, '无法保存本次回答')
+          finishGeneration(sessionId, task)
+          console.warn('[mock] upsert failed:', error)
+        })
     }, step.delayMs)
   }
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-agent-test' } }))
 
+import { recoverInterruptedMessages } from './index'
 import { MemoryStore } from './memory'
 
 describe('MemoryStore（无文件路径，纯内存）', () => {
@@ -57,6 +58,29 @@ describe('MemoryStore（无文件路径，纯内存）', () => {
     const s = await store.createSession('s')
     const m = await store.insertMessage({ sessionId: s.id, role: 'user', content: 'hi' })
     expect(m.status).toBe('done')
+  })
+
+  it('旧 revision 不能覆盖已经落库的终态', async () => {
+    const s = await store.createSession('s')
+    const message = await store.insertMessage({
+      sessionId: s.id, role: 'assistant', content: '生成中', status: 'streaming', revision: 2
+    })
+    await store.upsertMessage({ ...message, content: '已停止', status: 'cancelled', revision: 3 })
+    await store.upsertMessage({ ...message, content: '迟到分片', status: 'streaming', revision: 2 })
+    expect((await store.listMessages(s.id))[0]).toMatchObject({
+      content: '已停止', status: 'cancelled', revision: 3
+    })
+  })
+
+  it('启动恢复会把遗留流式消息收敛为 interrupted', async () => {
+    const s = await store.createSession('s')
+    await store.insertMessage({
+      sessionId: s.id, role: 'assistant', content: 'partial', status: 'streaming', revision: 6
+    })
+    expect(await recoverInterruptedMessages(store)).toBe(1)
+    expect((await store.listMessages(s.id))[0]).toMatchObject({
+      status: 'interrupted', revision: 7, finishReason: 'app_restarted'
+    })
   })
 
   it('为会话持久化当前项目路径', async () => {

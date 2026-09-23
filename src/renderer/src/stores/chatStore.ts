@@ -6,6 +6,7 @@ interface ChatState {
   /** sessionId -> messages（按 timestamp 升序） */
   messages: Record<string, Message[]>
   sending: Record<string, boolean>
+  activeGenerations: Record<string, string | undefined>
   notices: Record<string, MessageNotice | undefined>
   inputRequests: Record<string, UserInputRequest | undefined>
   approvalRequests: Record<string, ApprovalUiRequest | undefined>
@@ -32,11 +33,20 @@ interface ChatState {
   clear: () => void
 }
 
+function isNewerOrEqual(current: Message | undefined, incoming: Message): boolean {
+  if (!current) return true
+  if (current.generationId && incoming.generationId && current.generationId !== incoming.generationId) {
+    return false
+  }
+  return (incoming.revision ?? 0) >= (current.revision ?? 0)
+}
+
 function append(record: Record<string, Message[]>, sessionId: string, msg: Message): Record<string, Message[]> {
   const list = record[sessionId] ?? []
   const idx = list.findIndex((m) => m.id === msg.id)
   let next: Message[]
   if (idx >= 0) {
+    if (!isNewerOrEqual(list[idx], msg)) return record
     next = list.slice()
     next[idx] = msg
   } else {
@@ -46,9 +56,18 @@ function append(record: Record<string, Message[]>, sessionId: string, msg: Messa
   return { ...record, [sessionId]: next }
 }
 
+function mergeMessages(current: Message[], incoming: Message[]): Message[] {
+  let record: Record<string, Message[]> = { current }
+  for (const message of incoming) record = append(record, 'current', message)
+  return record.current
+}
+
+const TERMINAL_STATUSES = new Set<Message['status']>(['done', 'error', 'cancelled', 'interrupted'])
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   sending: {},
+  activeGenerations: {},
   notices: {},
   inputRequests: {},
   approvalRequests: {},
@@ -56,32 +75,55 @@ export const useChatStore = create<ChatState>((set, get) => ({
   load: async (sessionId) => {
     const res = await window.agent.message.list(sessionId)
     if (res.ok) {
-      set((s) => ({ messages: { ...s.messages, [sessionId]: res.data } }))
+      set((s) => ({
+        messages: { ...s.messages, [sessionId]: mergeMessages(s.messages[sessionId] ?? [], res.data) }
+      }))
     }
   },
 
   send: async (sessionId, content, attachments, search, skillIds, pluginIds) => {
-    const res = await window.agent.message.send({ sessionId, content, attachments, search, skillIds, pluginIds })
-    if (!res.ok) return res
+    if (get().activeGenerations[sessionId]) {
+      return { ok: false, error: { code: 'ALREADY_SENDING', message: '当前回答仍在生成，请先停止或等待完成' } }
+    }
+    const clientMessageId = crypto.randomUUID()
     set((s) => ({
-      messages: append(s.messages, sessionId, res.data),
-      sending: { ...s.sending, [sessionId]: true }
+      sending: { ...s.sending, [sessionId]: true },
+      activeGenerations: { ...s.activeGenerations, [sessionId]: clientMessageId }
     }))
+    const res = await window.agent.message.send({ clientMessageId, sessionId, content, attachments, search, skillIds, pluginIds })
+    if (!res.ok) {
+      set((s) => s.activeGenerations[sessionId] === clientMessageId ? {
+        sending: { ...s.sending, [sessionId]: false },
+        activeGenerations: { ...s.activeGenerations, [sessionId]: undefined }
+      } : s)
+      return res
+    }
+    set((s) => ({ messages: append(s.messages, sessionId, res.data) }))
     // 主进程可能已自动生成会话标题，刷新一次以同步侧栏
     void useSessionStore.getState().touch(sessionId)
     return res
   },
 
   stop: async (sessionId) => {
-    await window.agent.message.stop(sessionId)
-    set((s) => ({ sending: { ...s.sending, [sessionId]: false } }))
+    const result = await window.agent.message.stop(sessionId)
+    if (result.ok && !result.data.stopped) {
+      set((s) => ({
+        sending: { ...s.sending, [sessionId]: false },
+        activeGenerations: { ...s.activeGenerations, [sessionId]: undefined }
+      }))
+    }
   },
 
   upsertMessage: (msg) => {
     set((s) => {
       const sending = { ...s.sending }
-      if (msg.status === 'done' || msg.status === 'error') sending[msg.sessionId] = false
-      return { messages: append(s.messages, msg.sessionId, msg), sending }
+      const activeGenerations = { ...s.activeGenerations }
+      if (TERMINAL_STATUSES.has(msg.status) && msg.generationId &&
+          activeGenerations[msg.sessionId] === msg.generationId) {
+        sending[msg.sessionId] = false
+        activeGenerations[msg.sessionId] = undefined
+      }
+      return { messages: append(s.messages, msg.sessionId, msg), sending, activeGenerations }
     })
   },
 
@@ -117,5 +159,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return { approvalRequests: { ...s.approvalRequests, [sessionId]: undefined } }
   }),
 
-  clear: () => set({ messages: {}, sending: {}, notices: {}, inputRequests: {}, approvalRequests: {} })
+  clear: () => set({ messages: {}, sending: {}, activeGenerations: {}, notices: {}, inputRequests: {}, approvalRequests: {} })
 }))

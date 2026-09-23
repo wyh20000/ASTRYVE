@@ -112,6 +112,9 @@ function validateAttachment(value: unknown): Attachment {
 export function validateSendMessageInput(value: unknown): SendMessageInput {
   if (!value || typeof value !== 'object') invalid('消息参数无效')
   const input = value as SendMessageInput
+  if (typeof input.clientMessageId !== 'string' || !ID_PATTERN.test(input.clientMessageId)) {
+    invalid('客户端消息 ID 无效')
+  }
   validateSessionId(input.sessionId)
   if (typeof input.content !== 'string' || input.content.length > MAX_CONTENT_CHARS) {
     invalid('消息内容无效或过长')

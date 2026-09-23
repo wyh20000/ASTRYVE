@@ -10,8 +10,8 @@ export interface MockStep {
  * 本地 Mock：按设计稿「实现登录功能」示例，生成一条持续演进的 assistant 消息。
  * 消息 id 恒定，各阶段通过 upsert 刷新 blocks / status，渲染层按 id 合并即可呈现渐进式回复。
  */
-export function buildMockReply(sessionId: string): MockStep[] {
-  const id = randomUUID()
+export function buildMockReply(sessionId: string, options?: { id?: string; generationId?: string; startRevision?: number; timestamp?: number }): MockStep[] {
+  const id = options?.id ?? randomUUID()
   const base: Pick<Message, 'id' | 'sessionId' | 'role'> = {
     id,
     sessionId,
@@ -55,7 +55,9 @@ export function buildMockReply(sessionId: string): MockStep[] {
       '登录功能已实现。数据库表、后端接口与前端页面均已创建，请运行 `uvicorn main:app --reload` 启动后端进行测试。'
   }
 
-  const t = Date.now()
+  const t = options?.timestamp ?? Date.now()
+  const generation = options?.generationId
+  const revision = options?.startRevision ?? 0
   const steps: MockStep[] = [
     {
       delayMs: 0,
@@ -64,7 +66,9 @@ export function buildMockReply(sessionId: string): MockStep[] {
         content: '',
         blocks: [thinking],
         status: 'streaming',
-        timestamp: t + 0
+        timestamp: t,
+        generationId: generation,
+        revision: revision + 1
       }
     },
     {
@@ -74,7 +78,9 @@ export function buildMockReply(sessionId: string): MockStep[] {
         content: opening.content,
         blocks: [thinking, opening, plan],
         status: 'streaming',
-        timestamp: t + 700
+        timestamp: t,
+        generationId: generation,
+        revision: revision + 2
       }
     },
     {
@@ -84,7 +90,9 @@ export function buildMockReply(sessionId: string): MockStep[] {
         content: opening.content,
         blocks: [thinking, opening, plan, transition, files],
         status: 'streaming',
-        timestamp: t + 1400
+        timestamp: t,
+        generationId: generation,
+        revision: revision + 3
       }
     },
     {
@@ -94,7 +102,10 @@ export function buildMockReply(sessionId: string): MockStep[] {
         content: closing.content,
         blocks: [thinking, opening, plan, transition, files, closing],
         status: 'done',
-        timestamp: t + 2100
+        timestamp: t,
+        generationId: generation,
+        revision: revision + 4,
+        finishReason: 'completed'
       }
     }
   ]

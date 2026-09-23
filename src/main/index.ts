@@ -22,7 +22,8 @@ import {
 } from './services/agent/taskRuntimeManager'
 import {
   cancelAllGenerations,
-  cancelGenerationsForWebContents
+  cancelGenerationsForWebContents,
+  flushGenerationFinalizations
 } from './services/generationTasks'
 import { refreshAgentExecutionCapabilities } from './services/agent/projectPreferences'
 import { cleanupInterruptedDockerResources, startDockerCleanupTimer } from './services/agent/dockerCleanup'
@@ -323,6 +324,7 @@ app.on('before-quit', (event) => {
   void Promise.race([
     Promise.all([
       flushTaskPersistence(),
+      flushGenerationFinalizations(),
       closeOfficialChromeBrowserRuntime(),
       emptySessionCleanup
     ]).then(() => undefined),

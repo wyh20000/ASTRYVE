@@ -90,7 +90,20 @@ export interface Session {
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 /** 消息状态 */
-export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error'
+export type MessageStatus = 'pending' | 'waiting' | 'streaming' | 'done' | 'error' | 'cancelled' | 'interrupted'
+
+/** 一次生成结束的原因；用于恢复中断状态以及避免旧事件覆盖新终态。 */
+export type GenerationFinishReason =
+  | 'completed'
+  | 'error'
+  | 'user_cancelled'
+  | 'replaced'
+  | 'window_closed'
+  | 'session_deleted'
+  | 'workspace_switched'
+  | 'app_quit'
+  | 'app_restarted'
+  | 'setup_error'
 
 /** 结构化消息块（用于呈现思考态 / 执行计划 / 文件列表等） */
 export type MessageBlock =
@@ -184,6 +197,9 @@ export interface Message {
   attachments?: Attachment[]
   status: MessageStatus
   timestamp: number
+  generationId?: string
+  revision?: number
+  finishReason?: GenerationFinishReason
 }
 
 /** 主进程异步回复过程中产生的非对话区提示 */
@@ -212,6 +228,8 @@ export interface CreateSessionInput {
 
 /** 发送消息入参（P1 由本地 Mock 消费） */
 export interface SendMessageInput {
+  /** 渲染进程为一次发送生成的稳定 UUID，也用作幂等键和生成关联 ID。 */
+  clientMessageId: string
   sessionId: string
   content: string
   attachments?: Attachment[]

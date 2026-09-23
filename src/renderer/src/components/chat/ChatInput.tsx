@@ -231,7 +231,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       showNotice('信息不能发送，此模型无法进行图片处理')
       return
     }
-    const result = await send(sessionId, v, attachments)
+    const result = await send(sessionId, v, attachments, undefined, undefined, selectedPlugins.map((plugin) => plugin.id))
     if (!result.ok) {
       showNotice(result.error.message, 'error')
       return

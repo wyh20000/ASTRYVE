@@ -54,15 +54,22 @@ describe('workspace IPC validation', () => {
 
   it('accepts bounded Skill ids and rejects forged selections', () => {
     const id = `project:${'a'.repeat(12)}:code-review`
-    expect(validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'review', skillIds: [id, id] }).skillIds).toEqual([id])
-    expect(() => validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'review', skillIds: ['../skill'] })).toThrow(InputValidationError)
+    expect(validateSendMessageInput({ clientMessageId: crypto.randomUUID(), sessionId: crypto.randomUUID(), content: 'review', skillIds: [id, id] }).skillIds).toEqual([id])
+    expect(() => validateSendMessageInput({ clientMessageId: crypto.randomUUID(), sessionId: crypto.randomUUID(), content: 'review', skillIds: ['../skill'] })).toThrow(InputValidationError)
   })
 
   it('accepts bounded plugin ids, deduplicates them and rejects forged selections', () => {
     const sessionId = crypto.randomUUID()
-    expect(validateSendMessageInput({ sessionId, content: 'inspect', pluginIds: ['acme.browser', 'acme.browser'] }).pluginIds)
+    expect(validateSendMessageInput({ clientMessageId: crypto.randomUUID(), sessionId, content: 'inspect', pluginIds: ['acme.browser', 'acme.browser'] }).pluginIds)
       .toEqual(['acme.browser'])
-    expect(() => validateSendMessageInput({ sessionId, content: 'inspect', pluginIds: ['../plugin'] }))
+    expect(() => validateSendMessageInput({ clientMessageId: crypto.randomUUID(), sessionId, content: 'inspect', pluginIds: ['../plugin'] }))
+      .toThrow(InputValidationError)
+  })
+
+  it('requires a stable UUID client message id', () => {
+    expect(() => validateSendMessageInput({ sessionId: crypto.randomUUID(), content: 'x' }))
+      .toThrow(InputValidationError)
+    expect(() => validateSendMessageInput({ clientMessageId: '../same', sessionId: crypto.randomUUID(), content: 'x' }))
       .toThrow(InputValidationError)
   })
 })

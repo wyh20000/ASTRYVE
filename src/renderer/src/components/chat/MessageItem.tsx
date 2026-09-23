@@ -148,6 +148,10 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
         本次执行未完成，请重试。已完成的内容不会受影响。
       </div>
     )
+  } else if (message.status === 'cancelled' && !hasText) {
+    body = <div className="text-[13px] text-muted">本次生成已停止。</div>
+  } else if (message.status === 'interrupted' && !hasText) {
+    body = <div className="text-[13px] text-warning">本次生成意外中断，可重新发送或让 AI 继续。</div>
   } else if (hasText) {
     body = <RichText text={message.content} />
   } else {
@@ -159,7 +163,7 @@ function AssistantMessage({ message }: { message: Message }): JSX.Element {
     body = <div className="space-y-3">{body}<ImageAttachments images={images} /></div>
   }
 
-  const showDots = message.status === 'streaming' && (hasText || !hasThinking)
+  const showDots = (message.status === 'waiting' || message.status === 'streaming') && (hasText || !hasThinking)
 
   return (
     <div className="min-w-0 space-y-2">
