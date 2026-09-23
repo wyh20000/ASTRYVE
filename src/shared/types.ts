@@ -197,6 +197,7 @@ export interface TurnEnvelope {
   documentRefs: string[]
   skillIds: string[]
   pluginIds: string[]
+  searchRequested?: boolean
 }
 
 export interface Message {
@@ -248,7 +249,7 @@ export interface SendMessageInput {
   sessionId: string
   content: string
   attachments?: Attachment[]
-  /** @deprecated 联网能力现由应用按模型接口自动启用；仅为旧客户端兼容保留。 */
+  /** 本轮明确选择供应商联网搜索；默认不联网。 */
   search?: boolean
   skillIds?: string[]
   pluginIds?: string[]

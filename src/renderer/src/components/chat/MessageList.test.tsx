@@ -42,6 +42,11 @@ describe('MessageList 流式滚动', () => {
     vi.unstubAllGlobals()
   })
 
+  it('历史加载失败时不把会话描述成空对话', () => {
+    render(<MessageList messages={[]} loadError />)
+    expect(screen.queryByText('开始一段新的对话')).not.toBeInTheDocument()
+  })
+
   it('用户滚轮操作后暂停跟随，新增内容不会抢回滚动位置', async () => {
     const view = render(<MessageList messages={[message('m1')]} />)
     const scroll = scrollElement(view.container)

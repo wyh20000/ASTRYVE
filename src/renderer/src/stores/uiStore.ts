@@ -5,9 +5,10 @@ export interface InputDraft {
   value: string
   attachments: Attachment[]
   processingFiles: Array<{ id: string; name: string; kind: 'image' | 'file' }>
+  search: boolean
 }
 
-export const EMPTY_DRAFT: InputDraft = { value: '', attachments: [], processingFiles: [] }
+export const EMPTY_DRAFT: InputDraft = { value: '', attachments: [], processingFiles: [], search: false }
 
 const WIDTH_KEY = 'ai-agent:sidebar-width'
 const WORKSPACE_WIDTH_KEY = 'ai-agent:workspace-width'

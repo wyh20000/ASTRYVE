@@ -76,6 +76,7 @@ function AppShell(): JSX.Element {
 
   useEffect(() => {
     const unsub = window.agent.onMessageNotice((notice) => {
+      if (useChatStore.getState().removedSessions[notice.sessionId]) return
       void messageApi.open({
         key: notice.id,
         type: notice.level,

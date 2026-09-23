@@ -2,22 +2,40 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ApprovalScope } from '@shared/agent'
 import type { ApprovalUiRequest } from '@shared/types'
 import { useChatStore } from '../../stores/chatStore'
+import { useSessionStore } from '../../stores/sessionStore'
 import { Button } from '../ui'
 import { Icon } from '../ui/icons'
 
 export default function ApprovalDialog(): JSX.Element | null {
   const requests = useChatStore((state) => state.approvalRequests)
   const clear = useChatStore((state) => state.clearApprovalRequest)
+  const sessions = useSessionStore((state) => state.sessions)
+  const activeId = useSessionStore((state) => state.activeId)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const pending = Object.values(requests).filter((item): item is ApprovalUiRequest => Boolean(item))
+    const nextExpiry = pending.reduce((earliest, item) => Math.min(earliest, item.expiresAt), Number.POSITIVE_INFINITY)
+    if (!Number.isFinite(nextExpiry)) return
+    const timer = window.setTimeout(() => {
+      for (const item of pending) if (item.expiresAt <= Date.now()) clear(item.sessionId, item.id)
+      setNow(Date.now())
+    }, Math.max(0, nextExpiry - Date.now() + 1))
+    return () => window.clearTimeout(timer)
+  }, [requests, clear, now])
   const request = useMemo(() => Object.values(requests)
-    .filter((item) => item && item.expiresAt > Date.now())
-    .sort((left, right) => (right?.expiresAt ?? 0) - (left?.expiresAt ?? 0))[0], [requests])
+    .filter((item) => item && item.expiresAt > Math.max(now, Date.now()))
+    .sort((left, right) => (right?.expiresAt ?? 0) - (left?.expiresAt ?? 0))[0], [requests, now])
   if (!request) return null
-  return <ApprovalDialogView request={request} onClear={() => clear(request.sessionId, request.id)} />
+  const sessionName = sessions.find((session) => session.id === request.sessionId)?.title || '新对话'
+  return <ApprovalDialogView request={request} sessionName={sessionName} background={activeId !== request.sessionId}
+    onClear={() => clear(request.sessionId, request.id)} />
 }
 
-export function ApprovalDialogView({ request, onClear }: {
+export function ApprovalDialogView({ request, onClear, sessionName, background = false }: {
   request: ApprovalUiRequest
   onClear: () => void
+  sessionName?: string
+  background?: boolean
 }): JSX.Element {
   const [submitting, setSubmitting] = useState<ApprovalScope | 'deny'>()
   const [error, setError] = useState('')
@@ -53,11 +71,13 @@ export function ApprovalDialogView({ request, onClear }: {
             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[14px] ${riskTone.badge}`}>{request.risk}</span>
           </div>
           <p className="mt-1 line-clamp-2 text-[14px] leading-4 text-txt-muted">{request.summary}</p>
+          {sessionName && <p className="mt-1 text-[14px] text-txt-secondary">来自会话：{sessionName}{background ? '（后台）' : ''}</p>}
         </div>
       </header>
 
       <div className="min-h-0 overflow-y-auto px-4 py-3">
         <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[14px]">
+          <span className="text-txt-muted">项目</span><span className="text-txt-secondary">{request.workspace}</span>
           <span className="text-txt-muted">操作</span><span className="text-txt-secondary">{request.operation}</span>
           <span className="text-txt-muted">环境</span><span className="text-txt-secondary">{request.environment}</span>
           <span className="text-txt-muted">目标</span>

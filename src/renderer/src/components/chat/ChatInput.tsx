@@ -15,7 +15,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { EMPTY_DRAFT, useUiStore, type InputDraft } from '../../stores/uiStore'
 import type { ReasoningEffort, Attachment, UserInputRequest } from '@shared/types'
-import { supportsImageInput } from '@shared/modelCapabilities'
+import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { IconButton } from '../ui'
 import { Icon } from '../ui/icons'
 import { fileToImageAttachment, fileToDocumentAttachment, isImageFile, isDocumentFile } from '../../lib/image'
@@ -66,7 +66,7 @@ function formatBytes(n?: number): string {
  */
 export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
-  const { value, attachments, processingFiles } = useUiStore((state) => state.drafts[sessionId] ?? EMPTY_DRAFT)
+  const { value, attachments, processingFiles, search } = useUiStore((state) => state.drafts[sessionId] ?? EMPTY_DRAFT)
   const updateStoredDraft = useUiStore((state) => state.updateDraft)
   const updateDraft = <K extends keyof InputDraft>(key: K, action: SetStateAction<InputDraft[K]>): void => {
     updateStoredDraft(sessionId, (draft) => {
@@ -80,6 +80,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const setValue = (next: SetStateAction<string>): void => updateDraft('value', next)
   const setAttachments = (next: SetStateAction<Attachment[]>): void => updateDraft('attachments', next)
   const setProcessingFiles = (next: SetStateAction<ProcessingFile[]>): void => updateDraft('processingFiles', next)
+  const setSearch = (next: SetStateAction<boolean>): void => updateDraft('search', next)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
   const [pluginDismissed, setPluginDismissed] = useState(false)
@@ -163,6 +164,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     .slice(0, 8)
   const pluginMenuOpen = !slashMenuOpen && pluginQuery !== undefined && mentionPlugins.length > 0 && !pluginDismissed
   const selectedPlugins = selectedPluginMentions(value, plugins)
+  const searchAvailable = Boolean(activePreset && supportsBuiltInSearch(activePreset.provider) &&
+    images.length === 0 && selectedPlugins.length === 0 && !/^\s*\/[a-z0-9_-]+\b/i.test(value))
 
   useEffect(() => {
     setSlashIndex((current) => Math.min(current, Math.max(0, slashSkills.length - 1)))
@@ -201,6 +204,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   }
 
   const addFiles = async (incoming: File[]): Promise<void> => {
+    if (incoming.some(isImageFile)) setSearch(false)
     const jobs = incoming.map((file) => ({
       id: crypto.randomUUID(),
       file,
@@ -240,7 +244,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     }
     const submittedValue = value
     const submittedAttachments = attachments
-    const result = await send(sessionId, v, submittedAttachments, undefined, undefined, selectedPlugins.map((plugin) => plugin.id))
+    const submittedSearch = search && searchAvailable
+    const result = await send(sessionId, v, submittedAttachments, submittedSearch, undefined, selectedPlugins.map((plugin) => plugin.id))
     if (!result.ok) {
       showNotice(result.error.message, 'error')
       return
@@ -250,7 +255,8 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       return {
         ...draft,
         value: draft.value === submittedValue ? '' : draft.value,
-        attachments: draft.attachments.filter((attachment) => !submittedIds.has(attachment.id))
+        attachments: draft.attachments.filter((attachment) => !submittedIds.has(attachment.id)),
+        search: draft.search === search ? false : draft.search
       }
     })
     historyState.current = { index: null, draft: '' }
@@ -271,6 +277,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     if (!skill) return
     const next = `/${skill.name} `
     setValue(next)
+    setSearch(false)
     setSlashDismissed(true)
     historyState.current = { index: null, draft: next }
     focusInputAtEnd(next)
@@ -282,6 +289,7 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
     const start = pluginMatch.index + pluginMatch[0].lastIndexOf('@')
     const next = `${value.slice(0, start)}@${plugin.id} `
     setValue(next)
+    setSearch(false)
     setPluginDismissed(true)
     historyState.current = { index: null, draft: next }
     focusInputAtEnd(next)
@@ -492,6 +500,12 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
             footer={(_actionNode, { components }) => (
               <div className="chat-input-toolbar flex min-w-0 items-center gap-1.5">
                 <ModelSelector />
+                <button type="button" aria-label="本轮联网搜索" aria-pressed={search && searchAvailable}
+                  disabled={!searchAvailable || sending}
+                  title={images.length ? '图片与联网搜索暂不能同时使用' :
+                    selectedPlugins.length ? '插件与供应商联网搜索暂不能同时使用' : '仅本轮使用联网搜索'}
+                  className={`rounded-md px-2 py-1 text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${search && searchAvailable ? 'bg-accent-dim/25 text-accent' : 'text-txt-muted hover:bg-bg-raised hover:text-txt-primary'}`}
+                  onClick={() => setSearch((current) => !current)}>联网</button>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <IconButton
                     icon={<Icon.Paperclip size={16} />}

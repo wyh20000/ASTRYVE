@@ -3,8 +3,9 @@ import type { Message } from '@shared/types'
 import { MessageItem } from './MessageItem'
 import { Icon } from '../ui/icons'
 
-export function MessageList({ messages, hasOlder = false, loadingOlder = false, onLoadOlder }:
-  { messages: Message[]; hasOlder?: boolean; loadingOlder?: boolean; onLoadOlder?: () => Promise<void> }): JSX.Element {
+export function MessageList({ messages, hasOlder = false, loadingOlder = false, loadError = false, onLoadOlder }:
+  { messages: Message[]; hasOlder?: boolean; loadingOlder?: boolean; loadError?: boolean;
+    onLoadOlder?: () => Promise<void> }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [stick, setStick] = useState(true)
   const [hasNewContent, setHasNewContent] = useState(false)
@@ -94,7 +95,7 @@ export function MessageList({ messages, hasOlder = false, loadingOlder = false, 
               {loadingOlder ? '加载中…' : olderLoadError ? '加载失败，点击重试' : '加载更早消息'}
             </button>
           )}
-          {messages.length === 0 ? (
+          {messages.length === 0 && !loadError ? (
             <EmptyState />
           ) : (
             messages.map((m) => <MessageItem key={m.id} message={m} />)

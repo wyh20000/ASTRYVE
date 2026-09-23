@@ -3,6 +3,7 @@ import { Conversations } from '@ant-design/x'
 import type { ConversationItemType } from '@ant-design/x'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
+import { useChatStore } from '../../stores/chatStore'
 import { groupKey, groupLabel, itemTime, fullTime, type GroupKey } from '../../lib/time'
 import { Button, IconButton } from '../ui'
 import { Icon } from '../ui/icons'
@@ -36,6 +37,7 @@ export default function SessionList(): JSX.Element {
   const select = useSessionStore((s) => s.select)
   const remove = useSessionStore((s) => s.remove)
   const searchQuery = useUiStore((s) => s.searchQuery)
+  const approvalRequests = useChatStore((s) => s.approvalRequests)
 
   const [confirmId, setConfirmId] = useState<string | null>(null)
 
@@ -84,6 +86,8 @@ export default function SessionList(): JSX.Element {
               ].join(' ')}
             >
               <span className="min-w-0 flex-1 truncate">{title}</span>
+              {(approvalRequests[s.id]?.expiresAt ?? 0) > Date.now() &&
+                <span className="shrink-0 rounded bg-accent-dim/25 px-1.5 py-0.5 text-[14px] text-accent">待审批</span>}
             </button>
 
             {/* 时间与操作固定在行右侧，不参与会话按钮的点击区域 */}

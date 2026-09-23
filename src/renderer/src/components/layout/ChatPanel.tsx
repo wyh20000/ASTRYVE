@@ -14,6 +14,8 @@ export default function ChatPanel(): JSX.Element {
   const messages = useChatStore((s) => (activeId ? s.messages[activeId] : undefined))
   const hasOlder = useChatStore((s) => activeId ? s.hasOlder[activeId] ?? false : false)
   const loadingOlder = useChatStore((s) => activeId ? s.loadingOlder[activeId] ?? false : false)
+  const loadError = useChatStore((s) => activeId ? s.loadErrors[activeId] : undefined)
+  const load = useChatStore((s) => s.load)
   const loadOlder = useChatStore((s) => s.loadOlder)
   const active = sessions.find((s) => s.id === activeId)
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
@@ -50,8 +52,13 @@ export default function ChatPanel(): JSX.Element {
         </div>
       </div>
 
+      {loadError && activeId && <div role="alert" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-bg-panel px-3 py-2 text-[13px] text-txt-secondary">
+        <span>历史记录读取失败：{loadError}</span>
+        <button type="button" className="shrink-0 text-accent hover:underline" onClick={() => void load(activeId)}>重试</button>
+      </div>}
       <MessageList key={activeId ?? 'empty'} messages={messages ?? []} hasOlder={hasOlder}
-        loadingOlder={loadingOlder} onLoadOlder={() => activeId ? loadOlder(activeId) : Promise.resolve()} />
+        loadingOlder={loadingOlder} loadError={Boolean(loadError)}
+        onLoadOlder={() => activeId ? loadOlder(activeId) : Promise.resolve()} />
       <ChatInput sessionId={activeId ?? ''} />
     </main>
   )

@@ -25,14 +25,14 @@ export function supportsImageInput(
 }
 
 /**
- * 所有已配置模型都会获得自动联网入口：DeepSeek / Kimi 使用厂商协议，
- * 自定义 OpenAI 兼容端点尝试 Responses web_search，不支持时由调用层回退普通对话。
+ * 厂商搜索入口的可用性，不代表默认联网。只有本轮明确选择时才调用。
+ * DeepSeek / Kimi 使用厂商协议；自定义兼容端点尝试 Responses web_search。
  */
 export function supportsBuiltInSearch(provider: ModelProvider | undefined): boolean {
   return provider === 'kimi' || provider === 'deepseek' || provider === 'custom'
 }
 
-/** 项目会话中，仅把明显的资料查询自动交给联网回答，文件/代码任务继续走 Agent。 */
+/** 历史兼容用的搜索意图识别；不得再用于自动开启联网。 */
 export function prefersBuiltInSearch(request: string): boolean {
   const text = request.trim()
   if (!text) return false

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@shared/types'
 import { useSessionStore } from './sessionStore'
+import { useChatStore } from './chatStore'
+import { useUiStore } from './uiStore'
 
 const session = (id: string, title: string, updatedAt: number): Session => ({
   id, title, projectPath: null, pinned: false, createdAt: updatedAt, updatedAt
@@ -9,6 +11,8 @@ const session = (id: string, title: string, updatedAt: number): Session => ({
 describe('session store empty conversation reuse', () => {
   afterEach(() => {
     useSessionStore.setState({ sessions: [], activeId: null, loading: false, error: null })
+    useChatStore.getState().clear()
+    useUiStore.getState().clearDrafts()
     vi.unstubAllGlobals()
   })
 
@@ -45,5 +49,18 @@ describe('session store empty conversation reuse', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(create).toHaveBeenCalledTimes(1)
     expect(useSessionStore.getState().sessions).toHaveLength(1)
+  })
+
+  it('deleting a session also removes its draft and cached chat state', async () => {
+    useSessionStore.setState({ sessions: [session('gone', '旧会话', 1)], activeId: 'gone' })
+    useChatStore.setState({ messages: { gone: [{ id: 'm', sessionId: 'gone', role: 'user',
+      content: '私有内容', status: 'done', timestamp: 1 }] }, sending: { gone: true } })
+    useUiStore.getState().updateDraft('gone', (draft) => ({ ...draft, value: '未发送' }))
+    vi.stubGlobal('window', { agent: { session: { remove: vi.fn(async () => ({ ok: true, data: { id: 'gone' } })) } } })
+    await useSessionStore.getState().remove('gone')
+    expect(useChatStore.getState().messages.gone).toBeUndefined()
+    expect(useChatStore.getState().sending.gone).toBeUndefined()
+    expect(useUiStore.getState().drafts.gone).toBeUndefined()
+    expect(useSessionStore.getState().sessions).toEqual([])
   })
 })

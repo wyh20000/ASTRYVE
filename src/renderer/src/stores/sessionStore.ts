@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Session } from '@shared/types'
 import { useUiStore } from './uiStore'
+import { useChatStore } from './chatStore'
 
 interface SessionState {
   sessions: Session[]
@@ -77,6 +78,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const res = await window.agent.session.remove(id)
     if (!res.ok) return
     useUiStore.getState().clearDraft(id)
+    useChatStore.getState().forgetSession(id)
     set((s) => {
       const sessions = s.sessions.filter((x) => x.id !== id)
       const activeId = s.activeId === id ? (sessions[0]?.id ?? null) : s.activeId

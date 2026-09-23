@@ -16,7 +16,8 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Session } from '@shared/types'
+import type { ApprovalUiRequest, Session } from '@shared/types'
+import { useChatStore } from '../../stores/chatStore'
 
 const sessionState = vi.hoisted(() => ({
   sessions: [] as Session[],
@@ -61,6 +62,7 @@ beforeEach(() => {
   sessionState.remove.mockReset()
   sessionState.remove.mockImplementation(async () => undefined)
   uiState.searchQuery = ''
+  useChatStore.getState().clear()
 })
 
 describe('会话列表 - 分组与时间', () => {
@@ -95,6 +97,16 @@ describe('会话列表 - 分组与时间', () => {
     sessionState.sessions = [session('a', '', NOW)]
     render(<SessionList />)
     expect(screen.getByText('新对话')).toBeInTheDocument()
+  })
+
+  it('后台会话有待审批请求时在侧栏标记来源', () => {
+    sessionState.sessions = [session('a', '会话 A', NOW), session('b', '会话 B', NOW)]
+    sessionState.activeId = 'a'
+    useChatStore.setState({ approvalRequests: { b: { id: 'approval', sessionId: 'b',
+      expiresAt: Date.now() + 60_000 } as ApprovalUiRequest } })
+    render(<SessionList />)
+    expect(screen.getByRole('button', { name: /会话 B.*待审批/ })).toBeInTheDocument()
+    expect(screen.getAllByText('待审批')).toHaveLength(1)
   })
 })
 

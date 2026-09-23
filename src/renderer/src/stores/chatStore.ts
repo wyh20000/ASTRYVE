@@ -9,6 +9,8 @@ interface ChatState {
   activeGenerations: Record<string, string | undefined>
   hasOlder: Record<string, boolean>
   loadingOlder: Record<string, boolean>
+  loadErrors: Record<string, string | undefined>
+  removedSessions: Record<string, true>
   notices: Record<string, MessageNotice | undefined>
   inputRequests: Record<string, UserInputRequest | undefined>
   approvalRequests: Record<string, ApprovalUiRequest | undefined>
@@ -34,6 +36,7 @@ interface ChatState {
   setApprovalRequest: (request: ApprovalUiRequest) => void
   clearApprovalRequest: (sessionId: string, requestId?: string) => void
   clear: () => void
+  forgetSession: (sessionId: string) => void
 }
 
 function isNewerOrEqual(current: Message | undefined, incoming: Message): boolean {
@@ -73,16 +76,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeGenerations: {},
   hasOlder: {},
   loadingOlder: {},
+  loadErrors: {},
+  removedSessions: {},
   notices: {},
   inputRequests: {},
   approvalRequests: {},
 
   load: async (sessionId) => {
-    const res = await window.agent.message.list(sessionId)
-    if (res.ok) {
-      set((s) => ({
+    if (get().removedSessions[sessionId]) return
+    try {
+      const res = await window.agent.message.list(sessionId)
+      if (!res.ok) throw new Error(res.error.message)
+      set((s) => s.removedSessions[sessionId] ? s : ({
         messages: { ...s.messages, [sessionId]: mergeMessages(s.messages[sessionId] ?? [], res.data) },
-        hasOlder: { ...s.hasOlder, [sessionId]: res.data.length >= 100 }
+        hasOlder: { ...s.hasOlder, [sessionId]: res.data.length >= 100 },
+        loadErrors: { ...s.loadErrors, [sessionId]: undefined }
+      }))
+    } catch (error) {
+      set((s) => s.removedSessions[sessionId] ? s : ({
+        loadErrors: { ...s.loadErrors, [sessionId]: error instanceof Error ? error.message : '历史记录读取失败' }
       }))
     }
   },
@@ -97,16 +109,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const result = await window.agent.message.list(sessionId, before)
       if (!result.ok) throw new Error(result.error.message)
-      set((current) => ({
+      set((current) => current.removedSessions[sessionId] ? current : ({
         messages: { ...current.messages, [sessionId]: mergeMessages(current.messages[sessionId] ?? [], result.data) },
         hasOlder: { ...current.hasOlder, [sessionId]: result.data.length >= 100 }
       }))
     } finally {
-      set((current) => ({ loadingOlder: { ...current.loadingOlder, [sessionId]: false } }))
+      set((current) => current.removedSessions[sessionId] ? current : ({
+        loadingOlder: { ...current.loadingOlder, [sessionId]: false }
+      }))
     }
   },
 
   send: async (sessionId, content, attachments, search, skillIds, pluginIds) => {
+    if (get().removedSessions[sessionId]) {
+      return { ok: false, error: { code: 'SESSION_REMOVED', message: '会话已删除，请新建对话' } }
+    }
     if (get().activeGenerations[sessionId]) {
       return { ok: false, error: { code: 'ALREADY_SENDING', message: '当前回答仍在生成，请先停止或等待完成' } }
     }
@@ -115,24 +132,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sending: { ...s.sending, [sessionId]: true },
       activeGenerations: { ...s.activeGenerations, [sessionId]: clientMessageId }
     }))
-    const res = await window.agent.message.send({ clientMessageId, sessionId, content, attachments, search, skillIds, pluginIds })
+    let res: IpcResult<Message>
+    try {
+      res = await window.agent.message.send({ clientMessageId, sessionId, content, attachments, search, skillIds, pluginIds })
+    } catch {
+      res = { ok: false, error: { code: 'SEND_UNAVAILABLE', message: '发送失败，请重试' } }
+    }
     if (!res.ok) {
-      set((s) => s.activeGenerations[sessionId] === clientMessageId ? {
+      set((s) => !s.removedSessions[sessionId] && s.activeGenerations[sessionId] === clientMessageId ? {
         sending: { ...s.sending, [sessionId]: false },
         activeGenerations: { ...s.activeGenerations, [sessionId]: undefined }
       } : s)
       return res
     }
-    set((s) => ({ messages: append(s.messages, sessionId, res.data) }))
+    set((s) => s.removedSessions[sessionId] ? s : ({ messages: append(s.messages, sessionId, res.data) }))
     // 主进程可能已自动生成会话标题，刷新一次以同步侧栏
-    void useSessionStore.getState().touch(sessionId)
+    if (!get().removedSessions[sessionId]) void useSessionStore.getState().touch(sessionId)
     return res
   },
 
   stop: async (sessionId) => {
     const result = await window.agent.message.stop(sessionId)
     if (result.ok && !result.data.stopped) {
-      set((s) => ({
+      set((s) => s.removedSessions[sessionId] ? s : ({
         sending: { ...s.sending, [sessionId]: false },
         activeGenerations: { ...s.activeGenerations, [sessionId]: undefined }
       }))
@@ -141,6 +163,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   upsertMessage: (msg) => {
     set((s) => {
+      if (s.removedSessions[msg.sessionId]) return s
       const sending = { ...s.sending }
       const activeGenerations = { ...s.activeGenerations }
       if (TERMINAL_STATUSES.has(msg.status) && msg.generationId &&
@@ -153,7 +176,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setNotice: (notice) => {
-    set((s) => ({ notices: { ...s.notices, [notice.sessionId]: notice } }))
+    set((s) => s.removedSessions[notice.sessionId] ? s : ({ notices: { ...s.notices, [notice.sessionId]: notice } }))
   },
 
   clearNotice: (sessionId, noticeId) => {
@@ -164,7 +187,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
   },
 
-  setInputRequest: (request) => set((s) => ({
+  setInputRequest: (request) => set((s) => s.removedSessions[request.sessionId] ? s : ({
     inputRequests: { ...s.inputRequests, [request.sessionId]: request }
   })),
 
@@ -174,7 +197,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return { inputRequests: { ...s.inputRequests, [sessionId]: undefined } }
   }),
 
-  setApprovalRequest: (request) => set((s) => ({
+  setApprovalRequest: (request) => set((s) => s.removedSessions[request.sessionId] ? s : ({
     approvalRequests: { ...s.approvalRequests, [request.sessionId]: request }
   })),
 
@@ -184,6 +207,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return { approvalRequests: { ...s.approvalRequests, [sessionId]: undefined } }
   }),
 
+  forgetSession: (sessionId) => set((state) => {
+    const omit = <T>(source: Record<string, T>): Record<string, T> => {
+      const next = { ...source }
+      delete next[sessionId]
+      return next
+    }
+    return {
+      messages: omit(state.messages), sending: omit(state.sending),
+      activeGenerations: omit(state.activeGenerations), hasOlder: omit(state.hasOlder),
+      loadingOlder: omit(state.loadingOlder), loadErrors: omit(state.loadErrors),
+      notices: omit(state.notices), inputRequests: omit(state.inputRequests),
+      approvalRequests: omit(state.approvalRequests),
+      removedSessions: { ...state.removedSessions, [sessionId]: true }
+    }
+  }),
+
   clear: () => set({ messages: {}, sending: {}, activeGenerations: {}, hasOlder: {}, loadingOlder: {},
-    notices: {}, inputRequests: {}, approvalRequests: {} })
+    loadErrors: {}, removedSessions: {}, notices: {}, inputRequests: {}, approvalRequests: {} })
 }))

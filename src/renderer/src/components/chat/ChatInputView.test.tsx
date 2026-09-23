@@ -32,7 +32,8 @@ const chatState = vi.hoisted(() => ({
   // send(sessionId, content, attachments) 是位置参数，且组件会读取 result.ok。
   // 显式声明参数类型，否则 mock.calls[0][0] 无法索引。
   send: vi.fn(
-    async (_sessionId: string, _content: string, _attachments?: unknown[]) => ({
+    async (_sessionId: string, _content: string, _attachments?: unknown[], _search?: boolean,
+      _skillIds?: string[], _pluginIds?: string[]) => ({
       ok: true,
       data: { id: 'm1' }
     })
@@ -98,7 +99,8 @@ beforeEach(() => {
   documentAttachmentMock.mockReset()
   chatState.send.mockReset()
   chatState.send.mockImplementation(
-    async (_sessionId: string, _content: string, _attachments?: unknown[]) => ({
+    async (_sessionId: string, _content: string, _attachments?: unknown[], _search?: boolean,
+      _skillIds?: string[], _pluginIds?: string[]) => ({
       ok: true,
       data: { id: 'm1' }
     })
@@ -146,6 +148,25 @@ describe('ChatInput 基本结构', () => {
 })
 
 describe('ChatInput 发送行为', () => {
+  it('普通问答默认不联网，明确选择后只对本轮发送联网标记', async () => {
+    modelState.config = { activePresetId: 'model', presets: [{ id: 'model', name: 'DeepSeek',
+      model: 'deepseek-chat', provider: 'deepseek' }] }
+    render(wrap(<ChatInput sessionId="s1" />))
+    const search = screen.getByRole('button', { name: '本轮联网搜索' })
+    expect(search).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.type(screen.getByPlaceholderText('向 ASTRYVE 发送消息...'), '你好')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(chatState.send).toHaveBeenCalledTimes(1))
+    expect(chatState.send.mock.calls[0][3]).toBe(false)
+
+    await userEvent.click(search)
+    expect(search).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.type(screen.getByPlaceholderText('向 ASTRYVE 发送消息...'), '今天新闻{Enter}')
+    await waitFor(() => expect(chatState.send).toHaveBeenCalledTimes(2))
+    expect(chatState.send.mock.calls[1][3]).toBe(true)
+    await waitFor(() => expect(search).toHaveAttribute('aria-pressed', 'false'))
+  })
+
   it('Enter 触发发送并把内容交给 store', async () => {
     render(wrap(<ChatInput sessionId="s1" />))
     const textarea = screen.getByPlaceholderText('向 ASTRYVE 发送消息...')

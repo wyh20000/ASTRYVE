@@ -1857,7 +1857,7 @@ export function ModelSection(): JSX.Element {
                 <div className="flex items-center gap-2 text-[14px] text-txt-primary">
                   <span className="truncate">{p.name}</span>
                   <TagChip>{p.provider}</TagChip>
-                  <TagChip>联网自动</TagChip>
+                  <TagChip>联网按需</TagChip>
                 </div>
                 <div className="truncate text-[14px] text-txt-muted">{p.model}</div>
               </div>
@@ -1890,7 +1890,7 @@ export function ModelSection(): JSX.Element {
       </FormSection>
       <FormSection title="说明">
         <p className="text-[14px] leading-[22px] text-txt-secondary">
-          可配置多个模型端点，对话输入框下方可通过下拉快速切换，并选择「低 / 中 / 高」推理等级。联网检索无需单独开关：普通问答会自动向模型提供厂商搜索能力；项目编码任务仍优先使用项目工具。自定义端点不兼容 Responses web_search 时会自动回退普通回答。未配置时回退本地演示（Mock）。
+          可配置多个模型端点，对话输入框下方可通过下拉快速切换，并选择「低 / 中 / 高」推理等级。普通问答默认不联网；本轮点击输入框的「联网」后才使用厂商搜索能力。图片、插件和 Skill 暂不能与供应商联网搜索同时使用。自定义端点不兼容 Responses web_search 时会提示并回退普通回答。未配置时回退本地演示（Mock）。
         </p>
       </FormSection>
     </>

@@ -5,7 +5,16 @@ import { join } from 'node:path'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
-  store: undefined as unknown
+  store: undefined as unknown,
+  projectEnabled: false,
+  preset: null as null | { id: string; provider: 'deepseek'; model: string; baseUrl: string; apiKey: string;
+    contextMessages: number; contextTokens: number },
+  streamChat: vi.fn(async (_runtime: unknown, _history: unknown, onEvent: (event: unknown) => Promise<void>) => {
+    await onEvent({ content: '普通回答' })
+  }),
+  streamDeepSeekSearch: vi.fn(async (_runtime: unknown, _history: unknown, onEvent: (event: unknown) => Promise<void>) => {
+    await onEvent({ content: '搜索回答' })
+  })
 }))
 
 vi.mock('electron', () => ({
@@ -15,20 +24,26 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../db', () => ({ getStore: () => mocks.store }))
 vi.mock('../services/modelConfig', () => ({
-  getActivePreset: () => null,
+  getActivePreset: () => mocks.preset,
   getModelConfig: () => ({ reasoningEffort: 'medium' })
+}))
+vi.mock('../services/modelProvider', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../services/modelProvider')>(),
+  streamChat: mocks.streamChat,
+  streamDeepSeekSearch: mocks.streamDeepSeekSearch
 }))
 vi.mock('../services/agent/taskRuntimeManager', () => ({
   cancelTasksForSession: () => 0,
   createBrowserTask: vi.fn(), createProjectTask: vi.fn(), getPatchWorkspaceService: vi.fn(),
-  getTaskRuntime: vi.fn(), getToolRegistry: vi.fn(), shouldUseProjectAgent: () => false,
+  getTaskRuntime: vi.fn(), getToolRegistry: vi.fn(), shouldUseProjectAgent: () => mocks.projectEnabled,
   writeAgentAudit: vi.fn()
 }))
 vi.mock('../services/agent/pluginManager', () => ({ listPlugins: async () => [] }))
 vi.mock('../services/agent/toolCallingLoop', () => ({ runInteractiveChatLoop: vi.fn(), runToolCallingLoop: vi.fn() }))
 vi.mock('../services/agent/userInput', () => ({ requestUserInput: vi.fn(), submitUserInput: () => false }))
 vi.mock('../services/agent/workspaceManager', () => ({ getWorkspaceService: vi.fn(), restoreSessionWorkspace: vi.fn() }))
-vi.mock('../services/agent/skillManager', () => ({ auditSkillUse: vi.fn(), resolveSkills: vi.fn() }))
+vi.mock('../services/agent/skillManager', () => ({ auditSkillUse: vi.fn(),
+  resolveSkills: vi.fn(async (request: string) => ({ prompt: '', cleanedRequest: request, skills: [] })) }))
 vi.mock('../services/browser/officialChromeBrowserRuntime', () => ({ acquireOfficialChromeBrowserLease: vi.fn() }))
 
 import { IPC, EVENTS } from '@shared/ipc'
@@ -51,6 +66,10 @@ describe('message IPC send lifecycle', () => {
     vi.useFakeTimers()
     mocks.handlers.clear()
     mocks.store = new MemoryStore()
+    mocks.projectEnabled = false
+    mocks.preset = null
+    mocks.streamChat.mockClear()
+    mocks.streamDeepSeekSearch.mockClear()
     configureTrustedIpcSender('file:///D:/app/index.html')
     setBusinessIpcAvailable(true)
     registerMessageIpc()
@@ -81,6 +100,29 @@ describe('message IPC send lifecycle', () => {
     const retry = await send(invocation, input) as { ok: boolean; data: { id: string } }
     expect(retry).toMatchObject({ ok: true, data: { id: clientMessageId } })
     expect(await store.listMessages(session.id)).toHaveLength(2)
+  })
+
+  it('keeps normal chat offline and uses vendor search only when this turn explicitly selects it', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('search')
+    const send = mocks.handlers.get(IPC.message.send)!
+    await send(event(), { clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '你好' })
+    await vi.runAllTimersAsync()
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.streamDeepSeekSearch).not.toHaveBeenCalled()
+
+    mocks.projectEnabled = true
+    await send(event(), { clientMessageId: crypto.randomUUID(), sessionId: session.id,
+      content: '今天新闻', search: true })
+    await vi.runAllTimersAsync()
+    expect(mocks.streamDeepSeekSearch).toHaveBeenCalledTimes(1)
+    expect(Object.fromEntries((await store.listMessages(session.id))
+      .filter((message) => message.role === 'user')
+      .map((message) => [message.content, message.turn?.searchRequested]))).toEqual({
+      '你好': false, '今天新闻': true
+    })
   })
 
   it('includes saved document evidence on a later turn after the active request is replaced', async () => {

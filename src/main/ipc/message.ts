@@ -33,7 +33,7 @@ import { getModelConfig, getActivePreset } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
 import { fitHistoryToTokenBudget, toChatMessage, injectDocuments, selectDocumentPassages } from '../services/history'
 import { ok, err } from './result'
-import { prefersBuiltInSearch, supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { extractSourceCitations } from '@shared/searchSources'
 import {
   addGenerationTimer,
@@ -126,6 +126,14 @@ export function registerMessageIpc(): void {
       if (hasImages && (!activeModel || !supportsImageInput(activeModel))) {
         return err('VISION_UNSUPPORTED', '信息不能发送，此模型无法进行图片处理')
       }
+      if (input.search && hasImages) return err('SEARCH_VISION_UNSUPPORTED', '图片与联网搜索暂不能同时使用')
+      if (input.search && !supportsBuiltInSearch(activeModel?.provider)) {
+        return err('SEARCH_UNSUPPORTED', '当前模型不支持内置联网搜索')
+      }
+      if (input.search && ((input.pluginIds?.length ?? 0) > 0 || (input.skillIds?.length ?? 0) > 0 ||
+          /^\s*\/[a-z0-9_-]+\b/i.test(input.content))) {
+        return err('SEARCH_TOOL_COMBINATION_UNSUPPORTED', '插件或 Skill 与供应商联网搜索暂不能同时使用')
+      }
       // 图片与文档正文写入账号级 Artifact Store；数据库只保存引用和元数据。
       const sendPromise = (async (): Promise<Message> => {
         const { stored, docTexts } = await prepareAttachments(input.attachments ?? [])
@@ -140,7 +148,8 @@ export function registerMessageIpc(): void {
             .map((attachment) => attachment.meta?.documentRef)
             .filter((ref): ref is string => typeof ref === 'string' && isArtifactRef(ref)),
           skillIds: [...(input.skillIds ?? [])],
-          pluginIds: [...(input.pluginIds ?? [])]
+          pluginIds: [...(input.pluginIds ?? [])],
+          searchRequested: input.search === true
         }
         const user = await getStore().insertMessage({
           id: input.clientMessageId,
@@ -155,7 +164,7 @@ export function registerMessageIpc(): void {
         await getStore().touchSession(input.sessionId)
         void runReply(
           event.sender, input.sessionId, input.clientMessageId, createdAt, input.content,
-          input.skillIds ?? [], input.pluginIds ?? [], stored, docTexts
+          input.skillIds ?? [], input.pluginIds ?? [], input.search === true, stored, docTexts
         ).catch((error) => console.warn('[message] reply transaction failed:', error))
         return materializeMessage(user)
       })()
@@ -250,6 +259,7 @@ async function runReply(
   userRequest: string,
   explicitSkillIds: string[],
   explicitPluginIds: string[],
+  searchRequested: boolean,
   attachments: Attachment[],
   docTexts: string[]
 ): Promise<void> {
@@ -316,7 +326,7 @@ async function runReply(
     const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
     selectedPluginIds = pluginSelection.pluginIds
     if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
-    const browserIntent = projectEligible && (
+    const browserIntent = projectEligible && !searchRequested && (
       prefersBrowserTools(userRequest) ||
       (prefersBrowserContinuation(userRequest) &&
         hasRecentBrowserContext(await getStore().listMessages(sessionId)))
@@ -326,7 +336,7 @@ async function runReply(
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
       const explicitPlugin = selectedPluginIds.length > 0
       useProjectAgent = shouldUseProjectAgent(sessionId) &&
-        (explicitSkill || explicitPlugin || browserIntent || !prefersBuiltInSearch(userRequest))
+        (explicitSkill || explicitPlugin || browserIntent || !searchRequested)
     }
     if (useProjectAgent) {
       cancelTasksForSession(sessionId, 'replaced')
@@ -400,7 +410,7 @@ async function runReply(
         await failGenerationSetup(wc, task, error instanceof Error ? error.message : '浏览器任务无法启动')
         return
       }
-    } else {
+    } else if (!searchRequested) {
       try {
         const resolved = await resolveSkills(userRequest, explicitSkillIds)
         skillPrompt = resolved.prompt
@@ -417,7 +427,7 @@ async function runReply(
         return
       }
     }
-    const useSearch = !vision && !agentTaskId && supportsBuiltInSearch(preset.provider)
+    const useSearch = searchRequested && !vision && !agentTaskId && supportsBuiltInSearch(preset.provider)
     const releaseBrowserLease = agentTaskId ? acquireOfficialChromeBrowserLease() : undefined
     try {
       await runModelReply(
