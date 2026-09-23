@@ -3,7 +3,7 @@
 类 Codex / DeepSeek-Harness 的桌面 AI 智能体客户端。目标：连接 DeepSeek / Kimi 等开放模型 API，在本地完成 **编码、识图、浏览器操控** 等任务。
 
 - **形态**：Electron + TypeScript 桌面应用
-- **当前阶段**：P1/P2/P3 已完成；P4 M12 已完成，M13 插件运行时代码与自动化验证已完成、待人工验收；M14 市场、生命周期、MCP 和 Hooks 已实现，待资源/UI 安全项及真实环境总验收
+- **当前阶段**：核心能力与插件平台已有代码和自动化基础；当前按《08 · 项目剩余任务与收尾计划》先修复对话事务、跨轮上下文和统一能力循环，再完成 Google 官方 Chrome DevTools MCP、真实环境验收与发布收尾
 - **技术栈**：Electron（electron-vite）· React + TS · Tailwind CSS · Zustand · **mysql2（MySQL）**
 - **持久化**：认证后的账号使用各自目录内的本地 JSON 存储；旧共享 MySQL 会话表不含账号字段，暂不供已登录账号使用
 
@@ -64,19 +64,16 @@ npm start
 | --- | --- |
 | [docs/design-ref.png](docs/design-ref.png) | 设计稿参考图（三栏 IDE 风，深色主题） |
 | [docs/01-开发边界与规范.md](docs/01-开发边界与规范.md) | 整体范围 / 技术架构 / 工程规范 / 阶段路线 |
-| [docs/02-第一阶段计划.md](docs/02-第一阶段计划.md) | P1 执行计划（目标、里程碑、任务拆解、验收） |
-| [docs/03-设计稿还原分析.md](docs/03-设计稿还原分析.md) | 设计稿逐组件拆解与还原要点 |
-| [docs/04-第二阶段计划.md](docs/04-第二阶段计划.md) | P2 范围、实现与验收标准 |
-| [docs/05-二阶段未完成项.md](docs/05-二阶段未完成项.md) | P2 收口结果与外部联调项 |
-| [docs/06-安全加固与沙盒设计.md](docs/06-安全加固与沙盒设计.md) | P2 后安全加固与 renderer sandbox 设计 |
-| [docs/07-第三阶段计划.md](docs/07-第三阶段计划.md) | P3 Agent 执行内核、Coding、权限、Docker 与 Skills 计划 |
+| [docs/07-第三阶段计划.md](docs/07-第三阶段计划.md) | Agent 执行内核、Coding、权限、Docker 与 Skills 实现记录 |
+| [docs/08-第四阶段计划.md](docs/08-第四阶段计划.md) | 当前唯一总计划：项目剩余任务、依赖顺序、完成条件与停线条件 |
 | [docs/09-Skills规范.md](docs/09-Skills规范.md) | M9 第三方 Skill 格式、来源、安装、触发、权限与审计规范 |
 | [docs/10-DeepSeek-Skills调用适配.md](docs/10-DeepSeek-Skills调用适配.md) | DeepSeek system message、原生工具调用与思考轮次适配 |
-| [docs/08-第四阶段计划.md](docs/08-第四阶段计划.md) | P4 插件运行时、市场与浏览器能力计划 |
-| [docs/verification/M13-插件运行时页面验证测试单.md](docs/verification/M13-插件运行时页面验证测试单.md) | M13 本地插件运行时人工验收清单 |
-| [docs/verification/M9-页面验证测试单.md](docs/verification/M9-页面验证测试单.md) | M9 可由非开发人员执行的页面与安全验收清单 |
-| [docs/verification/M10-页面验证测试单.md](docs/verification/M10-页面验证测试单.md) | M10 Renderer Sandbox 与整体加固页面验收清单 |
-| [docs/verification/M11-P3最终页面验证测试单.md](docs/verification/M11-P3最终页面验证测试单.md) | M11 / P3 最终端到端验收清单 |
+| [docs/20-P4插件平台威胁模型.md](docs/20-P4插件平台威胁模型.md) | 插件、市场、MCP、Hooks、隔离 UI 与 Browser Gateway 威胁模型 |
+| [docs/22-M16-Google-Chrome-DevTools-MCP接入设计.md](docs/22-M16-Google-Chrome-DevTools-MCP接入设计.md) | 固定版本 Google 官方 Chrome DevTools MCP 接入边界 |
+| [docs/superpowers/specs/2026-09-22-explicit-chrome-context-design.md](docs/superpowers/specs/2026-09-22-explicit-chrome-context-design.md) | 模型驱动能力调用、可信页面绑定和 Chrome 安全设计 |
+| [docs/superpowers/plans/2026-09-22-explicit-chrome-context.md](docs/superpowers/plans/2026-09-22-explicit-chrome-context.md) | Google MCP 详细实施计划 |
+| [docs/verification/2026-09-22-全局对话与交互行为审查.md](docs/verification/2026-09-22-全局对话与交互行为审查.md) | 当前对话正确性、路由、持久化和交互问题清单 |
+| [docs/verification/](docs/verification/) | 尚需执行或更新的人工验收单与性能基线 |
 
 ## P1 已实现（M0–M6）
 
@@ -135,8 +132,13 @@ npm start
 - 页面修改后未刷新：确认文件操作已成功完成；右侧文件树会接收工作区变更事件，未保存的编辑标签不会被后台覆盖。
 - MySQL 不可用：应用会回退内存存储，重启后历史不会保留；需要持久化时检查上方数据库配置。
 
-## 后续阶段
+## 当前收尾顺序
 
-- Chrome 当前浏览器能力 → M16 改用 Google 官方 `chrome-devtools-mcp`，通过受信 Browser Gateway 接入；自研扩展路线已冻结
+1. 对话发送与终态事务。
+2. 跨轮上下文、会话隔离和增量持久化。
+3. 模型驱动的统一能力循环。
+4. Google 官方 `chrome-devtools-mcp` 可信页面绑定、截图与连续调用。
+5. 插件、Skill、审批、视觉和真实环境验收。
+6. 安装包、安全、性能与最终发布验证。
 
-> 新增能力请**先改文档（《01》《02》）再动代码**，严格遵循边界，避免范围蔓延。
+具体任务、依赖和完成条件以 [docs/08-第四阶段计划.md](docs/08-第四阶段计划.md) 为准。新增能力必须先更新对应权威设计或总计划，再修改代码。
