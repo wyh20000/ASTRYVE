@@ -42,6 +42,7 @@ export interface ResolvedSkills {
   allowedToolNames?: Set<string>
   cleanedRequest: string
   trigger?: string
+  activation?: 'explicit' | 'automatic'
 }
 
 export class SkillRegistry {
@@ -76,7 +77,8 @@ export class SkillRegistry {
     return {
       skills: expanded.map((skill) => skill.metadata), prompt: skillPrompt(expanded, slash?.name),
       ...(expanded.length && !inheritedTools ? { allowedToolNames: requestedTools } : {}),
-      cleanedRequest: slash ? slash.remainder : request, trigger: slash ? `/${slash.name}` : undefined
+      cleanedRequest: slash ? slash.remainder : request, trigger: slash ? `/${slash.name}` : undefined,
+      activation: expanded.length ? (explicitIds.length || slash ? 'explicit' : 'automatic') : undefined
     }
   }
 

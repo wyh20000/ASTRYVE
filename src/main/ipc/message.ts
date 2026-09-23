@@ -319,6 +319,7 @@ async function runReply(
   let allowedToolNames: Set<string> | undefined
   let activeSkills: SkillMetadata[] = []
   let skillTrigger: string | undefined
+  let skillActivation: 'explicit' | 'automatic' | undefined
   let selectedPluginIds: string[] = []
   let selectedPluginVersions: Record<string, string | undefined> = {}
   try {
@@ -335,7 +336,10 @@ async function runReply(
         return
       }
     }
-    const projectEligible = session.kind === 'work' && Boolean(session.projectPath) && !vision
+    // Image input does not revoke the trusted project binding. A vision-capable
+    // tool model may inspect the supplied pixels and the granted workspace in
+    // one reply; the session/grant checks above remain the authority boundary.
+    const projectEligible = session.kind === 'work' && Boolean(session.projectPath)
     const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
     selectedPluginIds = pluginSelection.pluginIds
     if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
@@ -352,7 +356,7 @@ async function runReply(
       await failGenerationSetup(wc, task, '当前模型不支持原生工具调用。请切换支持工具的模型后重试 Chrome 请求。')
       return
     }
-    const browserIntent = !vision && browserRequest
+    const browserIntent = browserRequest
     if (projectEligible) {
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
       const explicitPlugin = selectedPluginIds.length > 0
@@ -380,6 +384,7 @@ async function runReply(
           }
           activeSkills = resolved.skills
           skillTrigger = resolved.trigger
+          skillActivation = resolved.activation
           if (browserIntent) {
             skillPrompt = [skillPrompt, BROWSER_CONVERSATION_PROMPT].filter(Boolean).join('\n\n')
             const browserToolNames = browserToolNamesForRequest(userRequest)
@@ -441,6 +446,7 @@ async function runReply(
         modelUserRequest = resolved.cleanedRequest
         activeSkills = resolved.skills
         skillTrigger = resolved.trigger
+        skillActivation = resolved.activation
         auditSkillUse(`chat-${sessionId}`, 'none', resolved.skills)
       } catch (error) {
         sendMessageNotice(wc, {
@@ -496,6 +502,7 @@ async function runReply(
         modelUserRequest,
         activeSkills,
         skillTrigger,
+        skillActivation,
         selectedPluginIds,
         selectedPluginVersions,
         task,
@@ -613,6 +620,7 @@ async function runModelReply(
   activeRequest?: string,
   activeSkills: SkillMetadata[] = [],
   skillTrigger?: string,
+  skillActivation?: 'explicit' | 'automatic',
   activePluginIds: string[] = [],
   activePluginVersions: Record<string, string | undefined> = {},
   generationTask?: GenerationTask,
@@ -676,7 +684,7 @@ async function runModelReply(
   const emit = async (status: MessageStatus, finishReason?: GenerationFinishReason): Promise<void> => {
     if (signal.aborted && !isTerminalStatus(status)) return
     const blocks: MessageBlock[] = []
-    if (activeSkills.length) blocks.push({ kind: 'skills', trigger: skillTrigger, skills: activeSkills.map((skill) => ({
+    if (activeSkills.length) blocks.push({ kind: 'skills', trigger: skillTrigger, activation: skillActivation, skills: activeSkills.map((skill) => ({
       name: skill.name, displayName: skill.displayName, source: skill.source, version: skill.version
     })) })
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')

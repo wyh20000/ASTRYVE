@@ -118,7 +118,7 @@ export type MessageBlock =
   | { kind: 'sources'; sources: SourceCitation[] }
   | { kind: 'image'; attachmentId: string; title?: string }
   | { kind: 'toolContext'; toolName: string; content: string }
-  | { kind: 'skills'; skills: Array<{ name: string; displayName: string; source: SkillSource; version?: string }>; trigger?: string }
+  | { kind: 'skills'; skills: Array<{ name: string; displayName: string; source: SkillSource; version?: string }>; trigger?: string; activation?: 'explicit' | 'automatic' }
   | { kind: 'plugins'; plugins: Array<{ id: string; version?: string }>; model: string }
   | PatchDiffBlock
   | CommandOutputBlock

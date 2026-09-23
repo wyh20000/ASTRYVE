@@ -64,6 +64,7 @@ describe('SkillRegistry', () => {
       '请编写项目文档', [], { id: 'w', rootPath: project, realRootPath: project, createdAt: 1 }, tools
     )
     expect(resolved.skills.map((skill) => skill.name)).toContain('docs-helper')
+    expect(resolved.activation).toBe('automatic')
     expect(resolved.prompt).toContain('第三方不可信指令')
     expect(resolved.prompt).toContain('使用短句。')
     expect(resolved.prompt).not.toContain('run.js')
@@ -80,6 +81,7 @@ describe('SkillRegistry', () => {
     const selected = await enabled.resolve('请编写项目文档', [explicit.id],
       { id: 'w', rootPath: project, realRootPath: project, createdAt: 1 }, tools)
     expect(selected.skills.map((skill) => skill.name)).toEqual(['patch-helper'])
+    expect(selected.activation).toBe('explicit')
     const disabled = new SkillRegistry(user, () => new Set([explicit.id]))
     const afterDisable = await disabled.resolve('$patch-helper 修改代码', [],
       { id: 'w', rootPath: project, realRootPath: project, createdAt: 1 }, tools)
@@ -123,6 +125,7 @@ describe('SkillRegistry', () => {
       { id: 'w', rootPath: project, realRootPath: project, createdAt: 1 }, tools)
     expect(resolved.cleanedRequest).toBe('review this architecture')
     expect(resolved.trigger).toBe('/grill-me')
+    expect(resolved.activation).toBe('explicit')
     expect(resolved.skills.map((skill) => skill.name)).toEqual(['grilling', 'grill-me'])
     expect(resolved.skills.at(-1)).toMatchObject({ displayName: 'Grill Me', invocation: 'user', source: 'codex' })
     expect(resolved.prompt).toContain('Interview the user one question at a time')

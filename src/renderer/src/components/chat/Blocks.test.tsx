@@ -3,6 +3,19 @@ import { describe, expect, it } from 'vitest'
 import { Blocks } from './Blocks'
 
 describe('Blocks', () => {
+  it('区分显式启用和自动匹配的 Skill', () => {
+    const skill = { name: 'review', displayName: 'Review', source: 'plugin' as const }
+    const explicit = renderToStaticMarkup(<Blocks status="done" blocks={[
+      { kind: 'skills', activation: 'explicit', skills: [skill] }
+    ]} />)
+    const automatic = renderToStaticMarkup(<Blocks status="done" blocks={[
+      { kind: 'skills', activation: 'automatic', skills: [skill] }
+    ]} />)
+    expect(explicit).toContain('按请求启用 Skill')
+    expect(automatic).toContain('自动匹配 Skill')
+    expect(automatic).toContain('Review')
+  })
+
   it('隐藏内部 Skill 元数据但继续渲染回答内容', () => {
     const html = renderToStaticMarkup(<Blocks status="done" blocks={[
       {

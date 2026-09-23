@@ -140,7 +140,7 @@ function Block({
         : null
     }
     case 'skills':
-      return null
+      return block.activation ? <SkillBlock block={block} /> : null
     case 'plugins':
       return <PluginBlock block={block} />
     case 'diff':
@@ -162,6 +162,16 @@ function PluginBlock({ block }: { block: Extract<MessageBlock, { kind: 'plugins'
       {plugin.id}{plugin.version ? ` · ${plugin.version}` : ''}
     </span>)}
     <span className="ml-auto max-w-[180px] truncate text-txt-muted" title={block.model}>{block.model}</span>
+  </div>
+}
+
+function SkillBlock({ block }: { block: Extract<MessageBlock, { kind: 'skills' }> }): JSX.Element {
+  return <div className="flex max-w-[720px] flex-wrap items-center gap-2 rounded-md border border-border bg-bg-panel px-3 py-2 text-[14px] text-txt-secondary">
+    <Icon.Brain size={13} className="text-accent" />
+    <span>{block.activation === 'explicit' ? '按请求启用 Skill' : '自动匹配 Skill'}</span>
+    {block.skills.map((skill) => <span key={`${skill.source}:${skill.name}`} className="rounded bg-bg-raised px-2 py-0.5 text-txt-primary">
+      {skill.displayName}
+    </span>)}
   </div>
 }
 

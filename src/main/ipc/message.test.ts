@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   store: undefined as unknown,
   projectEnabled: false,
+  workspaceGrant: null as null | { id: string; rootPath: string },
   plugins: [] as Array<{ id: string; status: string; enabled: boolean }>,
   availableTools: [] as Array<{ function: { name: string } }>,
   preset: null as null | { id: string; provider: 'deepseek' | 'custom'; model: string; baseUrl: string; apiKey: string;
@@ -15,6 +16,10 @@ const mocks = vi.hoisted(() => ({
     id: `capability-${sessionId}`, workspaceId: `capability:${sessionId}`,
     environment: 'local', pluginIds: [...(pluginIds ?? [])], pluginVersions: {},
     capabilityToolNames: mocks.availableTools.map((tool) => tool.function.name)
+  })),
+  createProjectTask: vi.fn(async (sessionId: string, _ownerId: number, pluginIds?: readonly string[]) => ({
+    id: `project-${sessionId}`, workspaceId: 'workspace-a', environment: 'local',
+    pluginIds: [...(pluginIds ?? [])], pluginVersions: {}, capabilityToolNames: []
   })),
   runToolCallingLoop: vi.fn(async (input: { onEvent: (event: unknown) => Promise<void> }) => {
     await input.onEvent({ content: '普通回答' })
@@ -47,7 +52,7 @@ vi.mock('../services/modelProvider', async (importOriginal) => ({
 vi.mock('../services/agent/taskRuntimeManager', () => ({
   cancelTasksForSession: () => 0,
   createBrowserTask: vi.fn(), createCapabilityTask: mocks.createCapabilityTask,
-  createProjectTask: vi.fn(), getPatchWorkspaceService: vi.fn(),
+  createProjectTask: mocks.createProjectTask, getPatchWorkspaceService: vi.fn(),
   getTaskRuntime: () => ({
     listNativeFunctionTools: () => mocks.availableTools, subscribe: () => () => undefined,
     getTaskSignal: () => new AbortController().signal,
@@ -61,7 +66,10 @@ vi.mock('../services/agent/toolCallingLoop', () => ({
   runInteractiveChatLoop: vi.fn(), runToolCallingLoop: mocks.runToolCallingLoop
 }))
 vi.mock('../services/agent/userInput', () => ({ requestUserInput: vi.fn(), submitUserInput: () => false }))
-vi.mock('../services/agent/workspaceManager', () => ({ getWorkspaceService: vi.fn(), restoreSessionWorkspace: vi.fn() }))
+vi.mock('../services/agent/workspaceManager', () => ({
+  getWorkspaceService: () => ({ getGrant: () => mocks.workspaceGrant }),
+  restoreSessionWorkspace: async () => mocks.workspaceGrant?.id
+}))
 vi.mock('../services/agent/skillManager', () => ({ auditSkillUse: vi.fn(),
   resolveSkills: vi.fn(async (request: string) => ({ prompt: '', cleanedRequest: request, skills: [] })) }))
 vi.mock('../services/browser/officialChromeBrowserRuntime', () => ({
@@ -89,12 +97,14 @@ describe('message IPC send lifecycle', () => {
     mocks.handlers.clear()
     mocks.store = new MemoryStore()
     mocks.projectEnabled = false
+    mocks.workspaceGrant = null
     mocks.plugins = []
     mocks.availableTools = []
     mocks.preset = null
     mocks.streamChat.mockClear()
     mocks.streamDeepSeekSearch.mockClear()
     mocks.createCapabilityTask.mockClear()
+    mocks.createProjectTask.mockClear()
     mocks.runToolCallingLoop.mockClear()
     mocks.acquireBrowserLease.mockClear()
     configureTrustedIpcSender('file:///D:/app/index.html')
@@ -275,6 +285,39 @@ describe('message IPC send lifecycle', () => {
     }
   })
 
+  it('keeps Coding tools available for a vision request in an authorized work session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'astryve-vision-work-'))
+    try {
+      initArtifactStore(root)
+      mocks.preset = { id: 'vision', provider: 'deepseek', model: 'vision-model',
+        baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20,
+        contextTokens: 16000, capabilities: { imageInput: true, nativeToolCalling: true } }
+      mocks.projectEnabled = true
+      mocks.workspaceGrant = { id: 'workspace-a', rootPath: 'D:\\project-a' }
+      mocks.availableTools = [{ function: { name: 'workspace.readFile' } }]
+      const store = mocks.store as MemoryStore
+      const session = await store.createSession('vision work', 'D:\\project-a', 'workspace-a')
+      await mocks.handlers.get(IPC.message.send)!(event(), {
+        clientMessageId: crypto.randomUUID(), sessionId: session.id,
+        content: '结合图片检查项目代码',
+        attachments: [{ id: crypto.randomUUID(), kind: 'image', name: 'bug.png',
+          contentType: 'image/png', dataRef: 'data:image/png;base64,AA==' }]
+      })
+      await vi.runAllTimersAsync()
+      expect(mocks.createProjectTask).toHaveBeenCalledWith(session.id, 42, undefined)
+      expect(mocks.createCapabilityTask).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(mocks.runToolCallingLoop).toHaveBeenCalled())
+      expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({
+        requireInitialTool: true,
+        model: expect.objectContaining({ vision: true })
+      })
+      expect(JSON.stringify(mocks.runToolCallingLoop.mock.calls[0][0])).toContain('image_url')
+      expect((await store.listMessages(session.id)).at(-1)?.status).toBe('done')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('does not silently drop an explicitly selected plugin on the legacy browser route', async () => {
     mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
       baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
@@ -299,6 +342,35 @@ describe('message IPC send lifecycle', () => {
     expect(allowed.has('mcp__test__api__search')).toBe(true)
     expect(allowed.has('browser.listTabs')).toBe(true)
     expect(mocks.acquireBrowserLease).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps visual input available when a supported model uses Chrome tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'astryve-vision-browser-'))
+    try {
+      initArtifactStore(root)
+      mocks.preset = { id: 'vision', provider: 'deepseek', model: 'vision-model',
+        baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20,
+        contextTokens: 16000, capabilities: { imageInput: true, nativeToolCalling: true } }
+      const store = mocks.store as MemoryStore
+      const session = await store.createSession('vision browser')
+      await mocks.handlers.get(IPC.message.send)!(event(), {
+        clientMessageId: crypto.randomUUID(), sessionId: session.id,
+        content: '结合这张图查看浏览器页面',
+        attachments: [{ id: crypto.randomUUID(), kind: 'image', name: 'reference.png',
+          contentType: 'image/png', dataRef: 'data:image/png;base64,AA==' }]
+      })
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(mocks.runToolCallingLoop).toHaveBeenCalled())
+      expect(mocks.acquireBrowserLease).toHaveBeenCalledTimes(1)
+      const loop = mocks.runToolCallingLoop.mock.calls[0][0] as unknown as {
+        allowedToolNames: Set<string>; model: { vision: boolean }
+      }
+      expect(loop.allowedToolNames.has('browser.listTabs')).toBe(true)
+      expect(loop.model.vision).toBe(true)
+      expect(JSON.stringify(loop)).toContain('image_url')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('includes saved document evidence on a later turn after the active request is replaced', async () => {
