@@ -79,7 +79,13 @@ export function validateCreateSessionInput(value: unknown): CreateSessionInput {
   if (input.title != null && (typeof input.title !== 'string' || input.title.length > 512)) {
     invalid('会话标题过长')
   }
-  if (input.projectPath != null) invalid('项目只能通过受信任的工作区选择器关联')
+  if ('projectPath' in input) invalid('项目只能通过受信任的工作区选择器关联')
+  if (input.kind !== undefined && input.kind !== 'chat' && input.kind !== 'work') invalid('会话类型无效')
+  if (input.workspaceId !== undefined && (input.kind !== 'work' || typeof input.workspaceId !== 'string' || !input.workspaceId.trim())) {
+    invalid('工作会话项目无效')
+  }
+  if (input.kind === 'work' && !input.workspaceId) invalid('工作会话必须选择项目')
+  if (input.workspaceId) validateWorkspaceId(input.workspaceId)
   return input
 }
 

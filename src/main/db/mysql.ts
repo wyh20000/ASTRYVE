@@ -14,6 +14,8 @@ export interface MySqlConfig {
 interface SessionRow {
   id: string
   title: string
+  kind: string | null
+  workspace_id: string | null
   project_path: string | null
   pinned: number | boolean
   created_at: number | string
@@ -41,6 +43,8 @@ function toSession(r: SessionRow): Session {
   return {
     id: r.id,
     title: r.title,
+    kind: r.kind === 'work' ? 'work' : 'chat',
+    workspaceId: r.workspace_id,
     projectPath: r.project_path,
     pinned: !!r.pinned,
     createdAt: num(r.created_at),
@@ -69,6 +73,8 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS sessions (
      id VARCHAR(64) PRIMARY KEY,
      title VARCHAR(512) NOT NULL,
+     kind VARCHAR(8) NOT NULL DEFAULT 'chat',
+     workspace_id VARCHAR(128),
      project_path VARCHAR(512),
      pinned TINYINT(1) NOT NULL DEFAULT 0,
      created_at BIGINT NOT NULL,
@@ -135,6 +141,8 @@ export class MySqlStore implements DbStore {
     }
     // 迁移：老库补消息事务字段（重复列错误忽略）
     for (const statement of [
+      "ALTER TABLE sessions ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'chat'",
+      'ALTER TABLE sessions ADD COLUMN workspace_id VARCHAR(128) NULL',
       'ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL',
       'ALTER TABLE messages ADD COLUMN generation_id VARCHAR(64) NULL',
       'ALTER TABLE messages ADD COLUMN revision BIGINT NOT NULL DEFAULT 0',
@@ -148,6 +156,7 @@ export class MySqlStore implements DbStore {
         if (code !== 'ER_DUP_FIELDNAME') throw error
       }
     }
+    await pool.query("UPDATE sessions SET kind = 'work' WHERE project_path IS NOT NULL AND kind = 'chat'")
     await pool.query('SELECT 1')
     return new MySqlStore(pool)
   }
@@ -165,13 +174,13 @@ export class MySqlStore implements DbStore {
     return list.length ? toSession(list[0]) : null
   }
 
-  async createSession(title: string, projectPath: string | null = null): Promise<Session> {
+  async createSession(title: string, projectPath: string | null = null, workspaceId: string | null = null): Promise<Session> {
     const id = randomUUID()
     const now = Date.now()
     await this.pool.query(
-      `INSERT INTO sessions (id, title, project_path, pinned, created_at, updated_at)
-       VALUES (?, ?, ?, 0, ?, ?)`,
-      [id, title, projectPath, now, now]
+      `INSERT INTO sessions (id, title, kind, workspace_id, project_path, pinned, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, title, projectPath ? 'work' : 'chat', workspaceId, projectPath, now, now]
     )
     return (await this.getSession(id))!
   }
@@ -186,8 +195,9 @@ export class MySqlStore implements DbStore {
   }
 
   async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
-    await this.pool.query('UPDATE sessions SET project_path = ?, updated_at = ? WHERE id = ?', [
+    await this.pool.query('UPDATE sessions SET project_path = ?, kind = ?, workspace_id = NULL, updated_at = ? WHERE id = ?', [
       projectPath,
+      projectPath ? 'work' : 'chat',
       Date.now(),
       id
     ])

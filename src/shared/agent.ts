@@ -82,6 +82,7 @@ export interface WorkspaceFileContent {
 }
 
 export interface WorkspaceSaveInput {
+  sessionId: string
   workspaceId: string
   path: string
   content: string
@@ -96,27 +97,32 @@ export interface WorkspaceSearchMatch {
 }
 
 export interface WorkspaceListInput {
+  sessionId: string
   workspaceId: string
   path?: string
 }
 
 export interface WorkspaceReadInput {
+  sessionId: string
   workspaceId: string
   path: string
 }
 
 export interface WorkspaceReadManyInput {
+  sessionId: string
   workspaceId: string
   paths: string[]
 }
 
 export interface WorkspaceSearchInput {
+  sessionId: string
   workspaceId: string
   query: string
   path?: string
 }
 
 export interface WorkspaceFileSearchInput {
+  sessionId: string
   workspaceId: string
   query: string
   path?: string

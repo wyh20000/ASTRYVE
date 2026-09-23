@@ -4,13 +4,16 @@ import { MessageList } from '../chat/MessageList'
 import { ChatInput } from '../chat/ChatInput'
 import { Icon } from '../ui/icons'
 import { IconButton } from '../ui'
-import { WorkspacePicker } from '../chat/WorkspacePicker'
 import { useUiStore } from '../../stores/uiStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
 
 export default function ChatPanel(): JSX.Element {
   const activeId = useSessionStore((s) => s.activeId)
   const sessions = useSessionStore((s) => s.sessions)
   const create = useSessionStore((s) => s.create)
+  const createWork = useSessionStore((s) => s.createWork)
+  const recent = useWorkspaceStore((s) => s.recent)
+  const selectAndCreateWork = useWorkspaceStore((s) => s.selectAndCreateWork)
   const messages = useChatStore((s) => (activeId ? s.messages[activeId] : undefined))
   const hasOlder = useChatStore((s) => activeId ? s.hasOlder[activeId] ?? false : false)
   const loadingOlder = useChatStore((s) => activeId ? s.loadingOlder[activeId] ?? false : false)
@@ -18,27 +21,34 @@ export default function ChatPanel(): JSX.Element {
   const load = useChatStore((s) => s.load)
   const loadOlder = useChatStore((s) => s.loadOlder)
   const active = sessions.find((s) => s.id === activeId)
+  const mode = active?.projectPath ? 'work' : 'chat'
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
 
   return (
     <main className="flex min-h-0 min-w-[340px] flex-1 flex-col bg-bg-app">
-      {/* 顶部 tab */}
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
+      {/* 工作/对话是会话类型，跨类型进入时新建会话，不转换历史。 */}
+      <div role="tablist" aria-label="会话类型" className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
         <button
-          onClick={() => void create()}
-          className="flex items-center gap-1.5 rounded-t-md px-3 text-[14px] text-txt-muted hover:bg-bg-panel hover:text-txt-secondary"
+          type="button"
+          role="tab"
+          aria-selected={mode === 'work'}
+          onClick={() => {
+            if (mode === 'work') return
+            const lastWork = sessions.find((session) => session.projectPath)
+            const target = recent.find((workspace) => workspace.id === lastWork?.workspaceId ||
+              workspace.displayPath === lastWork?.projectPath)?.id ?? recent[0]?.id
+            if (target) void createWork(target)
+            else void selectAndCreateWork()
+          }}
+          className={`rounded-t-md px-4 text-[14px] ${mode === 'work' ? 'border-b-2 border-accent text-txt-primary' : 'text-txt-muted hover:bg-bg-panel'}`}
         >
-          <Icon.Plus size={14} />
-          新对话
+          工作
         </button>
-        {active && (
-          <div className="flex items-center gap-1.5 border-b-2 border-accent px-3 text-[14px] text-txt-primary">
-            <span className="selectable max-w-[160px] truncate">{active.title || '新对话'}</span>
-            <button className="text-txt-muted hover:text-txt-primary" onClick={() => void create()}>
-              <Icon.X size={13} />
-            </button>
-          </div>
-        )}
+        <button type="button" role="tab" aria-selected={mode === 'chat'}
+          onClick={() => { if (mode !== 'chat') void create() }}
+          className={`rounded-t-md px-4 text-[14px] ${mode === 'chat' ? 'border-b-2 border-accent text-txt-primary' : 'text-txt-muted hover:bg-bg-panel'}`}>
+          对话
+        </button>
       </div>
 
       {/* 标题 + 徽标 */}
@@ -47,7 +57,7 @@ export default function ChatPanel(): JSX.Element {
           {active?.title || '新对话'}
         </span>
         <div className="flex shrink-0 items-center gap-2">
-          {active && <WorkspacePicker sessionId={active.id} projectPath={active.projectPath} />}
+          {active?.projectPath && <span className="chip max-w-[240px] truncate" title={active.projectPath}>{active.projectPath.split(/[\\/]/).filter(Boolean).at(-1)}</span>}
           {active?.projectPath && <IconButton icon={<Icon.Layout size={15} />} label="切换任务工作区" onClick={toggleWorkspace} />}
         </div>
       </div>

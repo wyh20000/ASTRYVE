@@ -4,7 +4,7 @@ import type { CreateSessionInput } from '@shared/types'
 import { collectOrphanArtifacts, getStore } from '../db'
 import { ok, err } from './result'
 import { cancelGeneration } from '../services/generationTasks'
-import { clearSessionWorkspace } from '../services/agent/workspaceManager'
+import { activateSessionWorkspace, clearSessionWorkspace, getWorkspaceService } from '../services/agent/workspaceManager'
 import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
 import { isVisibleMessage } from '../services/emptySessionCleanup'
 import {
@@ -14,7 +14,7 @@ import {
   validationErrorMessage
 } from './validation'
 
-let pendingBlankSession: Promise<Awaited<ReturnType<ReturnType<typeof getStore>['createSession']>>> | undefined
+const pendingBlankSessions = new Map<string, Promise<Awaited<ReturnType<ReturnType<typeof getStore>['createSession']>>>>()
 
 export function registerSessionIpc(): void {
   ipcMain.handle(IPC.session.list, async (event) => {
@@ -31,14 +31,25 @@ export function registerSessionIpc(): void {
       assertTrustedIpcSender(event)
       input = validateCreateSessionInput(input)
       const title = (input?.title ?? '').trim()
+      const workspaceId = input.workspaceId ?? null
+      const workspace = workspaceId ? await getWorkspaceService().activate(workspaceId) : null
+      const projectPath = workspace?.displayPath ?? null
       if (!title) {
-        if (!pendingBlankSession) {
-          pendingBlankSession = findOrCreateBlankSession(input?.projectPath ?? null)
+        const key = workspaceId ?? 'chat'
+        let pending = pendingBlankSessions.get(key)
+        if (!pending) {
+          pending = findOrCreateBlankSession(projectPath, workspaceId)
+          pendingBlankSessions.set(key, pending)
         }
-        try { return ok(await pendingBlankSession) }
-        finally { pendingBlankSession = undefined }
+        try {
+          const session = await pending
+          if (workspaceId) await activateSessionWorkspace(session.id, workspaceId)
+          return ok(session)
+        } finally { pendingBlankSessions.delete(key) }
       }
-      return ok(await getStore().createSession(title, input?.projectPath ?? null))
+      const session = await getStore().createSession(title, projectPath, workspaceId)
+      if (workspaceId) await activateSessionWorkspace(session.id, workspaceId)
+      return ok(session)
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
     }
@@ -89,11 +100,13 @@ export function registerSessionIpc(): void {
   })
 }
 
-async function findOrCreateBlankSession(projectPath: string | null) {
+async function findOrCreateBlankSession(projectPath: string | null, workspaceId: string | null) {
   for (const session of (await getStore().listSessions()).slice(0, 10_000)) {
     if (session.title.trim()) continue
+    if ((session.kind ?? (session.projectPath ? 'work' : 'chat')) !== (workspaceId ? 'work' : 'chat')) continue
+    if ((session.workspaceId ?? null) !== workspaceId) continue
     const messages = await getStore().listMessages(session.id)
     if (!messages.some(isVisibleMessage)) return session
   }
-  return getStore().createSession('', projectPath)
+  return getStore().createSession('', projectPath, workspaceId)
 }

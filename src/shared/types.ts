@@ -77,9 +77,12 @@ export type IpcResult<T> =
   | { ok: false; error: { code: string; message: string } }
 
 /** 会话 */
+export type SessionKind = 'work' | 'chat'
 export interface Session {
   id: string
   title: string
+  kind?: SessionKind
+  workspaceId?: string | null
   projectPath?: string | null
   pinned: boolean
   createdAt: number // epoch ms
@@ -239,7 +242,8 @@ export interface Attachment {
 /** 新建会话入参 */
 export interface CreateSessionInput {
   title?: string
-  projectPath?: string | null
+  kind?: SessionKind
+  workspaceId?: string
 }
 
 /** 发送消息入参（P1 由本地 Mock 消费） */

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ArtifactStore, initArtifactStore, materializeMessage, messageArtifactRefs } from '../services/artifactStore'
 import { SqliteStore } from './sqlite'
 import type { Session } from '@shared/types'
+const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => {
+  exec: (sql: string) => void; close: () => void
+} }
 
 const dirs: string[] = []
 const databases: SqliteStore[] = []
@@ -22,6 +25,34 @@ afterEach(async () => {
 })
 
 describe('SQLite and Artifact Store', () => {
+  it('migrates legacy session ownership without losing history', async () => {
+    const root = await directory()
+    const path = join(root, 'legacy.sqlite')
+    const old = new DatabaseSync(path)
+    old.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_path TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO sessions VALUES ('work', '项目记录', 'D:\\project-a', 0, 1, 2);
+      INSERT INTO sessions VALUES ('chat', '普通记录', NULL, 0, 1, 3);`)
+    old.close()
+    const store = await SqliteStore.open(path)
+    databases.push(store)
+    expect(await store.getSession('work')).toMatchObject({ kind: 'work', projectPath: 'D:\\project-a' })
+    expect(await store.getSession('chat')).toMatchObject({ kind: 'chat', projectPath: null })
+    expect((await stat(`${path}.pre-work-chat.bak`)).size).toBeGreaterThan(0)
+  })
+
+  it('persists a new work session with a stable workspace identity', async () => {
+    const root = await directory()
+    const path = join(root, 'work.sqlite')
+    const store = await SqliteStore.open(path)
+    const created = await store.createSession('工作', 'D:\\project-a', 'workspace-a')
+    store.close()
+    const reopened = await SqliteStore.open(path)
+    databases.push(reopened)
+    expect(await reopened.getSession(created.id)).toMatchObject({
+      kind: 'work', projectPath: 'D:\\project-a', workspaceId: 'workspace-a'
+    })
+  })
   it('stores image bytes outside message rows and reloads them after reopening', async () => {
     const root = await directory()
     const dbPath = join(root, 'chat.sqlite')

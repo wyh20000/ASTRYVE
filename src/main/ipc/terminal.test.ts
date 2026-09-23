@@ -13,11 +13,15 @@ vi.mock('electron', () => ({
   } }
 }))
 vi.mock('node:child_process', () => ({ spawn: mocks.spawn }))
+vi.mock('../db', () => ({ getStore: () => ({ getSession: async (id: string) => ({
+  id, kind: 'work', workspaceId: 'workspace-1', projectPath: process.cwd()
+}) }) }))
 vi.mock('../services/agent/workspaceManager', () => ({
   getSessionWorkspaceId: () => 'workspace-1',
+  sameProjectPath: (left: string, right: string) => left === right,
   getWorkspaceService: () => ({
     activate: mocks.activate,
-    getGrant: () => ({ realRootPath: process.cwd() })
+    getGrant: () => ({ id: 'workspace-1', rootPath: process.cwd(), realRootPath: process.cwd() })
   })
 }))
 
@@ -75,6 +79,7 @@ describe('terminal authentication lifecycle', () => {
     }))
     const open = mocks.handlers.get(IPC.terminal.open)!
     const pending = open(event(), crypto.randomUUID()) as Promise<{ ok: boolean }>
+    await Promise.resolve()
     setBusinessIpcAvailable(false)
     resolveActivation()
     expect((await pending).ok).toBe(false)

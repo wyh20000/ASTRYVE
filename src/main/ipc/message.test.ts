@@ -174,6 +174,22 @@ describe('message IPC send lifecycle', () => {
     expect((await store.listMessages(session.id)).at(-1)?.status).toBe('done')
   })
 
+  it('does not silently downgrade a work session after its project authorization is lost', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('work', 'D:\\project-a', 'workspace-a')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '修改项目代码'
+    })
+    await vi.runAllTimersAsync()
+    expect(mocks.createCapabilityTask).not.toHaveBeenCalled()
+    expect(mocks.runToolCallingLoop).not.toHaveBeenCalled()
+    expect((await store.listMessages(session.id)).at(-1)).toMatchObject({
+      role: 'assistant', status: 'error', content: expect.stringContaining('项目授权已失效')
+    })
+  })
+
   it('does not offer a Chrome task to a model without native tool calling', async () => {
     mocks.preset = { id: 'custom', provider: 'custom', model: 'unknown-model',
       baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }

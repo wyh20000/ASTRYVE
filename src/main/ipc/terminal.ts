@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { ipcMain, type WebContents } from 'electron'
 import { IPC, EVENTS } from '@shared/ipc'
 import { getSessionWorkspaceId, getWorkspaceService } from '../services/agent/workspaceManager'
+import { getStore } from '../db'
+import { isWorkSessionForWorkspace } from '../services/agent/sessionScope'
 import { assertTrustedIpcSender, validateSessionId } from './validation'
 import { err, ok } from './result'
 
@@ -20,18 +22,22 @@ export function registerTerminalIpc(): void {
     try {
       assertTrustedIpcSender(event)
       const sessionId = validateSessionId(rawSessionId)
+      const session = await getStore().getSession(sessionId)
       const workspaceId = getSessionWorkspaceId(sessionId)
-      if (!workspaceId) return err('NO_WORKSPACE', '当前会话未绑定项目工作区')
+      const grant = workspaceId ? getWorkspaceService().getGrant(workspaceId) : undefined
+      if (!workspaceId || !isWorkSessionForWorkspace(session, grant, workspaceId)) {
+        return err('SESSION_SCOPE', '仅已绑定项目的工作会话可打开终端')
+      }
       await getWorkspaceService().activate(workspaceId)
       // Authentication may have been revoked while workspace activation awaited I/O.
       assertTrustedIpcSender(event)
-      const grant = getWorkspaceService().getGrant(workspaceId)
-      if (!grant) return err('NO_WORKSPACE', '工作区授权已失效')
+      const refreshedGrant = getWorkspaceService().getGrant(workspaceId)
+      if (!isWorkSessionForWorkspace(session, refreshedGrant, workspaceId)) return err('NO_WORKSPACE', '工作区授权已失效')
       closeOwnerTerminals(event.sender.id)
       const executable = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/sh')
       const args = process.platform === 'win32' ? ['-NoLogo', '-NoProfile'] : ['-i']
       const child = spawn(executable, args, {
-        cwd: grant.realRootPath, shell: false, windowsHide: true,
+        cwd: refreshedGrant!.realRootPath, shell: false, windowsHide: true,
         env: terminalEnvironment()
       })
       const terminal: TerminalSession = { id: randomUUID(), workspaceId, ownerId: event.sender.id, child }

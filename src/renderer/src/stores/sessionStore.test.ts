@@ -63,4 +63,17 @@ describe('session store empty conversation reuse', () => {
     expect(useUiStore.getState().drafts.gone).toBeUndefined()
     expect(useSessionStore.getState().sessions).toEqual([])
   })
+
+  it('never reuses an empty chat as a project work session', async () => {
+    useSessionStore.setState({ sessions: [session('empty-chat', '', 1)], activeId: 'empty-chat' })
+    const created = { ...session('work-a', '', 2), kind: 'work' as const,
+      projectPath: 'D:\\project-a', workspaceId: 'workspace-a' }
+    const create = vi.fn(async () => ({ ok: true as const, data: created }))
+    vi.stubGlobal('window', { agent: { session: { create } } })
+    await useSessionStore.getState().createWork('workspace-a')
+    expect(create).toHaveBeenCalledWith({ title: undefined, kind: 'work', workspaceId: 'workspace-a' })
+    expect(useSessionStore.getState().activeId).toBe('work-a')
+    await useSessionStore.getState().createWork('workspace-a')
+    expect(create).toHaveBeenCalledTimes(1)
+  })
 })

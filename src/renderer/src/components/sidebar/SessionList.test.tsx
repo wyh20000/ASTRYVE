@@ -7,7 +7,7 @@
  * 这里同时锁住三件不能回归的业务能力：
  *  - 点击会话切换当前会话（select）；
  *  - 删除需要二次确认，确认后才调用 remove；
- *  - 搜索过滤与「今天/昨天/更早」分组保持不变。
+ *  - 搜索过滤与「项目在前、普通对话在末尾」分组保持不变。
  *
  * 阶段 C（文档 7.4）之后列表容器改为 Ant Design X 的 `Conversations`，
  * 因此文件末尾额外锁定「迁移确实是 Conversations 驱动的」这组契约
@@ -23,6 +23,7 @@ const sessionState = vi.hoisted(() => ({
   sessions: [] as Session[],
   activeId: null as string | null,
   select: vi.fn(),
+  createWork: vi.fn(),
   remove: vi.fn(async () => undefined)
 }))
 
@@ -66,17 +67,17 @@ beforeEach(() => {
 })
 
 describe('会话列表 - 分组与时间', () => {
-  it('按今天 / 昨天 / 更早分组', () => {
+  it('按项目分组，普通对话放在最下方', () => {
     sessionState.sessions = [
-      session('a', '今天的会话', NOW),
-      session('b', '昨天的会话', NOW - 86400000),
-      session('c', '更早的会话', NOW - 86400000 * 5)
+      { ...session('a', '项目 A 会话', NOW), projectPath: 'D:\\project-a', kind: 'work' },
+      { ...session('b', '项目 B 会话', NOW - 86400000), projectPath: 'D:\\project-b', kind: 'work' },
+      session('c', '普通会话', NOW - 86400000 * 5)
     ]
     render(<SessionList />)
 
-    expect(screen.getByText('今天')).toBeInTheDocument()
-    expect(screen.getByText('昨天')).toBeInTheDocument()
-    expect(screen.getByText('更早')).toBeInTheDocument()
+    expect(screen.getByText('project-a')).toBeInTheDocument()
+    expect(screen.getByText('project-b')).toBeInTheDocument()
+    expect(screen.getByText('普通对话')).toBeInTheDocument()
   })
 
   it('空列表显示空状态', () => {
@@ -243,17 +244,17 @@ describe('会话列表 - 由 Ant Design X Conversations 驱动', () => {
     expect(sessionState.select).toHaveBeenCalledWith('a')
   })
 
-  it('分组顺序保持今天 → 昨天 → 更早（不使用出现顺序）', () => {
+  it('项目按最近活动排序，普通对话始终位于最后', () => {
     sessionState.sessions = [
-      session('c', '更早的会话', NOW - 86400000 * 5),
-      session('b', '昨天的会话', NOW - 86400000),
-      session('a', '今天的会话', NOW)
+      session('c', '普通会话', NOW),
+      { ...session('b', '项目 B 会话', NOW - 86400000), projectPath: 'D:\\project-b' },
+      { ...session('a', '项目 A 会话', NOW - 86400000 * 5), projectPath: 'D:\\project-a' }
     ]
     const { container } = render(<SessionList />)
 
     const titles = Array.from(container.querySelectorAll('.ant-conversations-group-title')).map(
       (el) => el.textContent
     )
-    expect(titles).toEqual(['今天', '昨天', '更早'])
+    expect(titles).toEqual(['project-b', 'project-a', '普通对话'])
   })
 })

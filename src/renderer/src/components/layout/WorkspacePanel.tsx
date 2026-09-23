@@ -72,9 +72,9 @@ export default function WorkspacePanel(): JSX.Element | null {
     setDirectories({}); setExpanded(new Set()); setOpenFiles([]); setActiveFilePath(undefined); setDirtyPaths(new Set())
     setMarkdownModeByPath({})
     setFileLoadingPath(undefined); setFileLoadError('')
-    if (!workspace) return
-    void loadDirectory(workspace.id, '', setDirectories, setLoading)
-  }, [workspace?.id])
+    if (!workspace || !activeId) return
+    void loadDirectory(activeId, workspace.id, '', setDirectories, setLoading)
+  }, [activeId, workspace?.id])
 
   useEffect(() => {
     setClosedDiffPaths(new Set())
@@ -82,7 +82,7 @@ export default function WorkspacePanel(): JSX.Element | null {
   }, [latestDiff?.patchHash])
 
   useEffect(() => {
-    if (!workspace || !latestDiff || !activeDiff ||
+    if (!workspace || !activeId || !latestDiff || !activeDiff ||
         (activeDiff.originalContent !== undefined && activeDiff.modifiedContent !== undefined)) return
     const key = `${latestDiff.patchHash}:${activeDiff.path}`
     if (legacyDiffContents[key]) return
@@ -94,14 +94,14 @@ export default function WorkspacePanel(): JSX.Element | null {
     }
     const sourcePath = activeDiff.previousPath ?? activeDiff.path
     let current = true
-    void window.agent.workspace.readFile({ workspaceId: workspace.id, path: sourcePath }).then((result) => {
+    void window.agent.workspace.readFile({ sessionId: activeId, workspaceId: workspace.id, path: sourcePath }).then((result) => {
       if (!current || !result.ok) return
       setLegacyDiffContents((contents) => ({ ...contents, [key]: {
         ...hydrateLegacyDiff(result.data.content, activeDiff)
       } }))
     })
     return () => { current = false }
-  }, [workspace?.id, latestDiff?.patchHash, activeDiff?.path])
+  }, [activeId, workspace?.id, latestDiff?.patchHash, activeDiff?.path])
 
   useEffect(() => window.agent.onTerminalOutput((output) => {
     if (output.terminalId !== terminalId) return
@@ -109,12 +109,12 @@ export default function WorkspacePanel(): JSX.Element | null {
   }), [terminalId])
 
   useEffect(() => window.agent.onWorkspaceFilesChanged((change) => {
-    if (!workspace || change.workspaceId !== workspace.id) return
+    if (!workspace || !activeId || change.workspaceId !== workspace.id) return
     setFileTreeRevision((revision) => revision + 1)
     const directoryPaths = directoriesToRefresh(change.paths, Object.keys(directories))
     void Promise.all(directoryPaths.map(async (path) => ({
       path,
-      result: await window.agent.workspace.listFiles({ workspaceId: workspace.id, path })
+      result: await window.agent.workspace.listFiles({ sessionId: activeId, workspaceId: workspace.id, path })
     }))).then((updates) => {
       setDirectories((current) => {
         const next = { ...current }
@@ -127,17 +127,17 @@ export default function WorkspacePanel(): JSX.Element | null {
       (change.paths.length === 0 || changed.has(file.path)) && !dirtyPaths.has(file.path))
     if (!refreshable.length) return
     void Promise.all(refreshable.map((file) =>
-      window.agent.workspace.readFile({ workspaceId: workspace.id, path: file.path })
+      window.agent.workspace.readFile({ sessionId: activeId, workspaceId: workspace.id, path: file.path })
     )).then((results) => {
       const refreshed = new Map(results.filter((result) => result.ok).map((result) => [result.data.path, result.data]))
       if (!refreshed.size) return
       setOpenFiles((current) => current.map((file) => refreshed.get(file.path) ?? file))
     })
-  }), [workspace?.id, openFiles, dirtyPaths])
+  }), [activeId, workspace?.id, openFiles, dirtyPaths])
 
   useEffect(() => () => { if (terminalId) void window.agent.terminal.close(terminalId) }, [terminalId])
 
-  if (!workspace) return null
+  if (!workspace || !activeId) return null
 
   const selectFile = async (path: string): Promise<void> => {
     setView('files')
@@ -150,7 +150,7 @@ export default function WorkspacePanel(): JSX.Element | null {
     setFileLoadingPath(path)
     try {
       const result = await withTimeout(
-        window.agent.workspace.readFile({ workspaceId: workspace.id, path }), 10_000,
+        window.agent.workspace.readFile({ sessionId: activeId, workspaceId: workspace.id, path }), 10_000,
         '读取文件超时，请重试'
       )
       if (sequence !== fileLoadSequence.current) return
@@ -177,6 +177,7 @@ export default function WorkspacePanel(): JSX.Element | null {
     setSavingPath(activeFile.path)
     setSaveError('')
     const result = await window.agent.workspace.saveFile({
+      sessionId: activeId,
       workspaceId: workspace.id,
       path: activeFile.path,
       content: activeFile.content,
@@ -201,7 +202,7 @@ export default function WorkspacePanel(): JSX.Element | null {
       setExpanded((value) => { const next = new Set(value); next.delete(path); return next })
       return
     }
-    if (!directories[path]) await loadDirectory(workspace.id, path, setDirectories, setLoading)
+    if (!directories[path]) await loadDirectory(activeId, workspace.id, path, setDirectories, setLoading)
     setExpanded((value) => new Set(value).add(path))
   }
 
@@ -246,7 +247,7 @@ export default function WorkspacePanel(): JSX.Element | null {
                 : <Empty text="暂无可查看的文件变更" />)}
           </div>
         </section>
-        {view === 'files' && explorerOpen && <Explorer workspaceId={workspace.id} directories={directories} expanded={expanded}
+        {view === 'files' && explorerOpen && <Explorer sessionId={activeId} workspaceId={workspace.id} directories={directories} expanded={expanded}
           activePath={editorPath} loading={loading} revision={fileTreeRevision} overlay={compactWorkspace}
           onDirectory={toggleDirectory} onFile={selectFile} onClose={() => setExplorerOpen(false)} />}
       </div>
@@ -343,8 +344,8 @@ function MarkdownFilePreview({ path, content }: { path: string; content: string 
   </div>
 }
 
-function Explorer({ workspaceId, directories, expanded, activePath, loading, revision, overlay, onDirectory, onFile, onClose }: {
-  workspaceId: string; directories: Record<string, WorkspaceFileEntry[]>; expanded: Set<string>; activePath?: string
+function Explorer({ sessionId, workspaceId, directories, expanded, activePath, loading, revision, overlay, onDirectory, onFile, onClose }: {
+  sessionId: string; workspaceId: string; directories: Record<string, WorkspaceFileEntry[]>; expanded: Set<string>; activePath?: string
   loading: boolean; revision: number; overlay: boolean; onDirectory: (path: string) => Promise<void>; onFile: (path: string) => Promise<void>; onClose: () => void
 }): JSX.Element {
   const [query, setQuery] = useState('')
@@ -356,14 +357,14 @@ function Explorer({ workspaceId, directories, expanded, activePath, loading, rev
     let current = true
     setSearching(true)
     const timer = window.setTimeout(() => {
-      void window.agent.workspace.findFiles({ workspaceId, query: needle }).then((result) => {
+      void window.agent.workspace.findFiles({ sessionId, workspaceId, query: needle }).then((result) => {
         if (!current) return
         setResults(result.ok ? result.data : [])
         setSearching(false)
       })
     }, 180)
     return () => { current = false; window.clearTimeout(timer) }
-  }, [query, workspaceId, revision])
+  }, [query, sessionId, workspaceId, revision])
   return <aside className={`${overlay ? 'absolute inset-y-0 right-0 z-30 shadow-modal' : 'relative'} flex shrink-0 flex-col border-l border-border bg-bg-panel`}
     style={{ width: overlay ? 'min(280px, 82%)' : 'clamp(220px, 30%, 280px)' }}>
     <div className="flex items-center gap-2 border-b border-border p-2">
@@ -477,11 +478,11 @@ function Terminal({ terminalId, terminalOutput, terminalInput, activeId, setTerm
   </div>
 }
 
-async function loadDirectory(workspaceId: string, path: string,
+async function loadDirectory(sessionId: string, workspaceId: string, path: string,
   setDirectories: React.Dispatch<React.SetStateAction<Record<string, WorkspaceFileEntry[]>>>,
   setLoading: React.Dispatch<React.SetStateAction<boolean>>): Promise<void> {
   setLoading(true)
-  const result = await window.agent.workspace.listFiles({ workspaceId, path })
+  const result = await window.agent.workspace.listFiles({ sessionId, workspaceId, path })
   if (result.ok) setDirectories((current) => ({ ...current, [path]: result.data }))
   setLoading(false)
 }

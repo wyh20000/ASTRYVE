@@ -60,6 +60,7 @@ import { writeAgentAudit } from '../services/agent/taskRuntimeManager'
 import { runInteractiveChatLoop, runToolCallingLoop } from '../services/agent/toolCallingLoop'
 import { requestUserInput, submitUserInput } from '../services/agent/userInput'
 import { getWorkspaceService, restoreSessionWorkspace } from '../services/agent/workspaceManager'
+import { isWorkSessionForWorkspace } from '../services/agent/sessionScope'
 import { buildCodingSystemPrompt, codingReasoningEffort } from '../services/agent/codingPrompt'
 import { auditSkillUse, resolveSkills } from '../services/agent/skillManager'
 import { composeSkillSystemPrompt, replaceActiveUserRequest } from '../services/agent/skillConversation'
@@ -308,7 +309,6 @@ async function runReply(
     return
   }
   const vision = attachments.some((a) => a.kind === 'image')
-  const projectEligible = !vision
   let useProjectAgent = false
   let agentTaskId: string | undefined
   let agentWorkspaceId: string | undefined
@@ -323,6 +323,19 @@ async function runReply(
   let selectedPluginVersions: Record<string, string | undefined> = {}
   try {
     const session = await getStore().getSession(sessionId)
+    if (!session) {
+      await failGenerationSetup(wc, task, '会话不存在或已删除')
+      return
+    }
+    if (session.kind === 'work') {
+      const boundId = await restoreSessionWorkspace(sessionId, session.projectPath)
+      const grant = boundId ? getWorkspaceService().getGrant(boundId) : undefined
+      if (!boundId || !isWorkSessionForWorkspace(session, grant, boundId)) {
+        await failGenerationSetup(wc, task, '项目授权已失效。请重新选择原项目后重试；本轮未读取或修改项目。')
+        return
+      }
+    }
+    const projectEligible = session.kind === 'work' && Boolean(session.projectPath) && !vision
     const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
     selectedPluginIds = pluginSelection.pluginIds
     if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
@@ -339,9 +352,8 @@ async function runReply(
       await failGenerationSetup(wc, task, '当前模型不支持原生工具调用。请切换支持工具的模型后重试 Chrome 请求。')
       return
     }
-    const browserIntent = projectEligible && browserRequest
+    const browserIntent = !vision && browserRequest
     if (projectEligible) {
-      await restoreSessionWorkspace(sessionId, session?.projectPath)
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
       const explicitPlugin = selectedPluginIds.length > 0
       useProjectAgent = supportsNativeToolCalling(preset) && shouldUseProjectAgent(sessionId) &&

@@ -14,6 +14,7 @@ import { PluginRuntimeRegistry } from './pluginRuntimeRegistry'
 import { loadPluginInstallOrigins } from './pluginProvenance'
 import { loadPluginDeploymentPolicy, type PluginDeploymentPolicy } from './pluginDeploymentPolicy'
 import { PluginHookController, type PluginHookRegistration } from './pluginHooks'
+import { isPluginAllowedInChat } from './sessionScope'
 
 let registry: PluginRegistry | undefined
 let installedRoot: string | undefined
@@ -115,7 +116,8 @@ export type PluginTaskWorkerFactory = (
 export async function capturePluginTaskTools(
   requestedIds?: readonly string[],
   createWorker: PluginTaskWorkerFactory = (rootPath, manifest) => new LazyPluginWorker(rootPath, manifest),
-  writeAudit: AuditWriter = () => undefined
+  writeAudit: AuditWriter = () => undefined,
+  allowProjectPermissions = true
 ): Promise<PluginTaskTools> {
   const root = getInstalledPluginRoot()
   await mkdir(root, { recursive: true })
@@ -128,6 +130,7 @@ export async function capturePluginTaskTools(
     try {
       const rootPath = join(root, entry.name)
       const manifest = await readPluginManifest(rootPath)
+      if (!allowProjectPermissions && !isPluginAllowedInChat(manifest.permissions)) continue
       if ((!manifest.tools.length && !manifest.hooks.length && !manifest.mcpPath) || disabled.has(manifest.id) || isPluginQuarantined(manifest.id) || (requested && !requested.has(manifest.id))) continue
       packages.push({ rootPath, manifest })
     } catch {

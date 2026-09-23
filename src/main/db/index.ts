@@ -10,7 +10,7 @@ import { getArtifactStore, initArtifactStore, messageArtifactRefs } from '../ser
 export interface DbStore {
   listSessions(): Promise<Session[]>
   getSession(id: string): Promise<Session | null>
-  createSession(title: string, projectPath?: string | null): Promise<Session>
+  createSession(title: string, projectPath?: string | null, workspaceId?: string | null): Promise<Session>
   renameSession(id: string, title: string): Promise<Session | null>
   setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null>
   touchSession(id: string): Promise<Session | null>

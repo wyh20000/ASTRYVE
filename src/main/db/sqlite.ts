@@ -22,6 +22,8 @@ const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: st
 interface SessionRow extends Record<string, unknown> {
   id: string
   title: string
+  kind: string | null
+  workspace_id: string | null
   project_path: string | null
   pinned: number
   created_at: number
@@ -45,7 +47,8 @@ interface MessageRow extends Record<string, unknown> {
 
 function toSession(row: SessionRow): Session {
   return {
-    id: row.id, title: row.title, projectPath: row.project_path,
+    id: row.id, title: row.title, kind: row.kind === 'work' ? 'work' : 'chat',
+    workspaceId: row.workspace_id, projectPath: row.project_path,
     pinned: !!row.pinned, createdAt: Number(row.created_at), updatedAt: Number(row.updated_at)
   }
 }
@@ -72,7 +75,8 @@ export class SqliteStore implements DbStore {
     db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000')
     db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY, title TEXT NOT NULL, project_path TEXT, pinned INTEGER NOT NULL DEFAULT 0,
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'chat',
+        workspace_id TEXT, project_path TEXT, pinned INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS sessions_updated ON sessions(updated_at DESC);
@@ -85,6 +89,20 @@ export class SqliteStore implements DbStore {
       CREATE INDEX IF NOT EXISTS messages_session_time ON messages(session_id, timestamp, id);
       CREATE TABLE IF NOT EXISTS store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `)
+    const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
+    if ((!sessionColumns.some((column) => column.name === 'kind') ||
+        !sessionColumns.some((column) => column.name === 'workspace_id')) &&
+        path !== ':memory:' && !existsSync(`${path}.pre-work-chat.bak`)) {
+      const backupPath = `${path}.pre-work-chat.bak`.replace(/'/g, "''")
+      db.exec(`VACUUM INTO '${backupPath}'`)
+    }
+    if (!sessionColumns.some((column) => column.name === 'kind')) {
+      db.exec("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'")
+    }
+    if (!sessionColumns.some((column) => column.name === 'workspace_id')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN workspace_id TEXT')
+    }
+    db.exec("UPDATE sessions SET kind = 'work' WHERE project_path IS NOT NULL AND kind = 'chat'")
     const store = new SqliteStore(db)
     if (legacyJsonPath && existsSync(legacyJsonPath) &&
         !db.prepare("SELECT value FROM store_meta WHERE key = 'legacy_json_imported'").get()) {
@@ -99,8 +117,9 @@ export class SqliteStore implements DbStore {
     const legacy = JSON.parse(readFileSync(path, 'utf8')) as { sessions?: Session[]; messages?: Message[] }
     for (const session of legacy.sessions ?? []) {
       this.db.prepare(`INSERT OR IGNORE INTO sessions
-        (id, title, project_path, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-        session.id, session.title, session.projectPath ?? null, session.pinned ? 1 : 0,
+        (id, title, kind, workspace_id, project_path, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        session.id, session.title, session.projectPath ? 'work' : 'chat', session.workspaceId ?? null,
+        session.projectPath ?? null, session.pinned ? 1 : 0,
         session.createdAt, session.updatedAt
       )
     }
@@ -123,13 +142,14 @@ export class SqliteStore implements DbStore {
     return row ? toSession(row) : null
   }
 
-  async createSession(title: string, projectPath: string | null = null): Promise<Session> {
+  async createSession(title: string, projectPath: string | null = null, workspaceId: string | null = null): Promise<Session> {
     const now = Date.now()
     const session: Session = {
-      id: randomUUID(), title, projectPath, pinned: false, createdAt: now, updatedAt: now
+      id: randomUUID(), title, kind: projectPath ? 'work' : 'chat', workspaceId,
+      projectPath, pinned: false, createdAt: now, updatedAt: now
     }
-    this.db.prepare(`INSERT INTO sessions (id, title, project_path, pinned, created_at, updated_at)
-      VALUES (?, ?, ?, 0, ?, ?)`).run(session.id, title, projectPath, now, now)
+    this.db.prepare(`INSERT INTO sessions (id, title, kind, workspace_id, project_path, pinned, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)`).run(session.id, title, session.kind, workspaceId, projectPath, now, now)
     return session
   }
 
@@ -139,7 +159,8 @@ export class SqliteStore implements DbStore {
   }
 
   async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
-    this.db.prepare('UPDATE sessions SET project_path = ?, updated_at = ? WHERE id = ?').run(projectPath, Date.now(), id)
+    this.db.prepare('UPDATE sessions SET project_path = ?, kind = ?, workspace_id = NULL, updated_at = ? WHERE id = ?')
+      .run(projectPath, projectPath ? 'work' : 'chat', Date.now(), id)
     return this.getSession(id)
   }
 

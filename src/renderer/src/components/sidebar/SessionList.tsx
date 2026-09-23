@@ -4,11 +4,12 @@ import type { ConversationItemType } from '@ant-design/x'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
-import { groupKey, groupLabel, itemTime, fullTime, type GroupKey } from '../../lib/time'
+import { itemTime, fullTime } from '../../lib/time'
 import { Button, IconButton } from '../ui'
 import { Icon } from '../ui/icons'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
 
-const GROUP_ORDER: GroupKey[] = ['today', 'yesterday', 'earlier']
+const CHAT_GROUP = '普通对话'
 
 /**
  * 会话列表（阶段 C · 设计文档 7.4）。
@@ -16,8 +17,8 @@ const GROUP_ORDER: GroupKey[] = ['today', 'yesterday', 'earlier']
  * 迁移方式：列表容器改用 Ant Design X 的 `Conversations`，
  * `items` / `activeKey` / `onActiveChange` / 分组全部走组件契约：
  *
- * - `items` 由 `sessionStore.sessions` 映射（保留「今天 / 昨天 / 更早」三组，
- *   组顺序仍由 GROUP_ORDER 决定，不使用组件默认的按出现顺序）；
+ * - `items` 由 `sessionStore.sessions` 映射，项目按最近活动排序，
+ *   无项目会话固定在最后一组；
  * - `activeKey` 绑定 `sessionStore.activeId`，`onActiveChange` 调用现有 `select`；
  * - 搜索仍由 `uiStore.searchQuery` 驱动，没有把搜索状态搬进组件内部；
  * - 删除仍是「先点删除、再确认」的两步流程，仍调用现有 `remove`。
@@ -36,6 +37,8 @@ export default function SessionList(): JSX.Element {
   const activeId = useSessionStore((s) => s.activeId)
   const select = useSessionStore((s) => s.select)
   const remove = useSessionStore((s) => s.remove)
+  const createWork = useSessionStore((s) => s.createWork)
+  const recent = useWorkspaceStore((s) => s.recent)
   const searchQuery = useUiStore((s) => s.searchQuery)
   const approvalRequests = useChatStore((s) => s.approvalRequests)
 
@@ -44,15 +47,22 @@ export default function SessionList(): JSX.Element {
   const grouped = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const filtered = q ? sessions.filter((s) => s.title.toLowerCase().includes(q)) : sessions
-    const map: Record<GroupKey, typeof filtered> = { today: [], yesterday: [], earlier: [] }
-    for (const s of filtered) map[groupKey(s.updatedAt)].push(s)
-    return GROUP_ORDER.map((k) => ({ key: k, label: groupLabel(k), items: map[k] })).filter(
-      (g) => g.items.length > 0
-    )
+    const projects = new Map<string, typeof filtered>()
+    const chats: typeof filtered = []
+    for (const session of filtered) {
+      if (!session.projectPath) { chats.push(session); continue }
+      const group = projects.get(session.projectPath) ?? []
+      group.push(session)
+      projects.set(session.projectPath, group)
+    }
+    const groups = [...projects].map(([key, items]) => ({ key, label: key, items }))
+      .sort((left, right) => right.items[0].updatedAt - left.items[0].updatedAt)
+    if (chats.length) groups.push({ key: CHAT_GROUP, label: CHAT_GROUP, items: chats })
+    return groups
   }, [sessions, searchQuery])
 
   /*
-   * 保持分组顺序：按 GROUP_ORDER 展开，组名使用与界面一致的 label，
+   * 保持分组顺序：按项目最近活动展开，组名使用与界面一致的 label，
    * 由 `groupable.label` 渲染成项目自己的分组标题样式。
    */
   const items: ConversationItemType[] = grouped.flatMap((g) =>
@@ -147,7 +157,19 @@ export default function SessionList(): JSX.Element {
         onActiveChange={(key) => select(String(key))}
         groupable={{
           label: (group) => (
-            <span className="text-[14px] font-medium text-txt-muted">{group}</span>
+            <span className="flex min-w-0 items-center justify-between gap-1" title={group}>
+              <span className="block max-w-[190px] truncate text-[14px] font-medium text-txt-muted">
+                {group === CHAT_GROUP ? group : group.split(/[\\/]/).filter(Boolean).at(-1) ?? group}
+              </span>
+              {group !== CHAT_GROUP && (() => {
+                const workspace = recent.find((item) => item.displayPath === group)
+                return workspace ? <button type="button" aria-label={`在 ${workspace.name} 下新建工作会话`}
+                  className="rounded p-1 text-txt-muted hover:text-accent"
+                  onClick={(event) => { event.stopPropagation(); void createWork(workspace.id) }}>
+                  <Icon.Plus size={13} />
+                </button> : null
+              })()}
+            </span>
           )
         }}
         // 会话行目标高度 40~44px（文档 8.2）；行内自带左右留白

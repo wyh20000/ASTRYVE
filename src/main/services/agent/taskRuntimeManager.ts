@@ -26,6 +26,7 @@ import { createHostPatchTool } from './hostPatchTool'
 import { createScriptDiscoveryTool } from './scriptDiscoveryTool'
 import { refreshAgentExecutionCapabilities } from './projectPreferences'
 import { capturePluginTaskTools } from './pluginManager'
+import { isWorkSessionForWorkspace } from './sessionScope'
 import { captureTaskPluginCapabilities } from './pluginMcpTools'
 import { createInstalledPluginConnectionManager } from './pluginMcpRuntime'
 import type { PluginConnectionManager } from './pluginConnectionManager'
@@ -37,6 +38,15 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
   const [{ BrowserWindow }, { getStore }, settings, workspaces] = await Promise.all([
     import('electron'), import('../../db'), import('../settings'), import('./workspaceManager')
   ])
+  const session = await getStore().getSession(sessionId)
+  if (!session || session.kind !== 'work' || !session.projectPath) {
+    throw new Error('仅已绑定项目的工作会话可使用 Coding')
+  }
+  const binding = workspaces.getSessionWorkspaceId(sessionId)
+  const grant = binding ? workspaces.getWorkspaceService().getGrant(binding) : undefined
+  if (!binding || !isWorkSessionForWorkspace(session, grant, binding)) {
+    throw new Error('项目授权已失效，请重新打开原项目')
+  }
   const capabilities = await refreshAgentExecutionCapabilities()
   const localPluginSnapshot = await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit)
   const pluginSnapshot = pluginConnectionManager
@@ -87,7 +97,7 @@ export async function createCapabilityTask(
     throw new Error('任务窗口已关闭')
   }
   const localPluginSnapshot = pluginIds?.length
-    ? await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit)
+    ? await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit, false)
     : null
   const pluginSnapshot = localPluginSnapshot && pluginConnectionManager
     ? await captureTaskPluginCapabilities(localPluginSnapshot, pluginConnectionManager, writeAgentAudit)

@@ -8,6 +8,7 @@ interface WorkspaceState {
   error: string | null
   load: () => Promise<void>
   selectAndActivate: (sessionId: string) => Promise<void>
+  selectAndCreateWork: () => Promise<void>
   activate: (sessionId: string, workspaceId: string) => Promise<void>
 }
 
@@ -40,6 +41,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
     set({ recent: sortRecent([selected.data, ...get().recent.filter((w) => w.id !== selected.data?.id)]) })
     await get().activate(sessionId, selected.data.id)
+  },
+
+  selectAndCreateWork: async () => {
+    set({ loading: true, error: null })
+    const selected = await window.agent.workspace.select()
+    if (!selected.ok) { set({ loading: false, error: selected.error.message }); return }
+    if (!selected.data) { set({ loading: false }); return }
+    set((state) => ({ recent: sortRecent([selected.data!, ...state.recent.filter((item) => item.id !== selected.data!.id)]) }))
+    const session = await useSessionStore.getState().createWork(selected.data.id)
+    set({ loading: false, error: session ? null : '工作会话创建失败' })
   },
 
   activate: async (sessionId, workspaceId) => {

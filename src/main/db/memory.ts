@@ -25,7 +25,9 @@ export class MemoryStore implements DbStore {
     try {
       if (fs.existsSync(this.filePath!)) {
         const data = JSON.parse(fs.readFileSync(this.filePath!, 'utf-8')) as FileShape
-        for (const s of data.sessions ?? []) this.sessions.set(s.id, s)
+        for (const s of data.sessions ?? []) this.sessions.set(s.id, {
+          ...s, kind: s.projectPath ? 'work' : 'chat', workspaceId: s.workspaceId ?? null
+        })
         for (const m of data.messages ?? []) {
           const list = this.messages.get(m.sessionId) ?? []
           list.push(m)
@@ -71,11 +73,13 @@ export class MemoryStore implements DbStore {
     return this.sessions.get(id) ?? null
   }
 
-  async createSession(title: string, projectPath: string | null = null): Promise<Session> {
+  async createSession(title: string, projectPath: string | null = null, workspaceId: string | null = null): Promise<Session> {
     const now = Date.now()
     const s: Session = {
       id: randomUUID(),
       title,
+      kind: projectPath ? 'work' : 'chat',
+      workspaceId,
       projectPath,
       pinned: false,
       createdAt: now,
@@ -99,6 +103,8 @@ export class MemoryStore implements DbStore {
     const session = this.sessions.get(id)
     if (!session) return null
     session.projectPath = projectPath
+    session.kind = projectPath ? 'work' : 'chat'
+    session.workspaceId = null
     session.updatedAt = Date.now()
     await this.persist()
     return session

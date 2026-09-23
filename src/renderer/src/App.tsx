@@ -25,6 +25,7 @@ function AppShell(): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
   const init = useSessionStore((s) => s.init)
   const activeId = useSessionStore((s) => s.activeId)
+  const activeProjectPath = useSessionStore((s) => s.sessions.find((session) => session.id === s.activeId)?.projectPath)
   const load = useChatStore((s) => s.load)
   const upsertMessage = useChatStore((s) => s.upsertMessage)
   const setInputRequest = useChatStore((s) => s.setInputRequest)
@@ -116,7 +117,7 @@ function AppShell(): JSX.Element {
           <Sidebar />
           {sidebarOpen && <ResizeHandle />}
           <ChatPanel />
-          {workspaceOpen && <WorkspacePanel />}
+          {workspaceOpen && activeProjectPath && <WorkspacePanel />}
         </div>
       )}
       <StatusBar />

@@ -16,6 +16,7 @@ import {
   getWorkspaceService,
   onSessionWorkspaceSwitched
 } from '../services/agent/workspaceManager'
+import { isWorkSessionForWorkspace } from '../services/agent/sessionScope'
 import { WorkspaceError } from '../services/agent/workspace'
 import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
 import { getPatchWorkspaceService, getTaskRuntime } from '../services/agent/taskRuntimeManager'
@@ -39,6 +40,14 @@ function workspaceFailure(error: unknown) {
   }
   console.warn('[workspace] operation failed:', error instanceof Error ? error.message : String(error))
   return err('WORKSPACE_ERROR', '工作区操作失败，请确认项目仍然可访问')
+}
+
+async function isAuthorizedWorkSession(sessionIdValue: unknown, workspaceIdValue: unknown): Promise<boolean> {
+  const sessionId = validateSessionId(sessionIdValue)
+  const workspaceId = validateWorkspaceId(workspaceIdValue)
+  const session = await getStore().getSession(sessionId)
+  const grant = getWorkspaceService().getGrant(workspaceId)
+  return isWorkSessionForWorkspace(session, grant, workspaceId)
 }
 
 export function registerWorkspaceIpc(): void {
@@ -80,10 +89,13 @@ export function registerWorkspaceIpc(): void {
       if (!input || typeof input !== 'object') return err('INVALID_INPUT', '工作区参数无效')
       const sessionId = validateSessionId(input.sessionId)
       const workspaceId = validateWorkspaceId(input.workspaceId)
+      const existing = await getStore().getSession(sessionId)
+      if (!existing) return err('NOT_FOUND', '会话不存在')
+      if (!isWorkSessionForWorkspace(existing, getWorkspaceService().getGrant(workspaceId), workspaceId)) {
+        return err('SESSION_SCOPE', '会话项目不可变，请在该项目下新建工作会话')
+      }
       const workspace = await activateSessionWorkspace(sessionId, workspaceId)
-      const session = await getStore().setSessionProjectPath(sessionId, workspace.displayPath)
-      if (!session) return err('NOT_FOUND', '会话不存在')
-      return ok({ workspace, session })
+      return ok({ workspace, session: existing })
     } catch (error) {
       return workspaceFailure(error)
     }
@@ -93,6 +105,7 @@ export function registerWorkspaceIpc(): void {
     try {
       assertTrustedIpcSender(event)
       if (!input || typeof input !== 'object') return err('INVALID_INPUT', '工作区参数无效')
+      if (!await isAuthorizedWorkSession(input.sessionId, input.workspaceId)) return err('SESSION_SCOPE', '仅对应项目的工作会话可读取文件')
       return ok(
         (await getWorkspaceService().listDirectory(
           validateWorkspaceId(input.workspaceId),
@@ -108,6 +121,7 @@ export function registerWorkspaceIpc(): void {
     try {
       assertTrustedIpcSender(event)
       if (!input || typeof input !== 'object') return err('INVALID_INPUT', '工作区参数无效')
+      if (!await isAuthorizedWorkSession(input.sessionId, input.workspaceId)) return err('SESSION_SCOPE', '仅对应项目的工作会话可读取文件')
       return ok(
         await getWorkspaceService().readFile(
           validateWorkspaceId(input.workspaceId),
@@ -125,6 +139,7 @@ export function registerWorkspaceIpc(): void {
       if (!input || typeof input !== 'object' || typeof input.content !== 'string' || typeof input.expectedHash !== 'string') {
         return err('INVALID_INPUT', '保存文件参数无效')
       }
+      if (!await isAuthorizedWorkSession(input.sessionId, input.workspaceId)) return err('SESSION_SCOPE', '仅对应项目的工作会话可保存文件')
       return ok(await getWorkspaceService().saveFile(
         validateWorkspaceId(input.workspaceId),
         validateWorkspaceRelativePath(input.path),
@@ -142,6 +157,7 @@ export function registerWorkspaceIpc(): void {
       if (!input || typeof input !== 'object' || typeof input.query !== 'string') {
         return err('INVALID_INPUT', '文件搜索参数无效')
       }
+      if (!await isAuthorizedWorkSession(input.sessionId, input.workspaceId)) return err('SESSION_SCOPE', '仅对应项目的工作会话可搜索文件')
       return ok(await getWorkspaceService().findFiles(
         validateWorkspaceId(input.workspaceId),
         input.query,
@@ -158,6 +174,7 @@ export function registerWorkspaceIpc(): void {
       if (!input || typeof input !== 'object' || !Array.isArray(input.paths)) {
         return err('INVALID_INPUT', '批量读取参数无效')
       }
+      if (!await isAuthorizedWorkSession(input.sessionId, input.workspaceId)) return err('SESSION_SCOPE', '仅对应项目的工作会话可读取文件')
       const paths = input.paths.map((path) => validateWorkspaceRelativePath(path))
       return ok(
         await getWorkspaceService().readMany(validateWorkspaceId(input.workspaceId), paths)
@@ -173,6 +190,7 @@ export function registerWorkspaceIpc(): void {
       if (!input || typeof input !== 'object' || typeof input.query !== 'string') {
         return err('INVALID_INPUT', '搜索参数无效')
       }
+      if (!await isAuthorizedWorkSession(input.sessionId, input.workspaceId)) return err('SESSION_SCOPE', '仅对应项目的工作会话可搜索文件')
       return ok(
         await getWorkspaceService().searchText(
           validateWorkspaceId(input.workspaceId),

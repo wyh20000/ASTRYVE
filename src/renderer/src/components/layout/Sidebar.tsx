@@ -5,6 +5,7 @@ import SidebarFooter from '../sidebar/SidebarFooter'
 import { Button, IconButton, SearchInput } from '../ui'
 import { Icon } from '../ui/icons'
 import astryveIcon from '../../assets/astryve-icon.png'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
 
 /**
  * 左侧会话管理（文档 8.2）。
@@ -17,6 +18,15 @@ export default function Sidebar(): JSX.Element {
   const open = useUiStore((s) => s.sidebarOpen)
   const sidebarWidth = useUiStore((s) => s.sidebarWidth)
   const create = useSessionStore((s) => s.create)
+  const createWork = useSessionStore((s) => s.createWork)
+  const activeId = useSessionStore((s) => s.activeId)
+  const sessionError = useSessionStore((s) => s.error)
+  const sessions = useSessionStore((s) => s.sessions)
+  const recent = useWorkspaceStore((s) => s.recent)
+  const workspaceError = useWorkspaceStore((s) => s.error)
+  const selectAndCreateWork = useWorkspaceStore((s) => s.selectAndCreateWork)
+  const active = sessions.find((session) => session.id === activeId)
+  const workMode = Boolean(active?.projectPath)
   const searchQuery = useUiStore((s) => s.searchQuery)
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const toggle = useUiStore((s) => s.toggleSidebar)
@@ -47,10 +57,16 @@ export default function Sidebar(): JSX.Element {
         </span>
       </div>
 
-      {/* 新对话 + 搜索 */}
+      {/* 当前类型的新会话 + 搜索 */}
       <div className="space-y-2 px-3 py-2">
-        <Button block icon={<Icon.Plus size={14} />} onClick={() => void create()}>
-          新对话
+        <Button block icon={<Icon.Plus size={14} />} onClick={() => {
+          if (!workMode) { void create(); return }
+          const target = recent.find((workspace) => workspace.id === active?.workspaceId ||
+            workspace.displayPath === active?.projectPath)?.id ?? recent[0]?.id
+          if (target) void createWork(target)
+          else void selectAndCreateWork()
+        }}>
+          {workMode ? '新工作会话' : '新对话'}
         </Button>
         <SearchInput
           id="session-search"
@@ -59,12 +75,15 @@ export default function Sidebar(): JSX.Element {
           onChange={setSearchQuery}
           placeholder="搜索会话..."
         />
+        {(sessionError || workspaceError) && <div role="alert" className="text-[13px] text-red-400">
+          {sessionError || workspaceError}
+        </div>}
       </div>
 
-      {/* 分组标题 */}
       <div className="flex items-center justify-between px-4 pb-1 pt-2">
-        <span className="text-[14px] font-medium text-txt-secondary">对话</span>
-        <IconButton icon={<Icon.Plus size={14} />} label="新建会话" size="sm" onClick={() => void create()} />
+        <span className="text-[14px] font-medium text-txt-secondary">项目与对话</span>
+        <IconButton icon={<Icon.Plus size={14} />} label="选择项目并新建工作会话" size="sm"
+          onClick={() => void selectAndCreateWork()} />
       </div>
 
       <SessionList />
