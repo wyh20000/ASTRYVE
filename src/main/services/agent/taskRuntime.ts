@@ -418,6 +418,8 @@ export class TaskRuntime {
   private async executeTool(task: RuntimeTask, invocation: ToolInvocation): Promise<ToolResult<unknown>> {
     if (!this.isActive(task) || task.controller.signal.aborted) return cancelledResult()
 
+    const timeoutMs = task.registry.validate(invocation).executionTimeoutMs ?? task.toolTimeoutMs
+
     const controller = new AbortController()
     const onTaskAbort = () => controller.abort(task.controller.signal.reason)
     task.controller.signal.addEventListener('abort', onTaskAbort, { once: true })
@@ -430,7 +432,7 @@ export class TaskRuntime {
           timeout = setTimeout(() => {
             controller.abort('tool_timeout')
             resolve({ kind: 'timeout' })
-          }, task.toolTimeoutMs)
+          }, timeoutMs)
         }
       })
       const execution = task.registry

@@ -86,6 +86,32 @@ describe('browser.activate', () => {
     expect(listTabs).toHaveBeenCalledTimes(1)
   })
 
+  it('resumes the same activation after a trusted in-conversation page choice', async () => {
+    const { capability, listTabs, release, audit } = setup([
+      { id: '1', title: 'One', url: 'https://one.test/', active: true, pageVersion: 1 },
+      { id: '2', title: 'Two', url: 'https://two.test/', active: false, pageVersion: 1 }
+    ])
+    const choose = vi.fn(async () => '2')
+    capability.setPageChoice(context.taskId, choose)
+    const result = await capability.tool().execute({ purpose: 'inspect' }, context)
+    expect(choose).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ ok: true, value: {
+      status: 'activated', pages: [{ id: '2' }]
+    } })
+    expect(listTabs).toHaveBeenCalledTimes(1)
+    expect(release).not.toHaveBeenCalled()
+    expect(capability.mayUseTool(context.taskId, 'browser.inspect', {
+      tabId: '1', url: 'https://one.test/'
+    })).toBe(false)
+    expect(capability.mayUseTool(context.taskId, 'browser.inspect', {
+      tabId: '2', url: 'https://two.test/'
+    })).toBe(true)
+    expect(audit.mock.calls.map(([event]) => event.metadata.status))
+      .toEqual(['requested', 'needs-selection', 'activated'])
+    await capability.release(context.taskId)
+    expect(release).toHaveBeenCalledTimes(1)
+  })
+
   it('releases a failed connection and never claims activation', async () => {
     const { capability, listTabs, release, audit } = setup([])
     listTabs.mockRejectedValueOnce(new Error('Chrome unavailable'))

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     isActivated: (taskId: string) => boolean
     mayUseTool: (taskId: string, name: string, args: unknown) => boolean
     observeToolResult: (taskId: string, name: string, args: unknown, result: unknown) => Promise<void>
+    setPageChoice: (taskId: string, choose: unknown) => void
     release: (taskId: string) => Promise<void>
   },
   workspaceGrant: null as null | { id: string; rootPath: string },
@@ -90,6 +91,7 @@ import { SqliteStore } from '../db/sqlite'
 import { initArtifactStore } from '../services/artifactStore'
 import { configureTrustedIpcSender, setBusinessIpcAvailable } from './validation'
 import { buildHistory, registerMessageIpc } from './message'
+import { requestUserInput } from '../services/agent/userInput'
 
 function event(): unknown {
   const frame = { url: 'file:///D:/app/index.html' }
@@ -364,6 +366,7 @@ describe('message IPC send lifecycle', () => {
       isActivated: () => activated,
       mayUseTool: () => true,
       observeToolResult: async () => undefined,
+      setPageChoice: () => undefined,
       release
     }
     const store = mocks.store as MemoryStore
@@ -380,6 +383,38 @@ describe('message IPC send lifecycle', () => {
     activated = true
     expect(loop.resolveAllowedToolNames(2)).toEqual(new Set(['browser.activate', 'browser.inspect']))
     expect(release).toHaveBeenCalledTimes(1)
+  })
+
+  it('maps an in-chat page choice to the trusted page ID and hides URL secrets', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    const setPageChoice = vi.fn()
+    mocks.browserCapability = {
+      allowedToolNames: () => new Set(), isActivated: () => false,
+      mayUseTool: () => true, observeToolResult: async () => undefined,
+      setPageChoice, release: async () => undefined
+    }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('choose page')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '查看页面'
+    })
+    await vi.runAllTimersAsync()
+    expect(setPageChoice).toHaveBeenCalledOnce()
+    const choose = setPageChoice.mock.calls[0][1] as (
+      pages: Array<{ id: string; title: string; url: string }>, signal: AbortSignal
+    ) => Promise<string | undefined>
+    vi.mocked(requestUserInput).mockResolvedValueOnce({ ok: true, value: {
+      answers: [{ id: 'chrome_page', answer: '页面 2 · Second' }]
+    } })
+    const selected = await choose([
+      { id: 'page-1', title: 'First', url: 'https://user:pass@one.test/a?token=secret#private' },
+      { id: 'page-2', title: 'Second', url: 'https://two.test/' }
+    ], new AbortController().signal)
+    expect(selected).toBe('page-2')
+    const request = vi.mocked(requestUserInput).mock.calls.at(-1)?.[2]
+    expect(JSON.stringify(request)).toContain('https://one.test/a')
+    expect(JSON.stringify(request)).not.toMatch(/user|pass|token|secret|private/)
   })
 
   it('keeps visual input available when a supported model uses Chrome tools', async () => {

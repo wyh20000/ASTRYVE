@@ -355,6 +355,26 @@ describe('TaskRuntime', () => {
     runtime.completeTask(task.id)
   })
 
+  it('honors a trusted per-tool timeout without changing the task default', async () => {
+    vi.useFakeTimers()
+    const registry = new ToolRegistry()
+    registry.register({
+      ...tool(async () => new Promise<ToolResult<unknown>>((resolve) => {
+        setTimeout(() => resolve({ ok: true, value: 'selected' }), 100)
+      })),
+      executionTimeoutMs: 1_000
+    })
+    const runtime = new TaskRuntime(registry, {
+      defaultToolTimeoutMs: 50,
+      defaultTaskTimeoutMs: 2_000
+    })
+    const task = createAndStart(runtime)
+    const result = runtime.submitNativeToolCall(task.id, nativeCall())
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(result).resolves.toEqual({ ok: true, value: 'selected' })
+    runtime.completeTask(task.id)
+  })
+
   it('uses a single cancelled terminal state for the task timeout', async () => {
     vi.useFakeTimers()
     const { runtime } = createRuntime(undefined, { defaultTaskTimeoutMs: 50 })

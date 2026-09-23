@@ -90,6 +90,12 @@ describe('ToolRegistry', () => {
         }),
       'INVALID_DEFINITION'
     )
+    for (const executionTimeoutMs of [999, 600_001, Number.NaN]) {
+      expectRegistryError(
+        () => registry.register({ ...readTool(), executionTimeoutMs }),
+        'INVALID_DEFINITION'
+      )
+    }
 
     registry.register(readTool())
     const context = {

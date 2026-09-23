@@ -441,6 +441,29 @@ async function runReply(
       await failGenerationSetup(wc, task, '当前模型不支持原生工具调用。请切换支持工具的模型后重试插件请求。')
       return
     }
+    if (agentTaskId) getBrowserCapability()?.setPageChoice(agentTaskId, async (pages, signal) => {
+      if (wc.isDestroyed()) return undefined
+      const options = pages.map((page, index) => {
+        const displayUrl = new URL(page.url)
+        displayUrl.username = ''
+        displayUrl.password = ''
+        displayUrl.search = ''
+        displayUrl.hash = ''
+        return {
+          label: `页面 ${index + 1} · ${page.title.slice(0, 90) || '无标题'}`,
+          description: displayUrl.toString().slice(0, 400)
+        }
+      })
+      const selected = await requestUserInput(wc, sessionId, { questions: [{
+        id: 'chrome_page', header: '选择 Chrome 页面',
+        question: '请核对标题和地址，选择本次要使用的页面。', options
+      }] }, signal)
+      if (!selected.ok) return undefined
+      const value = selected.value as { answers?: Array<{ id?: string; answer?: string }> } | undefined
+      const answer = value?.answers?.find((item) => item.id === 'chrome_page')?.answer
+      const index = options.findIndex((option) => option.label === answer)
+      return index >= 0 ? pages[index].id : undefined
+    })
     const useSearch = searchRequested && !vision && !agentTaskId && supportsBuiltInSearch(preset.provider)
     try {
       await runModelReply(

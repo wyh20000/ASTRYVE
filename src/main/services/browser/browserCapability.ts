@@ -12,6 +12,7 @@ interface ActivationState {
   pages: Array<Pick<BrowserTab, 'id' | 'title' | 'url'>>
   release?: () => Promise<void>
 }
+type PageChoice = (pages: ActivationState['pages'], signal: AbortSignal) => Promise<string | undefined>
 
 const PURPOSE_TOOLS: Record<BrowserPurpose, readonly string[]> = {
   inspect: ['browser.waitForPage', 'browser.inspect', 'browser.find'],
@@ -29,6 +30,7 @@ const PURPOSE_TOOLS: Record<BrowserPurpose, readonly string[]> = {
 /** Reply-scoped host capability. Constructing the tool does not connect to Chrome. */
 export class BrowserCapability {
   private readonly active = new Map<string, ActivationState>()
+  private readonly pageChoices = new Map<string, PageChoice>()
 
   constructor(
     private readonly gateway: BrowserGateway,
@@ -41,6 +43,7 @@ export class BrowserCapability {
     return {
       name: 'browser.activate',
       operation: 'browser.read',
+      executionTimeoutMs: 5 * 60_000,
       description: 'Use only when the user needs live Chrome page state or browser action. Ordinary questions, supplied attachments and general knowledge do not need this tool. Activation only lists pages; it does not read page content or take a screenshot.',
       parameters: {
         type: 'object',
@@ -71,6 +74,8 @@ export class BrowserCapability {
     return state?.status === 'activated' && state.mcpGeneration === this.generation()
   }
 
+  setPageChoice(taskId: string, choose: PageChoice): void { this.pageChoices.set(taskId, choose) }
+
   /** Final model-call gate: exposed names alone never authorize another page ID. */
   mayUseTool(taskId: string, name: string, args: unknown): boolean {
     if (!name.startsWith('browser.') || name === 'browser.activate') return true
@@ -97,7 +102,7 @@ export class BrowserCapability {
     const value = result && typeof result === 'object' && !Array.isArray(result)
       ? result as Record<string, unknown> : {}
     if (name === 'browser.closeTab' || name === 'browser.history') {
-      await this.release(taskId)
+      await this.revokeBinding(taskId)
     } else if (name === 'browser.openTab' && typeof value.tabId === 'string' && typeof fields.url === 'string') {
       state.pages = [{ id: value.tabId, url: normalizeUrl(fields.url),
         title: typeof value.title === 'string' ? sanitizeTitle(value.title) : '' }]
@@ -109,19 +114,25 @@ export class BrowserCapability {
   }
 
   async release(taskId: string): Promise<void> {
+    this.pageChoices.delete(taskId)
+    await this.revokeBinding(taskId)
+  }
+
+  private async revokeBinding(taskId: string): Promise<void> {
     const state = this.active.get(taskId)
     this.active.delete(taskId)
     await state?.release?.()
   }
 
   async releaseAll(): Promise<void> {
-    await Promise.all([...this.active.keys()].map((taskId) => this.release(taskId)))
+    await Promise.all([...new Set([...this.active.keys(), ...this.pageChoices.keys()])]
+      .map((taskId) => this.release(taskId)))
   }
 
   private async activate(args: ActivateArgs, context: ToolExecutionContext) {
     const existing = this.active.get(context.taskId)
     if (existing?.mcpGeneration === this.generation()) return { ok: true as const, value: publicState(existing) }
-    if (existing) await this.release(context.taskId)
+    if (existing) await this.revokeBinding(context.taskId)
     this.record(context, 'ask', 'requested', args.purpose)
     const release = this.acquireLease()
     try {
@@ -132,7 +143,16 @@ export class BrowserCapability {
         .map(({ id, title, url }) => ({ id, title: sanitizeTitle(title), url }))
       if (context.signal.aborted) throw new Error('浏览器激活已取消')
       const matched = matchPages(pages, args.targetHint)
-      const selected = matched.length === 1 ? matched : pages.length === 1 ? pages : []
+      let selected = matched.length === 1 ? matched : pages.length === 1 ? pages : []
+      if (!selected.length && pages.length >= 2 && pages.length <= 7) {
+        const choose = this.pageChoices.get(context.taskId)
+        if (choose) {
+          this.record(context, 'ask', 'needs-selection', args.purpose)
+          const pageId = await choose(pages, context.signal)
+          if (context.signal.aborted) throw new Error('页面选择已取消')
+          selected = pages.filter((page) => page.id === pageId)
+        }
+      }
       const state: ActivationState = selected.length === 1
         ? { purpose: args.purpose, status: 'activated', mcpGeneration: this.generation(), pages: selected, release }
         : { purpose: args.purpose, status: 'needs-selection', mcpGeneration: this.generation(), pages: pages.slice(0, 20) }

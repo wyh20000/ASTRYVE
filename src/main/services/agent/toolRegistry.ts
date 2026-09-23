@@ -45,6 +45,9 @@ export class ToolRegistry {
       definition.description.trim().length === 0 ||
       !isClosedObjectSchema(definition.parameters) ||
       typeof definition.validateArgs !== 'function' ||
+      (definition.executionTimeoutMs !== undefined &&
+        (!Number.isSafeInteger(definition.executionTimeoutMs) || definition.executionTimeoutMs < 1_000 ||
+          definition.executionTimeoutMs > 10 * 60_000)) ||
       typeof definition.execute !== 'function'
     ) {
       throw new ToolRegistryError('INVALID_DEFINITION', 'Tool definition contract is invalid')
