@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useUiStore } from '../../stores/uiStore'
 import { IconButton } from '../ui'
 import { Icon } from '../ui/icons'
+import { useChatStore } from '../../stores/chatStore'
 
 /** 侧栏底部：账号标识 + 设置入口 */
 export default function SidebarFooter(): JSX.Element {
@@ -29,6 +30,14 @@ export default function SidebarFooter(): JSX.Element {
     finally { setLinkBusy(false) }
   }
 
+  const logout = async (): Promise<void> => {
+    const result = await window.agent.auth.logout()
+    if (result.ok) {
+      useUiStore.getState().clearDrafts()
+      useChatStore.getState().clear()
+    }
+  }
+
   return (
     <div className="mt-auto border-t border-border-subtle">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -39,7 +48,7 @@ export default function SidebarFooter(): JSX.Element {
           {authMode === 'local' ? '本地工作区' : accountId ? `账号 ${accountId.slice(0, 8)}` : '当前账号'}
         </span>
         <span className="ml-auto">
-          {authMode === 'remote' && <button className="mr-2 text-xs text-txt-muted hover:text-txt-primary" type="button" onClick={() => void window.agent.auth.logout()}>退出登录</button>}
+          {authMode === 'remote' && <button className="mr-2 text-xs text-txt-muted hover:text-txt-primary" type="button" onClick={() => void logout()}>退出登录</button>}
           <IconButton
             icon={<Icon.Settings size={15} />}
             label="打开设置"

@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
@@ -30,8 +33,10 @@ vi.mock('../services/browser/officialChromeBrowserRuntime', () => ({ acquireOffi
 
 import { IPC, EVENTS } from '@shared/ipc'
 import { MemoryStore } from '../db/memory'
+import { SqliteStore } from '../db/sqlite'
+import { initArtifactStore } from '../services/artifactStore'
 import { configureTrustedIpcSender, setBusinessIpcAvailable } from './validation'
-import { registerMessageIpc } from './message'
+import { buildHistory, registerMessageIpc } from './message'
 
 function event(): unknown {
   const frame = { url: 'file:///D:/app/index.html' }
@@ -76,5 +81,64 @@ describe('message IPC send lifecycle', () => {
     const retry = await send(invocation, input) as { ok: boolean; data: { id: string } }
     expect(retry).toMatchObject({ ok: true, data: { id: clientMessageId } })
     expect(await store.listMessages(session.id)).toHaveLength(2)
+  })
+
+  it('includes saved document evidence on a later turn after the active request is replaced', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'astryve-history-'))
+    try {
+      const artifacts = initArtifactStore(root)
+      const stored = await artifacts.putText('支付失败时需要重试一次。\n\n如果仍失败，应联系支持。', 'document')
+      const database = mocks.store as MemoryStore
+      const session = await database.createSession('doc')
+      await database.insertMessage({
+        sessionId: session.id, role: 'user', content: '分析文档',
+        attachments: [{ id: 'doc', kind: 'file', name: 'guide.txt', contentType: 'text/plain', dataRef: '',
+          meta: { documentRef: stored.ref, parsed: true } }],
+        turn: { id: 'turn-1', sessionId: session.id, createdAt: 1, text: '分析文档', imageRefs: [],
+          documentRefs: [stored.ref], skillIds: [], pluginIds: [] }
+      })
+      await database.insertMessage({ sessionId: session.id, role: 'assistant', content: '收到', timestamp: Date.now() + 1 })
+      await database.insertMessage({ sessionId: session.id, role: 'user', content: '/review 文档支付失败怎么办', timestamp: Date.now() + 2 })
+      const history = await buildHistory(session.id, 20, false, [], 16_000, false,
+        undefined, undefined, '', '文档支付失败怎么办')
+      expect(history.at(-1)?.content).toContain('支付失败时需要重试一次')
+      expect(history.at(-1)?.content).toContain('guide.txt')
+      expect(JSON.stringify(history)).not.toContain('/review')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('restores a document for a follow-up after restart without leaking it to another session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'astryve-restart-history-'))
+    let database: SqliteStore | undefined
+    try {
+      const artifacts = initArtifactStore(root)
+      const document = await artifacts.putText('项目预算为 300 元。', 'document')
+      database = await SqliteStore.open(join(root, 'messages.sqlite'))
+      mocks.store = database
+      const first = await database.createSession('A')
+      const second = await database.createSession('B')
+      await database.insertMessage({
+        sessionId: first.id, role: 'user', content: '看文档',
+        attachments: [{ id: 'file', kind: 'file', name: 'budget.txt', contentType: 'text/plain', dataRef: '',
+          meta: { documentRef: document.ref } }],
+        turn: { id: 'turn', sessionId: first.id, createdAt: 1, text: '看文档', imageRefs: [],
+          documentRefs: [document.ref], skillIds: [], pluginIds: [] }
+      })
+      database.close()
+      database = await SqliteStore.open(join(root, 'messages.sqlite'))
+      mocks.store = database
+      await database.insertMessage({ sessionId: first.id, role: 'user', content: '预算是多少？' })
+      await database.insertMessage({ sessionId: second.id, role: 'user', content: '预算是多少？' })
+
+      const firstHistory = await buildHistory(first.id, 20, false, [], 16_000)
+      const secondHistory = await buildHistory(second.id, 20, false, [], 16_000)
+      expect(JSON.stringify(firstHistory)).toContain('300 元')
+      expect(JSON.stringify(secondHistory)).not.toContain('300 元')
+    } finally {
+      database?.close()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

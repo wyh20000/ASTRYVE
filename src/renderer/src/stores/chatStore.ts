@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Message, Attachment, IpcResult, MessageNotice, UserInputRequest, ApprovalUiRequest } from '@shared/types'
+import type { Message, MessageCursor, Attachment, IpcResult, MessageNotice, UserInputRequest, ApprovalUiRequest } from '@shared/types'
 import { useSessionStore } from './sessionStore'
 
 interface ChatState {
@@ -7,11 +7,14 @@ interface ChatState {
   messages: Record<string, Message[]>
   sending: Record<string, boolean>
   activeGenerations: Record<string, string | undefined>
+  hasOlder: Record<string, boolean>
+  loadingOlder: Record<string, boolean>
   notices: Record<string, MessageNotice | undefined>
   inputRequests: Record<string, UserInputRequest | undefined>
   approvalRequests: Record<string, ApprovalUiRequest | undefined>
   /** 加载某个会话的消息 */
   load: (sessionId: string) => Promise<void>
+  loadOlder: (sessionId: string) => Promise<void>
   /** 发送用户消息（本地 Mock 回复已由主进程推送，经 upsertMessage 合并） */
   send: (
     sessionId: string,
@@ -52,7 +55,7 @@ function append(record: Record<string, Message[]>, sessionId: string, msg: Messa
   } else {
     next = [...list, msg]
   }
-  next.sort((a, b) => a.timestamp - b.timestamp)
+  next.sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
   return { ...record, [sessionId]: next }
 }
 
@@ -68,6 +71,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   sending: {},
   activeGenerations: {},
+  hasOlder: {},
+  loadingOlder: {},
   notices: {},
   inputRequests: {},
   approvalRequests: {},
@@ -76,8 +81,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const res = await window.agent.message.list(sessionId)
     if (res.ok) {
       set((s) => ({
-        messages: { ...s.messages, [sessionId]: mergeMessages(s.messages[sessionId] ?? [], res.data) }
+        messages: { ...s.messages, [sessionId]: mergeMessages(s.messages[sessionId] ?? [], res.data) },
+        hasOlder: { ...s.hasOlder, [sessionId]: res.data.length >= 100 }
       }))
+    }
+  },
+
+  loadOlder: async (sessionId) => {
+    const state = get()
+    if (state.loadingOlder[sessionId] || !state.hasOlder[sessionId]) return
+    const first = state.messages[sessionId]?.[0]
+    if (!first) return
+    const before: MessageCursor = { timestamp: first.timestamp, id: first.id }
+    set((current) => ({ loadingOlder: { ...current.loadingOlder, [sessionId]: true } }))
+    try {
+      const result = await window.agent.message.list(sessionId, before)
+      if (!result.ok) throw new Error(result.error.message)
+      set((current) => ({
+        messages: { ...current.messages, [sessionId]: mergeMessages(current.messages[sessionId] ?? [], result.data) },
+        hasOlder: { ...current.hasOlder, [sessionId]: result.data.length >= 100 }
+      }))
+    } finally {
+      set((current) => ({ loadingOlder: { ...current.loadingOlder, [sessionId]: false } }))
     }
   },
 
@@ -159,5 +184,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return { approvalRequests: { ...s.approvalRequests, [sessionId]: undefined } }
   }),
 
-  clear: () => set({ messages: {}, sending: {}, activeGenerations: {}, notices: {}, inputRequests: {}, approvalRequests: {} })
+  clear: () => set({ messages: {}, sending: {}, activeGenerations: {}, hasOlder: {}, loadingOlder: {},
+    notices: {}, inputRequests: {}, approvalRequests: {} })
 }))

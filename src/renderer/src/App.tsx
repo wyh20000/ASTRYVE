@@ -151,6 +151,12 @@ function AuthenticatedApp(): JSX.Element {
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null)
   useEffect(() => {
+    if (status && status.state !== 'authenticated') {
+      useUiStore.getState().clearDrafts()
+      useChatStore.getState().clear()
+    }
+  }, [status])
+  useEffect(() => {
     let active = true
     void window.agent.auth.status().then((result) => {
       if (active) setStatus(result.ok ? result.data : { mode: 'remote', state: 'signedOut', message: result.error.message })

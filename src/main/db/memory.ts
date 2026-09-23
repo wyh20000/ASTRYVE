@@ -1,7 +1,7 @@
 import { dirname } from 'path'
 import fs from 'fs'
 import { randomUUID } from 'crypto'
-import type { Session, Message } from '@shared/types'
+import type { Session, Message, MessageCursor } from '@shared/types'
 import type { DbStore, InsertMessageInput } from './index'
 
 interface FileShape {
@@ -119,7 +119,13 @@ export class MemoryStore implements DbStore {
   }
 
   async listMessages(sessionId: string): Promise<Message[]> {
-    return [...(this.messages.get(sessionId) ?? [])].sort((a, b) => a.timestamp - b.timestamp)
+    return [...(this.messages.get(sessionId) ?? [])].sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
+  }
+
+  async listMessagesPage(sessionId: string, before?: MessageCursor, limit = 100): Promise<Message[]> {
+    const messages = await this.listMessages(sessionId)
+    return messages.filter((message) => !before || message.timestamp < before.timestamp ||
+      (message.timestamp === before.timestamp && message.id < before.id)).slice(-limit)
   }
 
   async insertMessage(input: InsertMessageInput): Promise<Message> {
@@ -134,7 +140,8 @@ export class MemoryStore implements DbStore {
       timestamp: input.timestamp ?? Date.now(),
       generationId: input.generationId,
       revision: input.revision,
-      finishReason: input.finishReason
+      finishReason: input.finishReason,
+      turn: input.turn
     }
     const list = this.messages.get(m.sessionId) ?? []
     list.push(m)

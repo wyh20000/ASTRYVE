@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import mysql, { type Pool } from 'mysql2/promise'
-import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus, GenerationFinishReason } from '@shared/types'
+import type { Session, Message, MessageBlock, Attachment, MessageRole, MessageStatus, GenerationFinishReason, TurnEnvelope, MessageCursor } from '@shared/types'
 import type { DbStore, InsertMessageInput } from './index'
 
 export interface MySqlConfig {
@@ -32,6 +32,7 @@ interface MessageRow {
   generation_id: string | null
   revision: number | string
   finish_reason: string | null
+  turn_envelope: string | null
 }
 
 const num = (v: number | string | null | undefined): number => (v == null ? 0 : Number(v))
@@ -59,7 +60,8 @@ function toMessage(r: MessageRow): Message {
     timestamp: num(r.timestamp),
     generationId: r.generation_id ?? undefined,
     revision: num(r.revision),
-    finishReason: (r.finish_reason as GenerationFinishReason | null) ?? undefined
+    finishReason: (r.finish_reason as GenerationFinishReason | null) ?? undefined,
+    turn: r.turn_envelope ? JSON.parse(r.turn_envelope) as TurnEnvelope : undefined
   }
 }
 
@@ -85,6 +87,7 @@ const SCHEMA_STATEMENTS = [
      generation_id VARCHAR(64),
      revision BIGINT NOT NULL DEFAULT 0,
      finish_reason VARCHAR(32),
+     turn_envelope MEDIUMTEXT,
      INDEX idx_messages_session_time (session_id, timestamp),
      CONSTRAINT fk_messages_session FOREIGN KEY (session_id)
        REFERENCES sessions(id) ON DELETE CASCADE
@@ -135,7 +138,8 @@ export class MySqlStore implements DbStore {
       'ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL',
       'ALTER TABLE messages ADD COLUMN generation_id VARCHAR(64) NULL',
       'ALTER TABLE messages ADD COLUMN revision BIGINT NOT NULL DEFAULT 0',
-      'ALTER TABLE messages ADD COLUMN finish_reason VARCHAR(32) NULL'
+      'ALTER TABLE messages ADD COLUMN finish_reason VARCHAR(32) NULL',
+      'ALTER TABLE messages ADD COLUMN turn_envelope MEDIUMTEXT NULL'
     ]) {
       try {
         await pool.query(statement)
@@ -201,10 +205,20 @@ export class MySqlStore implements DbStore {
 
   async listMessages(sessionId: string): Promise<Message[]> {
     const [rows] = await this.pool.query(
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC',
+      'SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC, id ASC',
       [sessionId]
     )
     return (rows as MessageRow[]).map(toMessage)
+  }
+
+  async listMessagesPage(sessionId: string, before?: MessageCursor, limit = 100): Promise<Message[]> {
+    const [rows] = before
+      ? await this.pool.query(`SELECT * FROM messages WHERE session_id = ? AND
+          (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`,
+        [sessionId, before.timestamp, before.timestamp, before.id, limit])
+      : await this.pool.query('SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?',
+        [sessionId, limit])
+    return (rows as MessageRow[]).reverse().map(toMessage)
   }
 
   async insertMessage(input: InsertMessageInput): Promise<Message> {
@@ -221,11 +235,12 @@ export class MySqlStore implements DbStore {
       timestamp,
       generationId: input.generationId,
       revision: input.revision,
-      finishReason: input.finishReason
+      finishReason: input.finishReason,
+      turn: input.turn
     }
     await this.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp, generation_id, revision, finish_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp, generation_id, revision, finish_reason, turn_envelope)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         m.sessionId,
@@ -237,7 +252,8 @@ export class MySqlStore implements DbStore {
         timestamp,
         m.generationId ?? null,
         m.revision ?? 0,
-        m.finishReason ?? null
+        m.finishReason ?? null,
+        m.turn ? JSON.stringify(m.turn) : null
       ]
     )
     return m
@@ -245,8 +261,8 @@ export class MySqlStore implements DbStore {
 
   async upsertMessage(msg: Message): Promise<Message> {
     await this.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp, generation_id, revision, finish_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO messages (id, session_id, role, content, blocks, attachments, status, timestamp, generation_id, revision, finish_reason, turn_envelope)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          content = IF(VALUES(revision) >= revision, VALUES(content), content),
          blocks = IF(VALUES(revision) >= revision, VALUES(blocks), blocks),
@@ -255,6 +271,7 @@ export class MySqlStore implements DbStore {
          timestamp = IF(VALUES(revision) >= revision, VALUES(timestamp), timestamp),
          generation_id = IF(VALUES(revision) >= revision, VALUES(generation_id), generation_id),
          finish_reason = IF(VALUES(revision) >= revision, VALUES(finish_reason), finish_reason),
+         turn_envelope = IF(VALUES(revision) >= revision, VALUES(turn_envelope), turn_envelope),
          revision = GREATEST(revision, VALUES(revision))`,
       [
         msg.id,
@@ -267,7 +284,8 @@ export class MySqlStore implements DbStore {
         msg.timestamp,
         msg.generationId ?? null,
         msg.revision ?? 0,
-        msg.finishReason ?? null
+        msg.finishReason ?? null,
+        msg.turn ? JSON.stringify(msg.turn) : null
       ]
     )
     return msg

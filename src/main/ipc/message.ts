@@ -4,6 +4,7 @@ import { IPC, EVENTS } from '@shared/ipc'
 import type {
   SendMessageInput,
   Message,
+  MessageCursor,
   MessageBlock,
   Attachment,
   MessageStatus,
@@ -15,6 +16,7 @@ import type {
   UserInputResponse
 } from '@shared/types'
 import { getStore } from '../db'
+import { getArtifactStore, isArtifactRef, materializeMessage } from '../services/artifactStore'
 import { buildMockReply } from '../services/mockAgent'
 import {
   CONNECT_TIMEOUT_MESSAGE,
@@ -29,7 +31,7 @@ import {
 } from '../services/modelProvider'
 import { getModelConfig, getActivePreset } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
-import { fitHistoryToTokenBudget, toChatMessage, injectDocuments } from '../services/history'
+import { fitHistoryToTokenBudget, toChatMessage, injectDocuments, selectDocumentPassages } from '../services/history'
 import { ok, err } from './result'
 import { prefersBuiltInSearch, supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
 import { extractSourceCitations } from '@shared/searchSources'
@@ -92,12 +94,17 @@ import {
 } from './validation'
 
 export function registerMessageIpc(): void {
-  ipcMain.handle(IPC.message.list, async (event, sessionId: string) => {
+  ipcMain.handle(IPC.message.list, async (event, sessionId: string, before?: MessageCursor) => {
     try {
       assertTrustedIpcSender(event)
       validateSessionId(sessionId)
+      if (before && (!Number.isSafeInteger(before.timestamp) || before.timestamp < 0 ||
+          typeof before.id !== 'string' || before.id.length > 64)) {
+        return err('INVALID_INPUT', '消息游标无效')
+      }
       if (!(await getStore().getSession(sessionId))) return err('NOT_FOUND', '会话不存在')
-      return ok(await getStore().listMessages(sessionId))
+      const messages = await getStore().listMessagesPage(sessionId, before, 100)
+      return ok(await Promise.all(messages.map(materializeMessage)))
     } catch (e) {
       return err('INVALID_INPUT', validationErrorMessage(e))
     }
@@ -110,7 +117,7 @@ export function registerMessageIpc(): void {
       if (!(await getStore().getSession(input.sessionId))) return err('NOT_FOUND', '会话不存在')
       const existing = (await getStore().listMessages(input.sessionId))
         .find((message) => message.id === input.clientMessageId && message.role === 'user')
-      if (existing) return ok(existing)
+      if (existing) return ok(await materializeMessage(existing))
       const sendKey = `${input.sessionId}:${input.clientMessageId}`
       const activeSend = pendingSends.get(sendKey)
       if (activeSend) return ok(await activeSend)
@@ -119,23 +126,38 @@ export function registerMessageIpc(): void {
       if (hasImages && (!activeModel || !supportsImageInput(activeModel))) {
         return err('VISION_UNSUPPORTED', '信息不能发送，此模型无法进行图片处理')
       }
-      // 图片保留 base64；文档在主进程提取文本，剥离原始 base64（避免落库膨胀）
+      // 图片与文档正文写入账号级 Artifact Store；数据库只保存引用和元数据。
       const sendPromise = (async (): Promise<Message> => {
         const { stored, docTexts } = await prepareAttachments(input.attachments ?? [])
+        const createdAt = Date.now()
+        const turn = {
+          id: input.clientMessageId,
+          sessionId: input.sessionId,
+          createdAt,
+          text: input.content,
+          imageRefs: stored.filter((attachment) => attachment.kind === 'image').map((attachment) => attachment.dataRef),
+          documentRefs: stored.filter((attachment) => attachment.kind === 'file')
+            .map((attachment) => attachment.meta?.documentRef)
+            .filter((ref): ref is string => typeof ref === 'string' && isArtifactRef(ref)),
+          skillIds: [...(input.skillIds ?? [])],
+          pluginIds: [...(input.pluginIds ?? [])]
+        }
         const user = await getStore().insertMessage({
           id: input.clientMessageId,
           sessionId: input.sessionId,
           role: 'user',
           content: input.content,
-          attachments: stored
+          attachments: stored,
+          timestamp: createdAt,
+          turn
         })
         await autoTitle(input.sessionId, input.content)
         await getStore().touchSession(input.sessionId)
         void runReply(
-          event.sender, input.sessionId, input.clientMessageId, input.content,
+          event.sender, input.sessionId, input.clientMessageId, createdAt, input.content,
           input.skillIds ?? [], input.pluginIds ?? [], stored, docTexts
         ).catch((error) => console.warn('[message] reply transaction failed:', error))
-        return user
+        return materializeMessage(user)
       })()
       pendingSends.set(sendKey, sendPromise)
       try {
@@ -174,7 +196,7 @@ export function registerMessageIpc(): void {
 
 const pendingSends = new Map<string, Promise<Message>>()
 
-/** 处理附件：文档在主进程提取文本，剥离原始 base64；返回可落库的附件 + 文档文本 */
+/** 处理附件：原件和解析文本写入 Artifact Store，消息行仅保存引用。 */
 async function prepareAttachments(attachments: Attachment[]): Promise<{
   stored: Attachment[]
   docTexts: string[]
@@ -183,17 +205,24 @@ async function prepareAttachments(attachments: Attachment[]): Promise<{
   const docTexts: string[] = []
   for (const a of attachments) {
     if (a.kind === 'image') {
-      stored.push(a)
+      const artifact = await getArtifactStore().putDataUrl(a.dataRef, 'user')
+      stored.push({
+        ...a, dataRef: artifact.ref, contentType: artifact.mime,
+        meta: { ...a.meta, hash: artifact.hash, sizeBytes: artifact.sizeBytes, source: 'user' }
+      })
     } else if (a.kind === 'file') {
+      const original = await getArtifactStore().putDataUrl(a.dataRef, 'document-original')
       try {
         const { text, charCount } = await extractDocumentText(a.name, a.dataRef)
+        const artifact = await getArtifactStore().putText(text, 'document')
         stored.push({
           id: a.id,
           kind: 'file',
           name: a.name,
           contentType: a.contentType,
-          dataRef: '',
-          meta: { ...(a.meta ?? {}), parsed: true, charCount }
+          dataRef: original.ref,
+          meta: { ...(a.meta ?? {}), parsed: true, charCount, documentRef: artifact.ref,
+            hash: original.hash, sizeBytes: original.sizeBytes, source: 'document' }
         })
         docTexts.push(`[文档：${a.name}]\n${text}`)
       } catch (e) {
@@ -202,8 +231,9 @@ async function prepareAttachments(attachments: Attachment[]): Promise<{
           kind: 'file',
           name: a.name,
           contentType: a.contentType,
-          dataRef: '',
-          meta: { ...(a.meta ?? {}), parsed: false, error: String((e as Error)?.message ?? e) }
+          dataRef: original.ref,
+          meta: { ...(a.meta ?? {}), parsed: false, error: String((e as Error)?.message ?? e),
+            hash: original.hash, sizeBytes: original.sizeBytes, source: 'document' }
         })
         docTexts.push(`[文档：${a.name} 解析失败]`)
       }
@@ -216,6 +246,7 @@ async function runReply(
   wc: WebContents,
   sessionId: string,
   generationId: string,
+  userTimestamp: number,
   userRequest: string,
   explicitSkillIds: string[],
   explicitPluginIds: string[],
@@ -232,7 +263,7 @@ async function runReply(
     role: 'assistant',
     content: '',
     status: 'waiting',
-    timestamp: Date.now()
+    timestamp: Math.max(Date.now(), userTimestamp + 1)
   }
   updateGenerationSnapshot(task, waiting)
   setGenerationCancelHandler(task, async (reason, snapshot = waiting) => {
@@ -245,8 +276,8 @@ async function runReply(
       finishReason: cancellationFinishReason(reason)
     }
     updateGenerationSnapshot(task, terminal)
-    if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, terminal)
     await getStore().upsertMessage(terminal)
+    if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, await materializeMessage(terminal))
     if (reason === 'user') {
       sendMessageNotice(wc, { id: randomUUID(), sessionId, level: 'warning', message: '已停止生成' })
     }
@@ -433,7 +464,7 @@ const AGENT_SYSTEM_PROMPT = [
   '- 不编造事实；不确定时如实说明。'
 ].join('\n')
 
-async function buildHistory(
+export async function buildHistory(
   sessionId: string,
   _contextMessages: number,
   vision: boolean,
@@ -446,19 +477,59 @@ async function buildHistory(
   activeRequest?: string
 ): Promise<ChatMessage[]> {
   const msgs = await getStore().listMessages(sessionId)
-  const history: ChatMessage[] = msgs
-    .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
-    .filter((m) => m.content.trim().length > 0 || (m.attachments ?? []).length > 0)
-    .map((m) => toChatMessage(m, vision))
+  const latestUser = [...msgs].reverse().find((message) => message.role === 'user')
+  const history: ChatMessage[] = []
+  const includedMessages: Message[] = []
+  for (const message of msgs) {
+    if (!['user', 'assistant', 'system'].includes(message.role)) continue
+    if (!message.content.trim() && !message.attachments?.length &&
+        !message.blocks?.some((block) => block.kind === 'toolContext')) continue
+    const activeVisualTurn = vision && message.id === latestUser?.id
+    history.push(toChatMessage(activeVisualTurn ? await materializeMessage(message) : message, activeVisualTurn))
+    includedMessages.push(message)
+  }
   const systemPrompt = composeSkillSystemPrompt(
     AGENT_SYSTEM_PROMPT,
     coding ? buildCodingSystemPrompt(workspaceRoot, executionEnvironment) : undefined,
     skillPrompt
   )
   const combined = [{ role: 'system' as const, content: systemPrompt }, ...history]
-  injectDocuments(combined, docTexts)
   replaceActiveUserRequest(combined, activeRequest)
-  return fitHistoryToTokenBudget(combined, coding ? Math.max(1_000, Math.floor(contextTokens * 0.55)) : contextTokens)
+  const documentCandidates = msgs.filter((message) => message.role === 'user' && message.turn?.documentRefs.length)
+    .flatMap((message) => (message.attachments ?? [])
+      .filter((attachment) => attachment.kind === 'file' && typeof attachment.meta?.documentRef === 'string')
+      .map((attachment) => ({ name: attachment.name, ref: attachment.meta!.documentRef as string })))
+  const query = activeRequest ?? latestUser?.content ?? ''
+  const matching = documentCandidates.filter((candidate) => query.includes(candidate.name))
+  const recent = documentCandidates.slice(-3)
+  const selected = [...new Map([...matching, ...recent].map((candidate) => [candidate.ref, candidate])).values()].slice(-4)
+  const excerpts: string[] = []
+  for (const candidate of selected) {
+    try {
+      const content = await getArtifactStore().readText(candidate.ref)
+      excerpts.push(`[已保存文档：${candidate.name}，引用：${candidate.ref}]\n${selectDocumentPassages(content, query, 6_000)}`)
+    } catch {
+      excerpts.push(`[已保存文档：${candidate.name} 暂时无法读取；不得猜测其内容]`)
+    }
+  }
+  injectDocuments(combined, excerpts.length ? excerpts : docTexts)
+  const fitted = fitHistoryToTokenBudget(
+    combined, coding ? Math.max(1_000, Math.floor(contextTokens * 0.55)) : contextTokens
+  )
+  const omittedCount = history.length - (fitted.length - 1)
+  if (omittedCount > 0 && typeof fitted[0]?.content === 'string') {
+    const sourceIds = includedMessages.slice(0, omittedCount)
+      .flatMap((message) => [...(message.turn?.documentRefs ?? []), ...(message.turn?.imageRefs ?? [])])
+      .filter(isArtifactRef)
+    const summary = [...new Set(sourceIds)].slice(-8).join(', ')
+    fitted[0] = {
+      ...fitted[0],
+      content: `${fitted[0].content}\n\n历史来源摘要：已省略 ${omittedCount} 条较早消息。` +
+        (summary ? `省略部分曾包含附件引用 ${summary}。` : '') +
+        '引用仅说明来源存在，不代表本轮已重新读取其内容或图片像素。'
+    }
+  }
+  return fitted
 }
 
 async function runModelReply(
@@ -570,8 +641,8 @@ async function runModelReply(
       attachments: generatedAttachments.length ? [...generatedAttachments] : undefined
     }
     updateGenerationSnapshot(generationTask, msg)
-    if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, msg)
-    await queuePersist(msg, status !== 'streaming')
+    await queuePersist(msg, status !== 'streaming' || generatedAttachments.length > 0)
+    if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, await materializeMessage(msg))
   }
 
   await emit('streaming')
@@ -717,6 +788,9 @@ async function runModelReply(
                   tool.toolName === 'browser.screenshotElement')) {
               const artifact = consumeBrowserScreenshotArtifact(tool.result, agentTaskId, tool.callId)
               if (artifact) {
+                const storedScreenshot = await getArtifactStore().putDataUrl(
+                  `data:${artifact.mimeType};base64,${artifact.data}`, 'browser'
+                )
                 const attachment: Attachment = {
                   id: artifact.id,
                   kind: 'image',
@@ -724,11 +798,13 @@ async function runModelReply(
                     ? 'browser-element-screenshot.jpg'
                     : 'browser-screenshot.jpg',
                   contentType: artifact.mimeType,
-                  dataRef: `data:${artifact.mimeType};base64,${artifact.data}`,
+                  dataRef: storedScreenshot.ref,
                   meta: {
                     source: 'browser',
                     toolName: tool.toolName,
-                    byteLength: artifact.byteLength
+                    byteLength: artifact.byteLength,
+                    hash: storedScreenshot.hash,
+                    sizeBytes: storedScreenshot.sizeBytes
                   }
                 }
                 generatedAttachments.push(attachment)
@@ -954,9 +1030,9 @@ async function failGenerationSetup(wc: WebContents, task: GenerationTask, messag
     finishReason: 'setup_error'
   }
   updateGenerationSnapshot(task, terminal)
-  if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, terminal)
   try {
     await getStore().upsertMessage(terminal)
+    if (!wc.isDestroyed()) wc.send(EVENTS.messageStreamed, await materializeMessage(terminal))
   } catch (error) {
     console.warn('[message] terminal message persist failed:', error)
   }

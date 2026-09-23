@@ -12,6 +12,9 @@ export default function ChatPanel(): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions)
   const create = useSessionStore((s) => s.create)
   const messages = useChatStore((s) => (activeId ? s.messages[activeId] : undefined))
+  const hasOlder = useChatStore((s) => activeId ? s.hasOlder[activeId] ?? false : false)
+  const loadingOlder = useChatStore((s) => activeId ? s.loadingOlder[activeId] ?? false : false)
+  const loadOlder = useChatStore((s) => s.loadOlder)
   const active = sessions.find((s) => s.id === activeId)
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
 
@@ -47,7 +50,8 @@ export default function ChatPanel(): JSX.Element {
         </div>
       </div>
 
-      <MessageList messages={messages ?? []} />
+      <MessageList key={activeId ?? 'empty'} messages={messages ?? []} hasOlder={hasOlder}
+        loadingOlder={loadingOlder} onLoadOlder={() => activeId ? loadOlder(activeId) : Promise.resolve()} />
       <ChatInput sessionId={activeId ?? ''} />
     </main>
   )

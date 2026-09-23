@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   estimateTextTokens,
+  estimateMessageTokens,
   fitHistoryToTokenBudget,
   injectDocuments,
+  selectDocumentPassages,
   toChatMessage
 } from './history'
 import type { Message } from '@shared/types'
@@ -42,7 +44,8 @@ describe('toChatMessage', () => {
   it('非视觉请求：剥掉历史图片只留文字（回归：修掉“This model does not support image”400）', () => {
     const c = toChatMessage(imgMsg(), false)
     expect(typeof c.content).toBe('string')
-    expect(c.content).toBe('分析一下这个页面')
+    expect(c.content).toContain('分析一下这个页面')
+    expect(c.content).toContain('未重新提供图片像素')
   })
 
   it('纯文本消息返回字符串内容', () => {
@@ -70,9 +73,10 @@ describe('toChatMessage', () => {
       }]
     }
 
-    expect(toChatMessage(message, true)).toMatchObject({
-      role: 'assistant', content: '截图完成'
-    })
+    const replay = toChatMessage(message, true)
+    expect(replay.role).toBe('assistant')
+    expect(replay.content).toContain('截图完成')
+    expect(replay.content).toContain('未重新提供图片像素')
   })
 
   it('carries bounded browser inspection evidence across turns without exposing screenshot pixels', () => {
@@ -88,9 +92,9 @@ describe('toChatMessage', () => {
     expect(toChatMessage(message, false).reasoning_content).toBeUndefined()
   })
 
-  it('无文字的图片消息在非视觉请求下 content 为空字符串', () => {
+  it('无文字的图片消息在非视觉请求下保留来源提示', () => {
     const m: Message = { ...imgMsg(), content: '' }
-    expect(toChatMessage(m, false).content).toBe('')
+    expect(toChatMessage(m, false).content).toContain('未重新提供图片像素')
   })
 })
 
@@ -138,5 +142,40 @@ describe('context token budget', () => {
     expect(result[0]).toEqual(history[0])
     expect(result.at(-1)?.content).toBe('new question')
     expect(result.length).toBeLessThan(history.length)
+  })
+
+  it('keeps a contiguous suffix of complete turns', () => {
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'old question' },
+      { role: 'assistant', content: 'old answer '.repeat(20_000) },
+      { role: 'user', content: 'recent question' },
+      { role: 'assistant', content: 'recent answer' },
+      { role: 'user', content: 'new question' }
+    ]
+    expect(fitHistoryToTokenBudget(history, 8_000).map((message) => message.content))
+      .toEqual(['system', 'recent question', 'recent answer', 'new question'])
+  })
+
+  it('selects bounded document passages that match the new question', () => {
+    const text = ['前言', '无关内容'.repeat(8_000), '支付失败时需要重试一次。'].join('\n\n')
+    const excerpt = selectDocumentPassages(text, '支付失败怎么办', 2_000)
+    expect(excerpt).toContain('支付失败时需要重试一次')
+    expect(excerpt.length).toBeLessThan(2_100)
+  })
+
+  it('truncates oversized multimodal text while retaining its image part', () => {
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: [
+        { type: 'text', text: '问题' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+        { type: 'text', text: '文档'.repeat(20_000) }
+      ] }
+    ]
+    const fitted = fitHistoryToTokenBudget(history, 8_000)
+    expect(Array.isArray(fitted[1].content)).toBe(true)
+    expect(fitted[1].content).toContainEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } })
+    expect(estimateMessageTokens(fitted[1])).toBeLessThan(4_000)
   })
 })

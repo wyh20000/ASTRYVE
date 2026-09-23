@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { CreateSessionInput } from '@shared/types'
-import { getStore } from '../db'
+import { collectOrphanArtifacts, getStore } from '../db'
 import { ok, err } from './result'
 import { cancelGeneration } from '../services/generationTasks'
 import { clearSessionWorkspace } from '../services/agent/workspaceManager'
@@ -65,6 +65,11 @@ export function registerSessionIpc(): void {
       cancelTasksForSession(id, 'session_deleted')
       clearSessionWorkspace(id)
       await getStore().deleteSession(id)
+      // A concurrent send in another session may have written bytes but not yet committed its message.
+      // Reclaim older orphans now; startup GC reclaims the grace-period remainder.
+      await collectOrphanArtifacts(getStore(), 5 * 60_000).catch((error) => {
+        console.warn('[artifact] orphan cleanup failed:', error)
+      })
       return ok({ id })
     } catch (e) {
       return err('DB_ERR', String(e))

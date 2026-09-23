@@ -76,7 +76,7 @@ export function fileToImageAttachment(file: File): Promise<Attachment> {
         id: crypto.randomUUID(),
         kind: 'image',
         name: file.name,
-        contentType: file.type || 'image/png',
+        contentType: isPng ? 'image/png' : 'image/jpeg',
         dataRef,
         meta: { sizeBytes: file.size, width: img.naturalWidth, height: img.naturalHeight }
       })

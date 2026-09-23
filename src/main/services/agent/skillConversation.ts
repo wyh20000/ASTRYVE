@@ -12,4 +12,8 @@ export function replaceActiveUserRequest(messages: ChatMessage[], activeRequest?
   if (activeRequest === undefined) return
   const lastUser = [...messages].reverse().find((message) => message.role === 'user')
   if (lastUser && typeof lastUser.content === 'string') lastUser.content = activeRequest
+  else if (lastUser && Array.isArray(lastUser.content)) {
+    const imageParts = lastUser.content.filter((part) => part.type === 'image_url')
+    lastUser.content = [{ type: 'text', text: activeRequest }, ...imageParts]
+  }
 }

@@ -9,6 +9,7 @@ import type {
   ReasoningEffort,
   PersistedTheme,
   Message,
+  MessageCursor,
   MessageNotice,
   AgentProjectPreferences,
   RejectPatchFileInput,
@@ -65,7 +66,7 @@ const api: AgentApi = {
     touch: (id: string) => ipcRenderer.invoke(IPC.session.touch, id)
   },
   message: {
-    list: (sessionId: string) => ipcRenderer.invoke(IPC.message.list, sessionId),
+    list: (sessionId: string, before?: MessageCursor) => ipcRenderer.invoke(IPC.message.list, sessionId, before),
     send: (input: SendMessageInput) => ipcRenderer.invoke(IPC.message.send, input),
     stop: (sessionId: string) => ipcRenderer.invoke(IPC.message.stop, sessionId),
     respondInput: (input: UserInputResponse) => ipcRenderer.invoke(IPC.message.respondInput, input)

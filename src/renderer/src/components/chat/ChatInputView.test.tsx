@@ -11,13 +11,20 @@
  *
  * 先给关键交互补行为测试，再改动展示层。
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { StrictMode, act, type ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toAntdTheme } from '../../theme/antdTheme'
 import { resolveTheme } from '../../theme/tokens'
+import { useUiStore } from '../../stores/uiStore'
+
+const documentAttachmentMock = vi.hoisted(() => vi.fn())
+vi.mock('../../lib/image', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/image')>(),
+  fileToDocumentAttachment: documentAttachmentMock
+}))
 
 /* ---------------- store 桩 ---------------- */
 
@@ -86,6 +93,9 @@ function fontSizes(container: HTMLElement): string[] {
 }
 
 beforeEach(() => {
+  const ui = useUiStore.getState()
+  ui.clearDrafts()
+  documentAttachmentMock.mockReset()
   chatState.send.mockReset()
   chatState.send.mockImplementation(
     async (_sessionId: string, _content: string, _attachments?: unknown[]) => ({
@@ -361,6 +371,32 @@ describe('ChatInput 待填文本（技能「立即试用」）', () => {
     expect(box).toHaveValue('')
     view.rerender(wrap(<ChatInput sessionId="s2" />))
     expect(box).toHaveValue('')
+  })
+
+  it('会话切换后各自保留未发送草稿', async () => {
+    const view = render(wrap(<ChatInput sessionId="s1" />))
+    const box = await screen.findByRole('textbox')
+    await userEvent.type(box, 'draft A')
+    view.rerender(wrap(<ChatInput sessionId="s2" />))
+    expect(box).toHaveValue('')
+    await userEvent.type(box, 'draft B')
+    view.rerender(wrap(<ChatInput sessionId="s1" />))
+    expect(box).toHaveValue('draft A')
+    view.rerender(wrap(<ChatInput sessionId="s2" />))
+    expect(box).toHaveValue('draft B')
+  })
+
+  it('旧会话异步完成的附件只进入旧会话', async () => {
+    let finish!: (attachment: unknown) => void
+    documentAttachmentMock.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const view = render(wrap(<ChatInput sessionId="s1" />))
+    const input = view.container.querySelector('input[accept*=".pdf"]') as HTMLInputElement
+    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+    view.rerender(wrap(<ChatInput sessionId="s2" />))
+    finish({ id: 'file-a', kind: 'file', name: 'notes.txt', contentType: 'text/plain', dataRef: 'data:text/plain;base64,aGVsbG8=' })
+    await waitFor(() => expect(useUiStore.getState().drafts.s1.attachments).toHaveLength(1))
+    expect(useUiStore.getState().drafts.s2?.attachments ?? []).toHaveLength(0)
   })
 
   it('旧输入框不能清除后续创建的新注入', async () => {

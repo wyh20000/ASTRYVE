@@ -1,4 +1,13 @@
 import { create } from 'zustand'
+import type { Attachment } from '@shared/types'
+
+export interface InputDraft {
+  value: string
+  attachments: Attachment[]
+  processingFiles: Array<{ id: string; name: string; kind: 'image' | 'file' }>
+}
+
+export const EMPTY_DRAFT: InputDraft = { value: '', attachments: [], processingFiles: [] }
 
 const WIDTH_KEY = 'ai-agent:sidebar-width'
 const WORKSPACE_WIDTH_KEY = 'ai-agent:workspace-width'
@@ -28,6 +37,10 @@ interface UiState {
   workspaceOpen: boolean
   workspaceWidth: number
   searchQuery: string
+  drafts: Record<string, InputDraft>
+  updateDraft: (sessionId: string, update: (current: InputDraft) => InputDraft) => void
+  clearDraft: (sessionId: string) => void
+  clearDrafts: () => void
   toggleSidebar: () => void
   toggleWorkspace: () => void
   setWorkspaceWidth: (width: number) => void
@@ -50,6 +63,16 @@ export const useUiStore = create<UiState>((set) => ({
   workspaceOpen: true,
   workspaceWidth: readWorkspaceWidth(),
   searchQuery: '',
+  drafts: {},
+  updateDraft: (sessionId, update) => set((state) => ({
+    drafts: { ...state.drafts, [sessionId]: update(state.drafts[sessionId] ?? EMPTY_DRAFT) }
+  })),
+  clearDraft: (sessionId) => set((state) => {
+    const drafts = { ...state.drafts }
+    delete drafts[sessionId]
+    return { drafts }
+  }),
+  clearDrafts: () => set({ drafts: {} }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleWorkspace: () => set((s) => ({ workspaceOpen: !s.workspaceOpen })),
   setWorkspaceWidth: (width) => {

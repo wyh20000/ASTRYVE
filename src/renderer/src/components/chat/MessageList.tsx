@@ -3,10 +3,12 @@ import type { Message } from '@shared/types'
 import { MessageItem } from './MessageItem'
 import { Icon } from '../ui/icons'
 
-export function MessageList({ messages }: { messages: Message[] }): JSX.Element {
+export function MessageList({ messages, hasOlder = false, loadingOlder = false, onLoadOlder }:
+  { messages: Message[]; hasOlder?: boolean; loadingOlder?: boolean; onLoadOlder?: () => Promise<void> }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [stick, setStick] = useState(true)
   const [hasNewContent, setHasNewContent] = useState(false)
+  const [olderLoadError, setOlderLoadError] = useState(false)
   const stickRef = useRef(true)
   const pendingScrollRef = useRef<number | null>(null)
 
@@ -79,6 +81,19 @@ export function MessageList({ messages }: { messages: Message[] }): JSX.Element 
         }}
       >
         <div className="mx-auto max-w-[820px] space-y-6">
+          {hasOlder && onLoadOlder && (
+            <button type="button" disabled={loadingOlder} className="mx-auto block rounded-md px-3 py-1 text-[13px] text-txt-secondary hover:bg-bg-panel disabled:opacity-50"
+              onClick={() => {
+                const element = ref.current
+                const previousHeight = element?.scrollHeight ?? 0
+                setOlderLoadError(false)
+                void onLoadOlder().then(() => requestAnimationFrame(() => {
+                  if (element) element.scrollTop += element.scrollHeight - previousHeight
+                })).catch(() => setOlderLoadError(true))
+              }}>
+              {loadingOlder ? '加载中…' : olderLoadError ? '加载失败，点击重试' : '加载更早消息'}
+            </button>
+          )}
           {messages.length === 0 ? (
             <EmptyState />
           ) : (

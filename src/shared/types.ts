@@ -188,6 +188,17 @@ export interface SourceCitation {
 }
 
 /** 消息 */
+export interface TurnEnvelope {
+  id: string
+  sessionId: string
+  createdAt: number
+  text: string
+  imageRefs: string[]
+  documentRefs: string[]
+  skillIds: string[]
+  pluginIds: string[]
+}
+
 export interface Message {
   id: string
   sessionId: string
@@ -200,7 +211,11 @@ export interface Message {
   generationId?: string
   revision?: number
   finishReason?: GenerationFinishReason
+  /** 用户发送时一次性固定的输入来源，后续生成不会改写。 */
+  turn?: TurnEnvelope
 }
+
+export interface MessageCursor { timestamp: number; id: string }
 
 /** 主进程异步回复过程中产生的非对话区提示 */
 export interface MessageNotice {
@@ -601,7 +616,7 @@ export interface AgentApi {
     touch: (id: string) => Promise<IpcResult<Session>>
   }
   message: {
-    list: (sessionId: string) => Promise<IpcResult<Message[]>>
+    list: (sessionId: string, before?: MessageCursor) => Promise<IpcResult<Message[]>>
     send: (input: SendMessageInput) => Promise<IpcResult<Message>>
     stop: (sessionId: string) => Promise<IpcResult<{ stopped: boolean }>>
     respondInput: (input: UserInputResponse) => Promise<IpcResult<{ accepted: boolean }>>

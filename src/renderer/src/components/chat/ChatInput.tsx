@@ -5,14 +5,15 @@ import {
   type KeyboardEvent,
   type ClipboardEvent,
   type DragEvent,
-  type ChangeEvent
+  type ChangeEvent,
+  type SetStateAction
 } from 'react'
 import { App as AntdApp } from 'antd'
 import { Sender } from '@ant-design/x'
 import type { SenderRef } from '@ant-design/x/es/sender'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
-import { useUiStore } from '../../stores/uiStore'
+import { EMPTY_DRAFT, useUiStore, type InputDraft } from '../../stores/uiStore'
 import type { ReasoningEffort, Attachment, UserInputRequest } from '@shared/types'
 import { supportsImageInput } from '@shared/modelCapabilities'
 import { IconButton } from '../ui'
@@ -33,11 +34,7 @@ import { useDismissibleLayer } from '../../hooks/useDismissibleLayer'
 const MAX_ROWS = 9
 const EFFORT_LABEL: Record<ReasoningEffort, string> = { low: '低', medium: '中', high: '高' }
 const EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high']
-interface ProcessingFile {
-  id: string
-  name: string
-  kind: 'image' | 'file'
-}
+type ProcessingFile = InputDraft['processingFiles'][number]
 
 function formatBytes(n?: number): string {
   if (n == null) return ''
@@ -69,9 +66,20 @@ function formatBytes(n?: number): string {
  */
 export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
-  const [value, setValue] = useState('')
-  const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [processingFiles, setProcessingFiles] = useState<ProcessingFile[]>([])
+  const { value, attachments, processingFiles } = useUiStore((state) => state.drafts[sessionId] ?? EMPTY_DRAFT)
+  const updateStoredDraft = useUiStore((state) => state.updateDraft)
+  const updateDraft = <K extends keyof InputDraft>(key: K, action: SetStateAction<InputDraft[K]>): void => {
+    updateStoredDraft(sessionId, (draft) => {
+      const previous = draft[key]
+      const next = typeof action === 'function'
+        ? (action as (value: InputDraft[K]) => InputDraft[K])(previous)
+        : action
+      return { ...draft, [key]: next }
+    })
+  }
+  const setValue = (next: SetStateAction<string>): void => updateDraft('value', next)
+  const setAttachments = (next: SetStateAction<Attachment[]>): void => updateDraft('attachments', next)
+  const setProcessingFiles = (next: SetStateAction<ProcessingFile[]>): void => updateDraft('processingFiles', next)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
   const [pluginDismissed, setPluginDismissed] = useState(false)
@@ -113,14 +121,13 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
   }, [workspaceId, loadSkills, loadPlugins])
 
   /*
-   * 会话切换时重置输入态。
+   * 会话切换时重置临时菜单与历史导航状态；正文与附件按会话保留。
    *
    * 注意顺序：这个 effect 必须排在下面的「待填文本」effect 之前，
    * 否则切换会话时会把刚填好的内容清掉。
    */
   useEffect(() => {
     historyState.current = { index: null, draft: '' }
-    setValue('')
     setSlashDismissed(false)
     setSlashIndex(0)
     setPluginDismissed(false)
@@ -231,14 +238,22 @@ export function ChatInput({ sessionId }: { sessionId: string }): JSX.Element {
       showNotice('信息不能发送，此模型无法进行图片处理')
       return
     }
-    const result = await send(sessionId, v, attachments, undefined, undefined, selectedPlugins.map((plugin) => plugin.id))
+    const submittedValue = value
+    const submittedAttachments = attachments
+    const result = await send(sessionId, v, submittedAttachments, undefined, undefined, selectedPlugins.map((plugin) => plugin.id))
     if (!result.ok) {
       showNotice(result.error.message, 'error')
       return
     }
-    setValue('')
+    updateStoredDraft(sessionId, (draft) => {
+      const submittedIds = new Set(submittedAttachments.map((attachment) => attachment.id))
+      return {
+        ...draft,
+        value: draft.value === submittedValue ? '' : draft.value,
+        attachments: draft.attachments.filter((attachment) => !submittedIds.has(attachment.id))
+      }
+    })
     historyState.current = { index: null, draft: '' }
-    setAttachments([])
   }
 
   /** 菜单选中后把光标放回输入框末尾（迁移前由 autosize + setSelectionRange 完成） */
