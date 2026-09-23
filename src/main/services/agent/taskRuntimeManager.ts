@@ -1,4 +1,6 @@
 import { join } from 'node:path'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { TaskRuntime } from './taskRuntime'
 import { ToolRegistry } from './toolRegistry'
 import { FileTaskEventStore, TaskEventJournal } from './taskEventJournal'
@@ -41,23 +43,24 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
     ? await captureTaskPluginCapabilities(localPluginSnapshot, pluginConnectionManager, writeAgentAudit)
     : localPluginSnapshot
   try {
-    return await launchProjectTask(sessionId, ownerWebContentsId, {
-    sessionExists: async (id) => Boolean(await getStore().getSession(id)),
-    activeWorkspace: workspaces.getSessionWorkspaceId,
-    verifyWorkspace: async (id) => { await workspaces.getWorkspaceService().activate(id) },
-    getGrant: (id) => workspaces.getWorkspaceService().getGrant(id),
-    getPreferences: settings.getAgentProjectPreferences,
-    getCapabilities: () => capabilities,
-    ownerAlive: (id) => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents.id === id),
-    createTask: (input) => getTaskRuntime().createTask({
-      ...input,
-      toolDefinitions: pluginSnapshot.tools,
-      pluginIds: pluginSnapshot.pluginIds,
-      pluginVersions: pluginSnapshot.pluginVersions,
-      observe: pluginSnapshot.observe,
-      dispose: pluginSnapshot.dispose
+    const task = await launchProjectTask(sessionId, ownerWebContentsId, {
+      sessionExists: async (id) => Boolean(await getStore().getSession(id)),
+      activeWorkspace: workspaces.getSessionWorkspaceId,
+      verifyWorkspace: async (id) => { await workspaces.getWorkspaceService().activate(id) },
+      getGrant: (id) => workspaces.getWorkspaceService().getGrant(id),
+      getPreferences: settings.getAgentProjectPreferences,
+      getCapabilities: () => capabilities,
+      ownerAlive: (id) => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents.id === id),
+      createTask: (input) => getTaskRuntime().createTask({
+        ...input,
+        toolDefinitions: pluginSnapshot.tools,
+        pluginIds: pluginSnapshot.pluginIds,
+        pluginVersions: pluginSnapshot.pluginVersions,
+        observe: pluginSnapshot.observe,
+        dispose: pluginSnapshot.dispose
+      })
     })
-    })
+    return { ...task, capabilityToolNames: pluginSnapshot.tools.map((tool) => tool.name) }
   } catch (error) {
     await pluginSnapshot.dispose().catch(() => undefined)
     throw error
@@ -66,7 +69,16 @@ export async function createProjectTask(sessionId: string, ownerWebContentsId: n
 
 /** Starts a browser-only tool task without requiring the user to attach a project workspace. */
 export async function createBrowserTask(sessionId: string, ownerWebContentsId: number) {
-  const [{ app, BrowserWindow }, { getStore }] = await Promise.all([
+  return createCapabilityTask(sessionId, ownerWebContentsId)
+}
+
+/** A reply-scoped tool task that does not require a user-granted project workspace. */
+export async function createCapabilityTask(
+  sessionId: string,
+  ownerWebContentsId: number,
+  pluginIds?: readonly string[]
+) {
+  const [{ BrowserWindow }, { getStore }] = await Promise.all([
     import('electron'), import('../../db')
   ])
   if (!(await getStore().getSession(sessionId))) throw new Error('会话不存在或已删除')
@@ -74,19 +86,50 @@ export async function createBrowserTask(sessionId: string, ownerWebContentsId: n
     !window.isDestroyed() && window.webContents.id === ownerWebContentsId)) {
     throw new Error('任务窗口已关闭')
   }
-  const runtimeRoot = app.getPath('userData')
-  return getTaskRuntime().createTask({
-    sessionId,
-    ownerWebContentsId,
-    workspace: {
-      id: `browser:${sessionId}`,
-      rootPath: runtimeRoot,
-      realRootPath: runtimeRoot,
-      createdAt: Date.now()
-    },
-    permissionMode: 'ask-every-time',
-    environment: 'local'
-  })
+  const localPluginSnapshot = pluginIds?.length
+    ? await capturePluginTaskTools(pluginIds, undefined, writeAgentAudit)
+    : null
+  const pluginSnapshot = localPluginSnapshot && pluginConnectionManager
+    ? await captureTaskPluginCapabilities(localPluginSnapshot, pluginConnectionManager, writeAgentAudit)
+    : localPluginSnapshot
+  let runtimeRoot: string | undefined
+  try {
+    runtimeRoot = await mkdtemp(join(tmpdir(), 'astryve-capability-'))
+    const isolatedRoot = runtimeRoot
+    const dispose = async (): Promise<void> => {
+      const results = await Promise.allSettled([
+        pluginSnapshot?.dispose(),
+        rm(isolatedRoot, { recursive: true, force: true })
+      ])
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failed) throw failed.reason
+    }
+    const task = getTaskRuntime().createTask({
+      sessionId,
+      ownerWebContentsId,
+      // Runtime tool contexts require a grant shape. This isolated empty root
+      // never points at app data or a user project; callers expose only
+      // selected capability tools, never workspace/process/git definitions.
+      workspace: {
+        id: `capability:${sessionId}`,
+        rootPath: isolatedRoot,
+        realRootPath: isolatedRoot,
+        createdAt: Date.now()
+      },
+      permissionMode: 'ask-every-time',
+      environment: 'local',
+      toolDefinitions: pluginSnapshot?.tools,
+      pluginIds: pluginSnapshot?.pluginIds,
+      pluginVersions: pluginSnapshot?.pluginVersions,
+      observe: pluginSnapshot?.observe,
+      dispose
+    })
+    return { ...task, capabilityToolNames: pluginSnapshot?.tools.map((tool) => tool.name) ?? [] }
+  } catch (error) {
+    await pluginSnapshot?.dispose().catch(() => undefined)
+    if (runtimeRoot) await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
 }
 
 let registry: ToolRegistry | null = null

@@ -7,8 +7,20 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   store: undefined as unknown,
   projectEnabled: false,
-  preset: null as null | { id: string; provider: 'deepseek'; model: string; baseUrl: string; apiKey: string;
-    contextMessages: number; contextTokens: number },
+  plugins: [] as Array<{ id: string; status: string; enabled: boolean }>,
+  availableTools: [] as Array<{ function: { name: string } }>,
+  preset: null as null | { id: string; provider: 'deepseek' | 'custom'; model: string; baseUrl: string; apiKey: string;
+    contextMessages: number; contextTokens: number; capabilities?: { imageInput: boolean; nativeToolCalling?: boolean } },
+  createCapabilityTask: vi.fn(async (sessionId: string, _ownerId: number, pluginIds?: readonly string[]) => ({
+    id: `capability-${sessionId}`, workspaceId: `capability:${sessionId}`,
+    environment: 'local', pluginIds: [...(pluginIds ?? [])], pluginVersions: {},
+    capabilityToolNames: mocks.availableTools.map((tool) => tool.function.name)
+  })),
+  runToolCallingLoop: vi.fn(async (input: { onEvent: (event: unknown) => Promise<void> }) => {
+    await input.onEvent({ content: '普通回答' })
+    return { status: 'completed' as const, rounds: 1, messages: [] }
+  }),
+  acquireBrowserLease: vi.fn(() => async () => undefined),
   streamChat: vi.fn(async (_runtime: unknown, _history: unknown, onEvent: (event: unknown) => Promise<void>) => {
     await onEvent({ content: '普通回答' })
   }),
@@ -34,17 +46,27 @@ vi.mock('../services/modelProvider', async (importOriginal) => ({
 }))
 vi.mock('../services/agent/taskRuntimeManager', () => ({
   cancelTasksForSession: () => 0,
-  createBrowserTask: vi.fn(), createProjectTask: vi.fn(), getPatchWorkspaceService: vi.fn(),
-  getTaskRuntime: vi.fn(), getToolRegistry: vi.fn(), shouldUseProjectAgent: () => mocks.projectEnabled,
+  createBrowserTask: vi.fn(), createCapabilityTask: mocks.createCapabilityTask,
+  createProjectTask: vi.fn(), getPatchWorkspaceService: vi.fn(),
+  getTaskRuntime: () => ({
+    listNativeFunctionTools: () => mocks.availableTools, subscribe: () => () => undefined,
+    getTaskSignal: () => new AbortController().signal,
+    cancelTask: () => false
+  }),
+  getToolRegistry: vi.fn(), shouldUseProjectAgent: () => mocks.projectEnabled,
   writeAgentAudit: vi.fn()
 }))
-vi.mock('../services/agent/pluginManager', () => ({ listPlugins: async () => [] }))
-vi.mock('../services/agent/toolCallingLoop', () => ({ runInteractiveChatLoop: vi.fn(), runToolCallingLoop: vi.fn() }))
+vi.mock('../services/agent/pluginManager', () => ({ listPlugins: async () => mocks.plugins }))
+vi.mock('../services/agent/toolCallingLoop', () => ({
+  runInteractiveChatLoop: vi.fn(), runToolCallingLoop: mocks.runToolCallingLoop
+}))
 vi.mock('../services/agent/userInput', () => ({ requestUserInput: vi.fn(), submitUserInput: () => false }))
 vi.mock('../services/agent/workspaceManager', () => ({ getWorkspaceService: vi.fn(), restoreSessionWorkspace: vi.fn() }))
 vi.mock('../services/agent/skillManager', () => ({ auditSkillUse: vi.fn(),
   resolveSkills: vi.fn(async (request: string) => ({ prompt: '', cleanedRequest: request, skills: [] })) }))
-vi.mock('../services/browser/officialChromeBrowserRuntime', () => ({ acquireOfficialChromeBrowserLease: vi.fn() }))
+vi.mock('../services/browser/officialChromeBrowserRuntime', () => ({
+  acquireOfficialChromeBrowserLease: mocks.acquireBrowserLease
+}))
 
 import { IPC, EVENTS } from '@shared/ipc'
 import { MemoryStore } from '../db/memory'
@@ -67,9 +89,14 @@ describe('message IPC send lifecycle', () => {
     mocks.handlers.clear()
     mocks.store = new MemoryStore()
     mocks.projectEnabled = false
+    mocks.plugins = []
+    mocks.availableTools = []
     mocks.preset = null
     mocks.streamChat.mockClear()
     mocks.streamDeepSeekSearch.mockClear()
+    mocks.createCapabilityTask.mockClear()
+    mocks.runToolCallingLoop.mockClear()
+    mocks.acquireBrowserLease.mockClear()
     configureTrustedIpcSender('file:///D:/app/index.html')
     setBusinessIpcAvailable(true)
     registerMessageIpc()
@@ -110,8 +137,15 @@ describe('message IPC send lifecycle', () => {
     const send = mocks.handlers.get(IPC.message.send)!
     await send(event(), { clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '你好' })
     await vi.runAllTimersAsync()
-    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.runToolCallingLoop).toHaveBeenCalledTimes(1)
+    expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({
+      requireInitialTool: false, allowedToolNames: new Set()
+    })
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+    expect(mocks.acquireBrowserLease).not.toHaveBeenCalled()
     expect(mocks.streamDeepSeekSearch).not.toHaveBeenCalled()
+    const ordinaryReply = (await store.listMessages(session.id)).at(-1)
+    expect(ordinaryReply?.blocks?.some((block) => block.kind === 'report' || block.kind === 'plan')).toBe(false)
 
     mocks.projectEnabled = true
     await send(event(), { clientMessageId: crypto.randomUUID(), sessionId: session.id,
@@ -123,6 +157,132 @@ describe('message IPC send lifecycle', () => {
       .map((message) => [message.content, message.turn?.searchRequested]))).toEqual({
       '你好': false, '今天新闻': true
     })
+  })
+
+  it('keeps a custom endpoint without native tools on ordinary streaming chat', async () => {
+    mocks.preset = { id: 'custom', provider: 'custom', model: 'unknown-model',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('custom')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '你好'
+    })
+    await vi.runAllTimersAsync()
+    expect(mocks.createCapabilityTask).not.toHaveBeenCalled()
+    expect(mocks.runToolCallingLoop).not.toHaveBeenCalled()
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect((await store.listMessages(session.id)).at(-1)?.status).toBe('done')
+  })
+
+  it('does not offer a Chrome task to a model without native tool calling', async () => {
+    mocks.preset = { id: 'custom', provider: 'custom', model: 'unknown-model',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('browser unsupported')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id,
+      content: '查看我浏览器当前页面'
+    })
+    await vi.runAllTimersAsync()
+    expect(mocks.createCapabilityTask).not.toHaveBeenCalled()
+    expect(mocks.runToolCallingLoop).not.toHaveBeenCalled()
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+    expect((await store.listMessages(session.id)).at(-1)).toMatchObject({
+      role: 'assistant', status: 'error', content: expect.stringContaining('不支持原生工具调用')
+    })
+  })
+
+  it('persists an error terminal if optional capability task setup fails', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    mocks.createCapabilityTask.mockRejectedValueOnce(new Error('能力初始化失败'))
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('setup failure')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '你好'
+    })
+    await vi.runAllTimersAsync()
+    expect(mocks.runToolCallingLoop).not.toHaveBeenCalled()
+    expect((await store.listMessages(session.id)).at(-1)).toMatchObject({
+      role: 'assistant', status: 'error'
+    })
+  })
+
+  it('persists an error terminal when plugin selection fails before task creation', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('missing plugin')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id,
+      content: '请用插件处理', pluginIds: ['missing']
+    })
+    await vi.runAllTimersAsync()
+    expect(mocks.createCapabilityTask).not.toHaveBeenCalled()
+    expect((await store.listMessages(session.id)).at(-1)).toMatchObject({
+      role: 'assistant', status: 'error', finishReason: 'setup_error'
+    })
+  })
+
+  it('keeps an image and an explicitly selected plugin in the same optional tool reply', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'astryve-vision-plugin-'))
+    try {
+      initArtifactStore(root)
+      mocks.preset = { id: 'vision', provider: 'deepseek', model: 'vision-model',
+        baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20,
+        contextTokens: 16000, capabilities: { imageInput: true, nativeToolCalling: true } }
+      mocks.plugins = [{ id: 'test', status: 'ready', enabled: true }]
+      mocks.availableTools = [
+        { function: { name: 'plugin.test.run' } },
+        { function: { name: 'mcp__test__api__search' } }
+      ]
+      const store = mocks.store as MemoryStore
+      const session = await store.createSession('vision plugin')
+      await mocks.handlers.get(IPC.message.send)!(event(), {
+        clientMessageId: crypto.randomUUID(), sessionId: session.id,
+        content: '分析这张图并调用插件', pluginIds: ['test'],
+        attachments: [{ id: crypto.randomUUID(), kind: 'image', name: 'test.png',
+          contentType: 'image/png', dataRef: 'data:image/png;base64,AA==' }]
+      })
+      await vi.runAllTimersAsync()
+      expect(mocks.createCapabilityTask).toHaveBeenCalledWith(session.id, 42, ['test'])
+      await vi.waitFor(() => expect(mocks.runToolCallingLoop).toHaveBeenCalled())
+      expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({
+        allowedToolNames: new Set(['plugin.test.run', 'mcp__test__api__search']),
+        requireInitialTool: false,
+        model: expect.objectContaining({ vision: true })
+      })
+      expect(JSON.stringify(mocks.runToolCallingLoop.mock.calls[0][0])).toContain('image_url')
+      expect((await store.listMessages(session.id)).at(-1)?.status).toBe('done')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not silently drop an explicitly selected plugin on the legacy browser route', async () => {
+    mocks.preset = { id: 'deepseek', provider: 'deepseek', model: 'deepseek-chat',
+      baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20, contextTokens: 16000 }
+    mocks.plugins = [{ id: 'test', status: 'ready', enabled: true }]
+    mocks.availableTools = [
+      { function: { name: 'plugin.test.run' } },
+      { function: { name: 'mcp__test__api__search' } }
+    ]
+    const store = mocks.store as MemoryStore
+    const session = await store.createSession('browser plugin')
+    await mocks.handlers.get(IPC.message.send)!(event(), {
+      clientMessageId: crypto.randomUUID(), sessionId: session.id,
+      content: '查看浏览器当前页面并调用插件', pluginIds: ['test']
+    })
+    await vi.runAllTimersAsync()
+    expect(mocks.createCapabilityTask).toHaveBeenCalledWith(session.id, 42, ['test'])
+    expect(mocks.runToolCallingLoop.mock.calls[0][0]).toMatchObject({ requireInitialTool: true })
+    const allowed = (mocks.runToolCallingLoop.mock.calls[0][0] as unknown as {
+      allowedToolNames: Set<string>
+    }).allowedToolNames
+    expect(allowed.has('plugin.test.run')).toBe(true)
+    expect(allowed.has('mcp__test__api__search')).toBe(true)
+    expect(allowed.has('browser.listTabs')).toBe(true)
+    expect(mocks.acquireBrowserLease).toHaveBeenCalledTimes(1)
   })
 
   it('includes saved document evidence on a later turn after the active request is replaced', async () => {

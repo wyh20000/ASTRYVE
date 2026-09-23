@@ -50,7 +50,10 @@ function makeDefaultPreset(): ModelPreset {
     apiKey,
     hasApiKey: Boolean(apiKey),
     model: process.env.MODEL ?? preset.model,
-    capabilities: { imageInput: supportsImageInput(process.env.MODEL ?? preset.model) },
+    capabilities: {
+      imageInput: supportsImageInput(process.env.MODEL ?? preset.model),
+      nativeToolCalling: provider !== 'custom'
+    },
     contextMessages: DEFAULT_CONTEXT_MESSAGES,
     contextTokens: automaticContextTokens(provider, process.env.MODEL ?? preset.model)
   }
@@ -81,7 +84,10 @@ export function normalizePreset(p: Partial<ModelPreset>): ModelPreset {
     apiKey: p.apiKey ?? '',
     hasApiKey: p.hasApiKey ?? Boolean(p.apiKey),
     model: p.model ?? '',
-    capabilities: p.capabilities ?? { imageInput: supportsImageInput(p.model ?? '') },
+    capabilities: {
+      imageInput: p.capabilities?.imageInput ?? supportsImageInput(p.model ?? ''),
+      nativeToolCalling: p.capabilities?.nativeToolCalling ?? provider !== 'custom'
+    },
     // Kept in the serialized shape for backward compatibility. Runtime history
     // is token-budgeted and no longer truncated by a user-configurable count.
     contextMessages: DEFAULT_CONTEXT_MESSAGES,

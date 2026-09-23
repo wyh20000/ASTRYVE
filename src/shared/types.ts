@@ -546,7 +546,7 @@ export interface ModelPreset {
   hasApiKey?: boolean
   model: string
   /** 显式能力声明；自定义兼容端点无法可靠地从模型名推断。 */
-  capabilities?: { imageInput: boolean }
+  capabilities?: { imageInput: boolean; nativeToolCalling?: boolean }
   /** 发送给模型的上下文消息条数（多轮记忆长度） */
   contextMessages: number
   /** 单次请求可使用的上下文预算（近似 token，已预留输出空间）。 */

@@ -10,7 +10,7 @@ import {
   PROVIDER_PRESETS,
   toPublicModelConfig
 } from './modelConfig'
-import { prefersBuiltInSearch, supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import { prefersBuiltInSearch, supportsBuiltInSearch, supportsImageInput, supportsNativeToolCalling } from '@shared/modelCapabilities'
 
 describe('normalizePreset', () => {
   it('Kimi 预设只使用当前模型，不附加备用视觉模型', () => {
@@ -162,6 +162,20 @@ describe('supportsImageInput', () => {
     'kimi-k3'
   ])('%s 被识别为多模态模型', (model) => {
     expect(supportsImageInput(model)).toBe(true)
+  })
+})
+
+describe('supportsNativeToolCalling', () => {
+  it('defaults known adapters on and custom endpoints off without guessing from a model name', () => {
+    expect(supportsNativeToolCalling({ provider: 'deepseek' })).toBe(true)
+    expect(supportsNativeToolCalling({ provider: 'kimi' })).toBe(true)
+    expect(supportsNativeToolCalling({ provider: 'custom' })).toBe(false)
+    expect(supportsNativeToolCalling({ provider: 'custom', capabilities: {
+      imageInput: true, nativeToolCalling: true
+    } })).toBe(true)
+    expect(supportsNativeToolCalling({ provider: 'deepseek', capabilities: {
+      imageInput: false, nativeToolCalling: false
+    } })).toBe(false)
   })
 })
 

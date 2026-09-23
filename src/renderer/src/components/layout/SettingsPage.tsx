@@ -1682,7 +1682,7 @@ export function ModelSection(): JSX.Element {
       baseUrl: PROVIDER_PRESETS.deepseek.baseUrl,
       apiKey: '',
       model: PROVIDER_PRESETS.deepseek.model,
-      capabilities: { imageInput: false },
+      capabilities: { imageInput: false, nativeToolCalling: true },
       contextMessages: 50,
       contextTokens: 128000
     })
@@ -1747,7 +1747,10 @@ export function ModelSection(): JSX.Element {
                 value={editing.provider}
                 aria-label="模型提供方"
                 onChange={(p) => {
-                  set({ provider: p })
+                  set({ provider: p, capabilities: {
+                    imageInput: editing.capabilities?.imageInput ?? false,
+                    nativeToolCalling: p !== 'custom'
+                  } })
                   if (p !== 'custom') {
                     set({
                       baseUrl: PROVIDER_PRESETS[p].baseUrl,
@@ -1820,7 +1823,21 @@ export function ModelSection(): JSX.Element {
               <ToggleSwitch
                 checked={editing.capabilities?.imageInput ?? false}
                 aria-label="支持图片输入"
-                onChange={(checked) => set({ capabilities: { imageInput: checked } })}
+                onChange={(checked) => set({ capabilities: {
+                  imageInput: checked,
+                  nativeToolCalling: editing.capabilities?.nativeToolCalling
+                } })}
+              />
+            </SettingRow>
+
+            <SettingRow label="原生工具调用" description="该模型是否支持 function calling。自定义兼容端点请按提供方能力开启。">
+              <ToggleSwitch
+                checked={editing.capabilities?.nativeToolCalling ?? editing.provider !== 'custom'}
+                aria-label="支持原生工具调用"
+                onChange={(checked) => set({ capabilities: {
+                  imageInput: editing.capabilities?.imageInput ?? false,
+                  nativeToolCalling: checked
+                } })}
               />
             </SettingRow>
 

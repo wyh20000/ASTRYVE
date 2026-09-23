@@ -24,6 +24,14 @@ export function supportsImageInput(
   return normalized.length > 0 && MULTIMODAL_MODEL_PATTERNS.some((pattern) => pattern.test(normalized))
 }
 
+/** Only known provider adapters default to native function calling; custom endpoints opt in explicitly. */
+export function supportsNativeToolCalling(
+  preset: Pick<ModelPreset, 'provider' | 'capabilities'>
+): boolean {
+  return preset.capabilities?.nativeToolCalling ??
+    (preset.provider === 'deepseek' || preset.provider === 'kimi')
+}
+
 /**
  * 厂商搜索入口的可用性，不代表默认联网。只有本轮明确选择时才调用。
  * DeepSeek / Kimi 使用厂商协议；自定义兼容端点尝试 Responses web_search。

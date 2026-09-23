@@ -33,7 +33,7 @@ import { getModelConfig, getActivePreset } from '../services/modelConfig'
 import { extractDocumentText } from '../services/document'
 import { fitHistoryToTokenBudget, toChatMessage, injectDocuments, selectDocumentPassages } from '../services/history'
 import { ok, err } from './result'
-import { supportsBuiltInSearch, supportsImageInput } from '@shared/modelCapabilities'
+import { supportsBuiltInSearch, supportsImageInput, supportsNativeToolCalling } from '@shared/modelCapabilities'
 import { extractSourceCitations } from '@shared/searchSources'
 import {
   addGenerationTimer,
@@ -47,7 +47,7 @@ import {
 } from '../services/generationTasks'
 import {
   cancelTasksForSession,
-  createBrowserTask,
+  createCapabilityTask,
   createProjectTask,
   getPatchWorkspaceService,
   getTaskRuntime,
@@ -326,16 +326,25 @@ async function runReply(
     const pluginSelection = resolvePluginSelection(userRequest, explicitPluginIds, await listPlugins())
     selectedPluginIds = pluginSelection.pluginIds
     if (pluginSelection.trigger) modelUserRequest = pluginSelection.cleanedRequest
-    const browserIntent = projectEligible && !searchRequested && (
+    if (searchRequested && selectedPluginIds.length) {
+      await failGenerationSetup(wc, task, '插件与供应商联网搜索暂不能同时使用，请分两轮完成。')
+      return
+    }
+    const browserRequest = !searchRequested && (
       prefersBrowserTools(userRequest) ||
       (prefersBrowserContinuation(userRequest) &&
         hasRecentBrowserContext(await getStore().listMessages(sessionId)))
     )
+    if (browserRequest && !supportsNativeToolCalling(preset)) {
+      await failGenerationSetup(wc, task, '当前模型不支持原生工具调用。请切换支持工具的模型后重试 Chrome 请求。')
+      return
+    }
+    const browserIntent = projectEligible && browserRequest
     if (projectEligible) {
       await restoreSessionWorkspace(sessionId, session?.projectPath)
       const explicitSkill = explicitSkillIds.length > 0 || /^\s*\/[a-z0-9_-]+\b/i.test(userRequest)
       const explicitPlugin = selectedPluginIds.length > 0
-      useProjectAgent = shouldUseProjectAgent(sessionId) &&
+      useProjectAgent = supportsNativeToolCalling(preset) && shouldUseProjectAgent(sessionId) &&
         (explicitSkill || explicitPlugin || browserIntent || !searchRequested)
     }
     if (useProjectAgent) {
@@ -355,9 +364,7 @@ async function runReply(
           modelUserRequest = resolved.cleanedRequest
           allowedToolNames = resolved.allowedToolNames
           if (allowedToolNames) {
-            for (const tool of getTaskRuntime().listNativeFunctionTools(agentTask.id)) {
-              if (tool.function.name.startsWith('plugin.')) allowedToolNames.add(tool.function.name)
-            }
+            for (const name of agentTask.capabilityToolNames) allowedToolNames.add(name)
           }
           activeSkills = resolved.skills
           skillTrigger = resolved.trigger
@@ -396,11 +403,16 @@ async function runReply(
     } else if (browserIntent) {
       cancelTasksForSession(sessionId, 'replaced')
       try {
-        const agentTask = await createBrowserTask(sessionId, wc.id)
+        const agentTask = await createCapabilityTask(
+          sessionId, wc.id, selectedPluginIds.length ? selectedPluginIds : undefined
+        )
         agentTaskId = agentTask.id
         agentWorkspaceId = agentTask.workspaceId
         agentExecutionEnvironment = agentTask.environment
+        selectedPluginIds = agentTask.pluginIds ?? []
+        selectedPluginVersions = agentTask.pluginVersions ?? {}
         allowedToolNames = browserToolNamesForRequest(userRequest)
+        for (const name of agentTask.capabilityToolNames) allowedToolNames.add(name)
         skillPrompt = BROWSER_CONVERSATION_PROMPT
       } catch (error) {
         sendMessageNotice(wc, {
@@ -427,8 +439,30 @@ async function runReply(
         return
       }
     }
+    if (!agentTaskId && !searchRequested && supportsNativeToolCalling(preset)) {
+      try {
+        const capabilityTask = await createCapabilityTask(
+          sessionId, wc.id, selectedPluginIds.length ? selectedPluginIds : undefined
+        )
+        agentTaskId = capabilityTask.id
+        agentWorkspaceId = capabilityTask.workspaceId
+        agentExecutionEnvironment = capabilityTask.environment
+        selectedPluginIds = capabilityTask.pluginIds ?? []
+        selectedPluginVersions = capabilityTask.pluginVersions ?? {}
+        // The internal capability scope is never a workspace grant. Only
+        // explicitly selected plugin tools are visible to a model.
+        allowedToolNames = new Set(capabilityTask.capabilityToolNames)
+      } catch (error) {
+        if (agentTaskId) cancelTasksForSession(sessionId, 'capability_setup_failed')
+        await failGenerationSetup(wc, task, error instanceof Error ? error.message : '对话工具无法启动')
+        return
+      }
+    } else if (!agentTaskId && selectedPluginIds.length && !supportsNativeToolCalling(preset)) {
+      await failGenerationSetup(wc, task, '当前模型不支持原生工具调用。请切换支持工具的模型后重试插件请求。')
+      return
+    }
     const useSearch = searchRequested && !vision && !agentTaskId && supportsBuiltInSearch(preset.provider)
-    const releaseBrowserLease = agentTaskId ? acquireOfficialChromeBrowserLease() : undefined
+    const releaseBrowserLease = browserIntent ? acquireOfficialChromeBrowserLease() : undefined
     try {
       await runModelReply(
         wc,
@@ -444,6 +478,7 @@ async function runReply(
         agentWorkspaceRoot,
         agentExecutionEnvironment,
         useProjectAgent,
+        useProjectAgent || browserIntent,
         skillPrompt,
         allowedToolNames,
         modelUserRequest,
@@ -456,8 +491,12 @@ async function runReply(
         waiting.timestamp
       )
     } finally {
-      await releaseBrowserLease?.()
+      try { await releaseBrowserLease?.() }
+      finally { if (agentTaskId) getTaskRuntime().cancelTask(agentTaskId, 'reply_finished') }
     }
+  } catch (error) {
+    if (agentTaskId) getTaskRuntime().cancelTask(agentTaskId, 'reply_setup_failed')
+    await failGenerationSetup(wc, task, error instanceof Error ? error.message : '本次回答未能启动')
   } finally {
     finishGeneration(sessionId, task)
   }
@@ -556,6 +595,7 @@ async function runModelReply(
   agentWorkspaceRoot?: string,
   agentExecutionEnvironment?: 'local' | 'docker',
   codingAgent = false,
+  requireInitialTool = false,
   skillPrompt = '',
   allowedToolNames?: ReadonlySet<string>,
   activeRequest?: string,
@@ -578,6 +618,8 @@ async function runModelReply(
   let sources: SourceCitation[] = []
   const generatedAttachments: Attachment[] = []
   const timeline = createToolTimeline()
+  let hasToolActivity = false
+  const showToolTimeline = (): boolean => Boolean(agentTaskId && (requireInitialTool || hasToolActivity))
   if (activePluginIds.length) {
     timeline.blocks.push({
       kind: 'plugins', model: preset.model,
@@ -626,10 +668,10 @@ async function runModelReply(
       name: skill.name, displayName: skill.displayName, source: skill.source, version: skill.version
     })) })
     const thinking = [reasoning, activity].filter(Boolean).join('\n\n')
-    if (!agentTaskId && thinking) {
+    if (!showToolTimeline() && thinking) {
       blocks.push({ kind: 'thinking', content: thinking, done: status !== 'streaming' })
     }
-    if (agentTaskId) {
+    if (showToolTimeline()) {
       // 最后一段思考后面可能没有文本/工具块，消息结束时补结算
       if (status !== 'streaming') settleToolTimeline(timeline)
       blocks.push(...timeline.blocks)
@@ -722,11 +764,12 @@ async function runModelReply(
           messages: history,
           onEvent,
           allowedToolNames,
-          requireInitialTool: activeSkills.length === 0,
-          requestUserInput: (args) => requestUserInput(
-            wc, sessionId, args, taskRuntime.getTaskSignal(agentTaskId)
-          ),
+          requireInitialTool: requireInitialTool && activeSkills.length === 0,
+          requestUserInput: activeSkills.length
+            ? (args) => requestUserInput(wc, sessionId, args, taskRuntime.getTaskSignal(agentTaskId))
+            : undefined,
           onToolActivity: async (tool) => {
+            hasToolActivity = true
             activeTool = tool.status === 'requested' ? { toolName: tool.toolName, args: tool.args } : undefined
             if (tool.toolName.startsWith('plugin.')) {
               const pluginId = activePluginIds.find((id: string) => tool.toolName.startsWith(`plugin.${id}.`)) ?? 'unknown'
@@ -831,10 +874,11 @@ async function runModelReply(
         }) } finally { unsubscribeApprovals() }
         if (result.status === 'failed') {
           const failureMessage = result.error?.message ?? '任务执行失败'
-          appendTaskReport(timeline, approvals, failureMessage)
           if (!content.trim()) {
-            appendToolTimelineText(timeline, `本次执行未完成：${failureMessage}。请重试。`)
+            if (showToolTimeline()) appendToolTimelineText(timeline, `本次执行未完成：${failureMessage}。请重试。`)
+            else content = `本次回答未完成：${failureMessage}。请重试。`
           }
+          if (showToolTimeline()) appendTaskReport(timeline, approvals, failureMessage)
           await emit('error', 'error')
           sendMessageNotice(wc, {
             id: randomUUID(), sessionId, level: 'error',
@@ -842,8 +886,8 @@ async function runModelReply(
           })
           return
         }
-        appendTaskReport(timeline, approvals)
-      } else if (activeSkills.length) {
+        if (showToolTimeline()) appendTaskReport(timeline, approvals)
+      } else if (activeSkills.length && supportsNativeToolCalling(preset)) {
         await runInteractiveChatLoop({
           model: runtime,
           messages: history,
@@ -889,7 +933,7 @@ async function runModelReply(
 
       const retryable = isRetryableStreamError(e)
       // 尚未产生最终正文时允许重试一次；清空首轮思考，避免重试后重复展示。
-      if (!useSearch && retryable && !content && !retried) {
+      if (!agentTaskId && !useSearch && retryable && !content && !retried) {
         retried = true
         reasoning = ''
         console.warn('[model] stream interrupted before content, retrying once')
@@ -901,7 +945,7 @@ async function runModelReply(
       console.warn('[model] chat error:', detail) // 不打印 prompt / 响应内容
       if (!content.trim()) {
         const placeholder = modelErrorMessage(detail, retryable, retried, false)
-        if (agentTaskId) appendToolTimelineText(timeline, `本次执行未完成：${placeholder}。请重试。`)
+        if (showToolTimeline()) appendToolTimelineText(timeline, `本次执行未完成：${placeholder}。请重试。`)
         else content = `本次回答未完成：${placeholder}。请重试。`
       }
       await emit('error', 'error')

@@ -172,7 +172,10 @@ function validateModelPreset(value: unknown): ModelPreset {
   ) {
     invalid('上下文预算必须在 8,000 到 1,000,000 tokens 之间')
   }
-  if (preset.capabilities != null && typeof preset.capabilities.imageInput !== 'boolean') {
+  if (preset.capabilities != null &&
+      (typeof preset.capabilities.imageInput !== 'boolean' ||
+        (preset.capabilities.nativeToolCalling != null &&
+          typeof preset.capabilities.nativeToolCalling !== 'boolean'))) {
     invalid('模型能力配置无效')
   }
   return preset
