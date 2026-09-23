@@ -6,7 +6,7 @@
 >
 > 本计划替代原“发送前显式绑定 Chrome”和基于关键词自动路由的实施方案。
 
-> 执行状态说明（2026-09-23）：总顺序以 `docs/08-第四阶段计划.md` 为准。Task 1 的固定版本契约和 Task 2 的历史修复已按代码与自动化复核；这不代表真实 Chrome 或真实模型验收通过。Task 5 的逐轮刷新底层已在 `d4b5edb` 提前实现，但未接入能力状态，不能标记 Task 5 完成。后续顺序为 Task 3 → Task 4 → Task 5 → Task 6～14。
+> 执行状态说明（2026-09-23）：总顺序以 `docs/08-第四阶段计划.md` 为准。Task 1 的固定版本契约和 Task 2 的历史修复已按代码与自动化复核；这不代表真实 Chrome 或真实模型验收通过。Task 3 的普通对话可选工具循环已部分落地；Task 5 的逐轮刷新底层已在 `d4b5edb` 提前实现，但未接入能力状态。新增「工作 / 对话」批次 3A 是 Task 3 剩余权限边界与 Task 4 激活前的前置项；其产品定义见 `docs/superpowers/specs/2026-09-23-work-chat-information-architecture.md`。后续顺序为批次 3A → Task 3 剩余项/Task 4 → Task 5 → Task 6～14。
 
 ## 1. 交付边界
 
@@ -26,6 +26,8 @@
 - 自研 CDP/窗口前台检测；
 - 强制使用 Chrome 的 Composer 开关；
 - 全量 `+` 菜单、Skill 语法、插件市场和 Hook UI 重构。
+
+会话空间边界：`chat` 无项目、无 Coding，但保留经模型选择和宿主授权的 Chrome；`work` 绑定项目，Coding 仍受项目授权和 Policy Engine 限制。此边界须先由批次 3A 在主进程落实，Chrome 工具是否可用不能由顶部入口名称或正文关键词直接推断。
 
 ## 2. 实施顺序
 

@@ -6,6 +6,8 @@
 >
 > Chrome 执行后端：Google Chrome 团队维护的 `chrome-devtools-mcp`，当前锁定 `1.7.0`
 
+> 会话空间前置边界：`docs/superpowers/specs/2026-09-23-work-chat-information-architecture.md` 定义 `work | chat` 归属。普通对话禁止 Coding，但可在模型选择和宿主授权后使用本设计的 Chrome 能力；项目工作同时受项目授权约束。此产品边界不改变 Google 官方 MCP 的工具协议。
+
 ## 1. 决策摘要
 
 ASTRYVE 不再通过关键词、正则或宿主自然语言分类器判断用户是否想使用 Chrome，也不要求用户在发送消息前手动开启 Chrome 上下文。

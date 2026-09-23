@@ -66,6 +66,7 @@ npm start
 | [docs/01-开发边界与规范.md](docs/01-开发边界与规范.md) | 整体范围 / 技术架构 / 工程规范 / 阶段路线 |
 | [docs/07-第三阶段计划.md](docs/07-第三阶段计划.md) | Agent 执行内核、Coding、权限、Docker 与 Skills 实现记录 |
 | [docs/08-第四阶段计划.md](docs/08-第四阶段计划.md) | 当前唯一总计划：项目剩余任务、依赖顺序、完成条件与停线条件 |
+| [docs/superpowers/specs/2026-09-23-work-chat-information-architecture.md](docs/superpowers/specs/2026-09-23-work-chat-information-architecture.md) | 待实施的「工作 / 对话」分治、项目会话归属、普通对话能力边界与旧数据迁移设计 |
 | [docs/09-Skills规范.md](docs/09-Skills规范.md) | M9 第三方 Skill 格式、来源、安装、触发、权限与审计规范 |
 | [docs/10-DeepSeek-Skills调用适配.md](docs/10-DeepSeek-Skills调用适配.md) | DeepSeek system message、原生工具调用与思考轮次适配 |
 | [docs/20-P4插件平台威胁模型.md](docs/20-P4插件平台威胁模型.md) | 插件、市场、MCP、Hooks、隔离 UI 与 Browser Gateway 威胁模型 |
