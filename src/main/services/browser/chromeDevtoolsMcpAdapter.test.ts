@@ -12,6 +12,26 @@ function session(
 }
 
 describe('ChromeDevtoolsMcpAdapter', () => {
+  it('rejects missing or changed official result content instead of claiming a successful browser action', async () => {
+    const missingPages = new ChromeDevtoolsMcpAdapter(session(() => ({ content: [] })))
+    await expect(missingPages.listTabs()).rejects.toThrow('标签页结果无效')
+
+    const missingSnapshot = new ChromeDevtoolsMcpAdapter(session(() => ({
+      content: [{ type: 'text', text: 'snapshot moved to plain text' }]
+    })))
+    await expect(missingSnapshot.find('1', { role: 'button' })).rejects.toThrow('快照结构无效')
+
+    const missingImage = new ChromeDevtoolsMcpAdapter(session(() => ({
+      content: [{ type: 'text', text: 'screenshot saved elsewhere' }]
+    })))
+    await expect(missingImage.screenshot('1')).rejects.toThrow('未以内联图片返回截图')
+
+    const changedEvaluation = new ChromeDevtoolsMcpAdapter(session(() => ({
+      content: [{ type: 'text', text: '{"readyState":"complete"}' }]
+    })))
+    await expect(changedEvaluation.pageState('1')).rejects.toThrow('脚本结果格式无效')
+  })
+
   it('maps page operations only to Google documented tool names and parameters', async () => {
     const fake = session((name) => {
       if (name === 'list_pages' || name === 'new_page') {

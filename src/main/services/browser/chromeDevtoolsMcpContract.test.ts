@@ -5,6 +5,7 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import { describe, expect, it } from 'vitest'
 import { assertOfficialToolContract } from './chromeDevtoolsMcpContract'
 import { officialChromeDevtoolsMcpArgs } from './chromeDevtoolsMcpClient'
+import pinnedTools from './fixtures/chrome-devtools-mcp-1.7.0-tools.json'
 
 describe('pinned Google Chrome DevTools MCP contract', () => {
   it('rejects absent official tools and changed required parameters before any browser action', () => {
@@ -39,6 +40,8 @@ describe('pinned Google Chrome DevTools MCP contract', () => {
       await client.connect(transport, { timeout: 15_000 })
       const listed = await client.listTools(undefined, { timeout: 10_000 })
       expect(listed.tools.length).toBeGreaterThanOrEqual(24)
+      expect(listed.tools.map(({ name, inputSchema }) => ({ name, inputSchema }))
+        .sort((a, b) => a.name.localeCompare(b.name))).toEqual(pinnedTools)
       expect(() => assertOfficialToolContract(listed.tools)).not.toThrow()
       expect(() => assertOfficialToolContract(listed.tools.filter((tool) => tool.name !== 'take_screenshot')))
         .toThrow('take_screenshot')
