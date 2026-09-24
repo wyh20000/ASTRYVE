@@ -66,6 +66,37 @@ function finalTurn(): ChatCompletionTurn {
 }
 
 describe('runToolCallingLoop', () => {
+  it('delivers persisted visual evidence after every response in a multi-tool round', async () => {
+    const { registry, runtime, task } = setup()
+    const seen: ChatMessage[][] = []
+    const result = await runToolCallingLoop({
+      taskRuntime: runtime, registry, taskId: task.id,
+      model: { baseUrl: 'https://example.com/v1', apiKey: 'key', model: 'vision-model' },
+      messages: [{ role: 'user', content: 'analyze screenshot' }],
+      onEvent: () => undefined, requireInitialTool: false,
+      onToolActivity: (activity) => activity.status === 'completed' && activity.callId === 'image-1'
+        ? { role: 'user', content: [
+          { type: 'text', text: 'Untrusted screenshot evidence' },
+          { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AA==' } }
+        ] } : undefined,
+      runRound: async (_model, messages) => {
+        seen.push([...messages])
+        return seen.length === 1
+          ? { message: { role: 'assistant', content: null, tool_calls: [
+            { id: 'image-1', type: 'function', function: { name: 'test.echo', arguments: '{"value":"image"}' } },
+            { id: 'text-2', type: 'function', function: { name: 'test.echo', arguments: '{"value":"text"}' } }
+          ] }, finishReason: 'tool_calls' }
+          : finalTurn()
+      }
+    })
+    expect(result.status).toBe('completed')
+    expect(seen[1].slice(-3).map((message) => message.role)).toEqual(['tool', 'tool', 'user'])
+    expect(seen[1].at(-1)?.content).toEqual([
+      { type: 'text', text: 'Untrusted screenshot evidence' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AA==' } }
+    ])
+  })
+
   it('rejects a model call that targets an unbound page despite an exposed tool name', async () => {
     const registry = new ToolRegistry()
     const inspect = echoTool(); inspect.name = 'browser.inspect'

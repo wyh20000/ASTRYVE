@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   workspaceGrant: null as null | { id: string; rootPath: string },
   plugins: [] as Array<{ id: string; status: string; enabled: boolean }>,
   availableTools: [] as Array<{ function: { name: string } }>,
+  screenshotArtifact: null as null | { id: string; taskId: string; callId: string;
+    mimeType: 'image/jpeg'; data: string; byteLength: number; expiresAt: number },
   preset: null as null | { id: string; provider: 'deepseek' | 'custom'; model: string; baseUrl: string; apiKey: string;
     contextMessages: number; contextTokens: number; capabilities?: { imageInput: boolean; nativeToolCalling?: boolean } },
   createCapabilityTask: vi.fn(async (sessionId: string, _ownerId: number, pluginIds?: readonly string[]) => ({
@@ -29,7 +31,8 @@ const mocks = vi.hoisted(() => ({
     id: `project-${sessionId}`, workspaceId: 'workspace-a', environment: 'local',
     pluginIds: [...(pluginIds ?? [])], pluginVersions: {}, capabilityToolNames: []
   })),
-  runToolCallingLoop: vi.fn(async (input: { onEvent: (event: unknown) => Promise<void> }) => {
+  runToolCallingLoop: vi.fn(async (input: { onEvent: (event: unknown) => Promise<void>;
+    onToolActivity?: (activity: unknown) => Promise<unknown> }) => {
     await input.onEvent({ content: '普通回答' })
     return { status: 'completed' as const, rounds: 1, messages: [] }
   }),
@@ -84,6 +87,10 @@ vi.mock('../services/agent/skillManager', () => ({ auditSkillUse: vi.fn(),
 vi.mock('../services/browser/officialChromeBrowserRuntime', () => ({
   acquireOfficialChromeBrowserLease: mocks.acquireBrowserLease
 }))
+vi.mock('../services/browser/browserTools', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../services/browser/browserTools')>(),
+  consumeBrowserScreenshotArtifact: () => mocks.screenshotArtifact
+}))
 
 import { IPC, EVENTS } from '@shared/ipc'
 import { MemoryStore } from '../db/memory'
@@ -111,6 +118,7 @@ describe('message IPC send lifecycle', () => {
     mocks.workspaceGrant = null
     mocks.plugins = []
     mocks.availableTools = []
+    mocks.screenshotArtifact = null
     mocks.preset = null
     mocks.streamChat.mockClear()
     mocks.streamDeepSeekSearch.mockClear()
@@ -442,6 +450,45 @@ describe('message IPC send lifecycle', () => {
       expect(loop.allowedToolNames.has('browser.listTabs')).toBe(false)
       expect(loop.model.vision).toBe(true)
       expect(JSON.stringify(loop)).toContain('image_url')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('persists a Chrome screenshot before returning its pixels to a vision model', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'astryve-screenshot-evidence-'))
+    try {
+      initArtifactStore(root)
+      mocks.preset = { id: 'vision', provider: 'deepseek', model: 'vision-model',
+        baseUrl: 'https://example.com/v1', apiKey: 'test', contextMessages: 20,
+        contextTokens: 16000, capabilities: { imageInput: true, nativeToolCalling: true } }
+      mocks.screenshotArtifact = {
+        id: 'browser-image-test', taskId: 'capability-test', callId: 'shot-1',
+        mimeType: 'image/jpeg', data: Buffer.from('jpeg-bytes').toString('base64'),
+        byteLength: 10, expiresAt: Date.now() + 60_000
+      }
+      let visualEvidence: unknown
+      mocks.runToolCallingLoop.mockImplementationOnce(async (input) => {
+        visualEvidence = await input.onToolActivity!({
+          callId: 'shot-1', toolName: 'browser.screenshot', args: { tabId: '1' },
+          status: 'completed', ok: true, result: { artifactId: 'browser-image-test' }
+        })
+        return { status: 'completed', rounds: 1, messages: [] }
+      })
+      const store = mocks.store as MemoryStore
+      const session = await store.createSession('screenshot')
+      await mocks.handlers.get(IPC.message.send)!(event(), {
+        clientMessageId: crypto.randomUUID(), sessionId: session.id, content: '截图并分析'
+      })
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(visualEvidence).toBeDefined())
+      expect(visualEvidence).toMatchObject({ role: 'user', content: [
+        expect.objectContaining({ type: 'text' }),
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${mocks.screenshotArtifact.data}` } }
+      ] })
+      const reply = (await store.listMessages(session.id)).at(-1)
+      expect(reply?.attachments?.[0]?.dataRef).toMatch(/^artifact:/)
+      expect(reply?.blocks?.some((block) => block.kind === 'image')).toBe(true)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

@@ -43,7 +43,8 @@ export interface RunToolCallingLoopInput {
   model: RuntimeModel
   messages: ChatMessage[]
   onEvent: OnEvent
-  onToolActivity?: (activity: ToolActivity) => void | Promise<void>
+  /** May return host-persisted visual evidence for the next model round. */
+  onToolActivity?: (activity: ToolActivity) => void | ChatMessage | Promise<void | ChatMessage>
   maxToolRounds?: number
   maxToolResultChars?: number
   runRound?: RunRound
@@ -160,6 +161,7 @@ export async function runToolCallingLoop(
         return { status: 'completed', rounds: round, messages }
       }
 
+      const pendingVisualEvidence: ChatMessage[] = []
       for (const call of calls) {
         let parsedArgs: unknown
         try { parsedArgs = JSON.parse(call.function.arguments) } catch { parsedArgs = undefined }
@@ -177,11 +179,11 @@ export async function runToolCallingLoop(
             ? await input.taskRuntime.submitNativeToolCall(input.taskId, call)
             : { ok: false, error: { code: 'TOOL_NOT_AVAILABLE', message: '此工具未在当前轮次开放，调用已阻止' } }
         }
-        if (!isUserInput) await input.onToolActivity?.({
+        const visualEvidence = !isUserInput ? await input.onToolActivity?.({
           callId: call.id, toolName: call.function.name, args: parsedArgs,
           status: 'completed', ok: result.ok,
           result: result.ok ? result.value : { error: result.error }
-        })
+        }) : undefined
         if (!result.ok && isTerminalToolFailureCode(result.error?.code)) {
           return { status: 'failed', rounds: round, messages, error: result.error }
         }
@@ -210,7 +212,11 @@ export async function runToolCallingLoop(
           name: call.function.name,
           content
         })
+        if (result.ok && visualEvidence) pendingVisualEvidence.push(visualEvidence)
       }
+      // Providers require every tool response directly after the assistant's
+      // tool_calls. Add image-bearing user evidence only after all responses.
+      messages.push(...pendingVisualEvidence)
     }
 
     // If the emergency fuse is ever reached, stop exposing tools and request a
