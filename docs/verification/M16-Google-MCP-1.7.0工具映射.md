@@ -79,7 +79,7 @@
 | `browser.check` | `fill(pageId,uid,value:'true'/'false')` | 当前适配器映射；真实控件兼容性尚待 Chrome 验收。 |
 | `browser.drag` | `drag(pageId,from_uid,to_uid)` | 双引用版本和同页校验。 |
 | `browser.screenshot` | `take_screenshot(pageId,format:'jpeg',quality:70,fullPage:false)` | inline `image` → 临时截图 artifact；最终持久化由宿主执行。 |
-| `browser.screenshotCurrent` | `list_pages()`、`take_screenshot(pageId,format:'jpeg',quality:70,fullPage:false)` | 旧实现使用 MCP `selected`，**不保证用户当前可见页面**；Task 6 必须替换为可信绑定。 |
+| `browser.screenshotCurrent` | 不再注册 | 旧实现依赖 MCP `selected`，无法证明用户当前可见页面；重复截图改用已绑定页的 `browser.screenshot`。 |
 | `browser.screenshotElement` | `take_screenshot(pageId,format:'jpeg',quality:70,fullPage:false,uid)` | 只截指定快照元素，不能替代页面截图。 |
 | `browser.diagnostics` | `list_console_messages(pageId,pageSize:100,types)`、`list_network_requests(pageId,pageSize:100)`、`evaluate_script(pageId,function)` | 有界错误、失败请求和性能摘要。 |
 

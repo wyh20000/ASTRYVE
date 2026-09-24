@@ -327,6 +327,31 @@ describe('BrowserGateway', () => {
       .toBeLessThan(vi.mocked(fake.screenshot).mock.invocationCallOrder[0])
   })
 
+  it('rejects a bound screenshot when the page changes during loading', async () => {
+    const fake = adapter()
+    fake.listTabs = vi.fn(async () => [{ id: 'tab-1', title: 'Page', url: 'https://example.com/a?secret=1', active: true }])
+    fake.pageState = vi.fn(async () => ({ title: 'Other', url: 'https://example.com/b',
+      readyState: 'complete', pendingImages: 0, fontsLoaded: true, resourceCount: 1, scrollHeight: 100 }))
+    const gateway = new BrowserGateway(fake)
+    await expect(gateway.screenshot('tab-1', undefined, context('changed-during'), 'https://example.com/a'))
+      .rejects.toThrow('已跳转')
+    expect(fake.screenshot).not.toHaveBeenCalled()
+  })
+
+  it('discards a bound screenshot when the page changes during capture', async () => {
+    const fake = adapter()
+    let changed = false
+    fake.listTabs = vi.fn(async () => [{ id: 'tab-1', title: 'Page',
+      url: changed ? 'https://example.com/b' : 'https://example.com/a?secret=1', active: true }])
+    fake.pageState = vi.fn(async () => ({ title: 'Page', url: 'https://example.com/a',
+      readyState: 'complete', pendingImages: 0, fontsLoaded: true, resourceCount: 1, scrollHeight: 100 }))
+    fake.screenshot = vi.fn(async () => { changed = true; return Buffer.from('wrong-page') })
+    const gateway = new BrowserGateway(fake)
+    await expect(gateway.screenshot('tab-1', undefined, context('changed-after'), 'https://example.com/a'))
+      .rejects.toThrow('地址发生变化')
+    expect(fake.screenshot).toHaveBeenCalledTimes(1)
+  })
+
   it('blocks navigation denied by site policy', async () => {
     const gateway = new BrowserGateway(adapter(), { canNavigate: (url) => url.hostname !== 'blocked.test' })
     await expect(gateway.createTab('https://blocked.test')).rejects.toThrow('阻止')
@@ -346,6 +371,9 @@ describe('BrowserGateway', () => {
     const gateway = new BrowserGateway(adapter())
     await expect(gateway.assertTabOrigin('tab-1', 'https://example.com/page')).resolves.toBeUndefined()
     await expect(gateway.assertTabOrigin('tab-1', 'https://attacker.test')).rejects.toThrow('地址已变化')
+    await expect(gateway.assertTabPage('tab-1', 'https://example.com/')).resolves.toBeUndefined()
+    await expect(gateway.assertTabPage('tab-1', 'https://example.com/other'))
+      .rejects.toThrow('页面地址发生变化')
   })
 
   it('allows same-page drag and rejects stale or cross-page references', async () => {

@@ -72,6 +72,18 @@ export class BrowserGateway {
     if (this.canNavigate && !this.canNavigate(new URL(actual.url))) throw new Error('该网站已被浏览器设置阻止')
   }
 
+  /** Browser reads and actions must still refer to the selected page, not merely its origin. */
+  async assertTabPage(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
+    const expected = safeDisplayUrl(rawUrl)
+    if (!expected) throw new Error('页面绑定地址无效')
+    const actual = (await this.withReadPermit(() => this.adapter.listTabs(context), context))
+      .find((tab) => tab.id === tabId)
+    if (!actual || safeDisplayUrl(actual.url) !== expected) {
+      throw new Error('已选择的页面地址发生变化，请重新选择页面后重试')
+    }
+    if (this.canNavigate && !this.canNavigate(new URL(actual.url))) throw new Error('该网站已被浏览器设置阻止')
+  }
+
   async navigate(tabId: string, rawUrl: string, context?: BrowserCallContext): Promise<void> {
     const url = safeWebUrl(rawUrl)
     if (this.canNavigate && !this.canNavigate(new URL(url))) throw new Error('该网站已被浏览器设置阻止')
@@ -203,7 +215,7 @@ export class BrowserGateway {
     })
   }
 
-  async screenshot(tabId: string, reference?: BrowserElementRef, context?: BrowserCallContext): Promise<Buffer> {
+  async screenshot(tabId: string, reference?: BrowserElementRef, context?: BrowserCallContext, expectedUrl?: string): Promise<Buffer> {
     let backendNodeId: number | undefined
     if (reference) {
       const record = this.elements.get(reference.id)
@@ -211,8 +223,10 @@ export class BrowserGateway {
       if (record.ref.pageVersion !== reference.pageVersion || reference.pageVersion !== this.version(tabId)) throw new Error('元素引用已过期，请重新定位')
       backendNodeId = record.backendNodeId
     }
-    await this.waitForScreenshotReady(tabId, context)
+    if (expectedUrl) await this.assertTabPage(tabId, expectedUrl, context)
+    await this.waitForScreenshotReady(tabId, context, expectedUrl)
     const image = await this.withReadPermit(() => this.adapter.screenshot(tabId, backendNodeId, context), context)
+    if (expectedUrl) await this.assertTabPage(tabId, expectedUrl, context)
     if (image.byteLength > 2 * 1024 * 1024) throw new Error('截图超过大小限制')
     return image
   }
@@ -329,7 +343,7 @@ export class BrowserGateway {
     })
   }
 
-  private async waitForScreenshotReady(tabId: string, context?: BrowserCallContext): Promise<void> {
+  private async waitForScreenshotReady(tabId: string, context?: BrowserCallContext, expectedUrl?: string): Promise<void> {
     if (!context) return
     this.assertContext(context)
     const deadline = Math.min(context.deadline, Date.now() + 8_000)
@@ -340,6 +354,9 @@ export class BrowserGateway {
         () => this.adapter.pageState(tabId, { ...context, deadline }),
         { ...context, deadline }
       )
+      if (expectedUrl && safeDisplayUrl(state.url) !== safeDisplayUrl(expectedUrl)) {
+        throw new Error('页面在等待截图时已跳转，请重新选择页面后截图')
+      }
       const ready = state.readyState === 'complete' &&
         (state.pendingImages ?? 0) === 0 &&
         (state.fontsLoaded ?? true)
