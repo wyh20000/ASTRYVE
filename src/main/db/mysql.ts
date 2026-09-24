@@ -136,29 +136,34 @@ export class MySqlStore implements DbStore {
       connectionLimit: 5
     })
 
-    for (const stmt of SCHEMA_STATEMENTS) {
-      await pool.query(stmt)
-    }
-    // 迁移：老库补消息事务字段（重复列错误忽略）
-    for (const statement of [
-      "ALTER TABLE sessions ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'chat'",
-      'ALTER TABLE sessions ADD COLUMN workspace_id VARCHAR(128) NULL',
-      'ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL',
-      'ALTER TABLE messages ADD COLUMN generation_id VARCHAR(64) NULL',
-      'ALTER TABLE messages ADD COLUMN revision BIGINT NOT NULL DEFAULT 0',
-      'ALTER TABLE messages ADD COLUMN finish_reason VARCHAR(32) NULL',
-      'ALTER TABLE messages ADD COLUMN turn_envelope MEDIUMTEXT NULL'
-    ]) {
-      try {
-        await pool.query(statement)
-      } catch (error) {
-        const code = (error as { code?: string })?.code
-        if (code !== 'ER_DUP_FIELDNAME') throw error
+    try {
+      for (const stmt of SCHEMA_STATEMENTS) {
+        await pool.query(stmt)
       }
+      // 迁移：老库补消息事务字段（重复列错误忽略）
+      for (const statement of [
+        "ALTER TABLE sessions ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'chat'",
+        'ALTER TABLE sessions ADD COLUMN workspace_id VARCHAR(128) NULL',
+        'ALTER TABLE messages ADD COLUMN attachments MEDIUMTEXT NULL',
+        'ALTER TABLE messages ADD COLUMN generation_id VARCHAR(64) NULL',
+        'ALTER TABLE messages ADD COLUMN revision BIGINT NOT NULL DEFAULT 0',
+        'ALTER TABLE messages ADD COLUMN finish_reason VARCHAR(32) NULL',
+        'ALTER TABLE messages ADD COLUMN turn_envelope MEDIUMTEXT NULL'
+      ]) {
+        try {
+          await pool.query(statement)
+        } catch (error) {
+          const code = (error as { code?: string })?.code
+          if (code !== 'ER_DUP_FIELDNAME') throw error
+        }
+      }
+      await pool.query("UPDATE sessions SET kind = 'work' WHERE project_path IS NOT NULL AND kind = 'chat'")
+      await pool.query('SELECT 1')
+      return new MySqlStore(pool)
+    } catch (error) {
+      await pool.end().catch((closeError) => console.warn('[db] MySQL pool cleanup failed:', closeError))
+      throw error
     }
-    await pool.query("UPDATE sessions SET kind = 'work' WHERE project_path IS NOT NULL AND kind = 'chat'")
-    await pool.query('SELECT 1')
-    return new MySqlStore(pool)
   }
 
   async listSessions(): Promise<Session[]> {

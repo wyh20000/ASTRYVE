@@ -4,7 +4,7 @@ import type { CreateSessionInput } from '@shared/types'
 import { collectOrphanArtifacts, getStore } from '../db'
 import { ok, err } from './result'
 import { cancelGeneration } from '../services/generationTasks'
-import { activateSessionWorkspace, clearSessionWorkspace, getWorkspaceService } from '../services/agent/workspaceManager'
+import { activateSessionWorkspace, clearSessionWorkspace, getWorkspaceService, sameProjectPath } from '../services/agent/workspaceManager'
 import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
 import { isVisibleMessage } from '../services/emptySessionCleanup'
 import {
@@ -105,6 +105,7 @@ async function findOrCreateBlankSession(projectPath: string | null, workspaceId:
     if (session.title.trim()) continue
     if ((session.kind ?? (session.projectPath ? 'work' : 'chat')) !== (workspaceId ? 'work' : 'chat')) continue
     if ((session.workspaceId ?? null) !== workspaceId) continue
+    if (workspaceId && (!session.projectPath || !projectPath || !sameProjectPath(session.projectPath, projectPath))) continue
     const messages = await getStore().listMessages(session.id)
     if (!messages.some(isVisibleMessage)) return session
   }

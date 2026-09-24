@@ -32,12 +32,22 @@ describe('SQLite and Artifact Store', () => {
     old.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_path TEXT,
       pinned INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       INSERT INTO sessions VALUES ('work', '项目记录', 'D:\\project-a', 0, 1, 2);
-      INSERT INTO sessions VALUES ('chat', '普通记录', NULL, 0, 1, 3);`)
+      INSERT INTO sessions VALUES ('chat', '普通记录', NULL, 0, 1, 3);
+      CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+        content TEXT NOT NULL, blocks TEXT, attachments TEXT, status TEXT NOT NULL,
+        timestamp INTEGER NOT NULL, generation_id TEXT, revision INTEGER NOT NULL DEFAULT 0,
+        finish_reason TEXT, turn_envelope TEXT);
+      INSERT INTO messages (id, session_id, role, content, status, timestamp)
+        VALUES ('old-message', 'work', 'user', '保留的项目历史', 'done', 4);`)
     old.close()
     const store = await SqliteStore.open(path)
-    databases.push(store)
     expect(await store.getSession('work')).toMatchObject({ kind: 'work', projectPath: 'D:\\project-a' })
     expect(await store.getSession('chat')).toMatchObject({ kind: 'chat', projectPath: null })
+    expect((await store.listMessages('work'))[0]).toMatchObject({ id: 'old-message', content: '保留的项目历史' })
+    store.close()
+    const reopened = await SqliteStore.open(path)
+    databases.push(reopened)
+    expect((await reopened.listMessages('work')).map((message) => message.id)).toEqual(['old-message'])
     expect((await stat(`${path}.pre-work-chat.bak`)).size).toBeGreaterThan(0)
   })
 
@@ -91,10 +101,13 @@ describe('SQLite and Artifact Store', () => {
       status: 'done', timestamp: 3
     }] }))
     const store = await SqliteStore.open(join(root, 'chat.sqlite'), legacy)
-    databases.push(store)
     expect(await store.listSessions()).toMatchObject([{ id: session.id, title: 'old' }])
     expect((await store.listMessages(session.id))[0].content).toBe('legacy')
     expect((await readFile(legacy, 'utf8')).includes('legacy')).toBe(true)
+    store.close()
+    const reopened = await SqliteStore.open(join(root, 'chat.sqlite'), legacy)
+    databases.push(reopened)
+    expect((await reopened.listMessages(session.id)).map((message) => message.content)).toEqual(['legacy'])
   })
 
   it('moves legacy inline images into the artifact store during import', async () => {

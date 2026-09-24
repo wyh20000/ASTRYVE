@@ -15,7 +15,8 @@ vi.mock('electron', () => ({ ipcMain: { handle: (name: string, handler: (event: 
 vi.mock('../db', () => ({ getStore: () => mocks.store, collectOrphanArtifacts: vi.fn(async () => 0) }))
 vi.mock('../services/agent/workspaceManager', () => ({
   getWorkspaceService: () => ({ activate: mocks.activate }),
-  activateSessionWorkspace: mocks.bind, clearSessionWorkspace: vi.fn()
+  activateSessionWorkspace: mocks.bind, clearSessionWorkspace: vi.fn(),
+  sameProjectPath: (left: string, right: string) => left.toLowerCase().replaceAll('/', '\\') === right.toLowerCase().replaceAll('/', '\\')
 }))
 vi.mock('../services/generationTasks', () => ({ cancelGeneration: vi.fn() }))
 vi.mock('../services/agent/taskRuntimeManager', () => ({ cancelTasksForSession: vi.fn() }))
@@ -35,6 +36,8 @@ describe('session creation scope', () => {
     mocks.handlers.clear()
     mocks.store = new MemoryStore()
     mocks.activate.mockClear()
+    mocks.activate.mockImplementation(async () => ({ id: workspaceId,
+      name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }))
     mocks.bind.mockClear()
     configureTrustedIpcSender('file:///D:/app/index.html')
     setBusinessIpcAvailable(true)
@@ -68,5 +71,15 @@ describe('session creation scope', () => {
     await (mocks.store as MemoryStore).insertMessage({ sessionId: first.data.id, role: 'user', content: 'history' })
     const second = await create(event(), { kind: 'chat' }) as { data: { id: string } }
     expect(second.data.id).not.toBe(first.data.id)
+  })
+
+  it('does not reuse a work session if its saved path no longer matches the grant', async () => {
+    const create = mocks.handlers.get(IPC.session.create)!
+    const first = await create(event(), { kind: 'work', workspaceId }) as { data: { id: string } }
+    mocks.activate.mockImplementation(async () => ({ id: workspaceId,
+      name: 'project-b', displayPath: 'D:\\project-b', createdAt: 1, lastOpenedAt: 2 }))
+    const second = await create(event(), { kind: 'work', workspaceId }) as { data: { id: string; projectPath: string } }
+    expect(second.data.id).not.toBe(first.data.id)
+    expect(second.data.projectPath).toBe('D:\\project-b')
   })
 })
