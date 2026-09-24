@@ -282,6 +282,10 @@ export function cancelTasksForSession(sessionId: string, reason: string): number
   return runtime?.cancelSession(sessionId, reason) ?? 0
 }
 
+export function cancelTasksForWorkspace(workspaceId: string, reason: string): number {
+  return runtime?.cancelWorkspace(workspaceId, reason) ?? 0
+}
+
 export function cancelTasksForOwner(ownerWebContentsId: number, reason: string): number {
   return runtime?.cancelOwner(ownerWebContentsId, reason) ?? 0
 }

@@ -18,6 +18,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApprovalUiRequest, Session } from '@shared/types'
 import { useChatStore } from '../../stores/chatStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
 
 const sessionState = vi.hoisted(() => ({
   sessions: [] as Session[],
@@ -46,6 +47,7 @@ vi.mock('../../stores/uiStore', () => ({
 import SessionList from './SessionList'
 
 const NOW = Date.now()
+const originalRevoke = useWorkspaceStore.getState().revoke
 
 function session(id: string, title: string, updatedAt: number): Session {
   return {
@@ -64,6 +66,7 @@ beforeEach(() => {
   sessionState.remove.mockImplementation(async () => undefined)
   uiState.searchQuery = ''
   useChatStore.getState().clear()
+  useWorkspaceStore.setState({ recent: [], revoke: originalRevoke })
 })
 
 describe('会话列表 - 分组与时间', () => {
@@ -78,6 +81,66 @@ describe('会话列表 - 分组与时间', () => {
     expect(screen.getByText('project-a')).toBeInTheDocument()
     expect(screen.getByText('project-b')).toBeInTheDocument()
     expect(screen.getByText('普通对话')).toBeInTheDocument()
+  })
+
+  it('项目组可用键盘折叠，普通对话始终保持可见', async () => {
+    sessionState.sessions = [
+      { ...session('work', '项目历史', NOW), projectPath: 'D:\\project-a', kind: 'work' },
+      session('chat', '普通历史', NOW - 1)
+    ]
+    render(<SessionList />)
+    const toggle = screen.getByRole('button', { name: '折叠或展开 D:\\project-a' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    toggle.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText('普通历史')).toBeInTheDocument()
+  })
+
+  it('同一项目的路径分隔符差异不会拆成两个项目组', () => {
+    sessionState.sessions = [
+      { ...session('a', '项目记录 A', NOW), projectPath: 'D:\\project-a', workspaceId: 'workspace-a', kind: 'work' },
+      { ...session('b', '项目记录 B', NOW - 1), projectPath: 'D:/project-a/', workspaceId: 'workspace-a', kind: 'work' }
+    ]
+    render(<SessionList />)
+    expect(screen.getAllByRole('button', { name: /折叠或展开.*project-a/ })).toHaveLength(1)
+    expect(screen.getByText('项目记录 A')).toBeInTheDocument()
+    expect(screen.getByText('项目记录 B')).toBeInTheDocument()
+  })
+
+  it('从搜索结果切到折叠项目后自动展开该项目', async () => {
+    sessionState.sessions = [
+      { ...session('work', '项目记录', NOW), projectPath: 'D:\\project-a', kind: 'work' },
+      session('chat', '普通记录', NOW - 1)
+    ]
+    sessionState.activeId = 'chat'
+    const view = render(<SessionList />)
+    const toggle = screen.getByRole('button', { name: '折叠或展开 D:\\project-a' })
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    uiState.searchQuery = '项目'
+    view.rerender(<SessionList />)
+    await userEvent.click(screen.getByText('项目记录'))
+    sessionState.activeId = 'work'
+    uiState.searchQuery = ''
+    view.rerender(<SessionList />)
+    await waitFor(() => expect(screen.getByRole('button', { name: '折叠或展开 D:\\project-a' }))
+      .toHaveAttribute('aria-expanded', 'true'))
+  })
+
+  it('项目授权移除需二次确认，且不删除历史会话', async () => {
+    const revoke = vi.fn(async () => true)
+    useWorkspaceStore.setState({ recent: [{ id: 'workspace-a', name: 'Project A',
+      displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }], revoke })
+    sessionState.sessions = [{ ...session('work', '保留的记录', NOW),
+      projectPath: 'D:\\project-a', workspaceId: 'workspace-a', kind: 'work' }]
+    render(<SessionList />)
+    await userEvent.click(screen.getByRole('button', { name: '移除 Project A 的项目授权' }))
+    expect(revoke).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '确认移除 Project A 的项目授权' }))
+    expect(revoke).toHaveBeenCalledWith('workspace-a')
+    expect(sessionState.remove).not.toHaveBeenCalled()
+    expect(screen.getByText('保留的记录')).toBeInTheDocument()
   })
 
   it('空列表显示空状态', () => {

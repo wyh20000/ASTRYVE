@@ -147,8 +147,9 @@ export function getWorkspaceGrants(): WorkspaceGrant[] {
 }
 
 export function setWorkspaceGrants(grants: WorkspaceGrant[]): void {
+  const previous = data.workspaces
   data.workspaces = grants.map((grant) => ({ ...grant }))
-  persist()
+  try { persist(true) } catch (error) { data.workspaces = previous; throw error }
 }
 
 export function getAgentProjectPreferences(workspaceId: string): AgentProjectPreferences | undefined {

@@ -33,6 +33,23 @@ describe('project settings persistence', () => {
     expect(reloaded.getAgentProjectPreferences(second.workspaceId)).toEqual(second)
   })
 
+  it('does not silently accept a failed workspace authorization save', async () => {
+    state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-grant-settings-test-'))
+    vi.resetModules()
+    const settings = await import('./settings')
+    const grant = { id: '11111111-1111-4111-8111-111111111111', rootPath: 'D:\\project',
+      realRootPath: 'D:\\project', rootIdentity: '1:1', createdAt: 1 }
+    settings.setWorkspaceGrants([grant])
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw new Error('disk error') })
+    expect(() => settings.setWorkspaceGrants([{ ...grant, revoked: true }])).toThrow('项目设置保存失败')
+    expect(settings.getWorkspaceGrants()).toEqual([grant])
+    vi.resetModules()
+    const reloaded = await import('./settings')
+    reloaded.initSettings()
+    expect(reloaded.getWorkspaceGrants()).toEqual([grant])
+  })
+
   it('persists disabled Skills and rolls back a failed save', async () => {
     state.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-skill-settings-test-'))
     vi.resetModules()

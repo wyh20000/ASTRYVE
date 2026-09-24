@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceBoundaryService } from './workspace'
 import {
+  clearWorkspaceBindings,
   clearSessionWorkspace,
   getSessionWorkspaceId,
   restoreSessionWorkspace,
@@ -32,5 +33,16 @@ describe('workspaceManager path matching', () => {
       .resolves.toBe('workspace-restored')
     expect(getSessionWorkspaceId(sessionId)).toBe('workspace-restored')
     clearSessionWorkspace(sessionId)
+  })
+
+  it('clears every in-memory binding when a project is revoked', async () => {
+    const workspace = { id: 'workspace-revoke', name: 'repo', displayPath: 'D:\\repo',
+      createdAt: 1, lastOpenedAt: 1 }
+    const service = { listRecent: () => [workspace], activate: async () => workspace } as unknown as WorkspaceBoundaryService
+    await restoreSessionWorkspace('session-one', 'D:\\repo', service)
+    await restoreSessionWorkspace('session-two', 'D:\\repo', service)
+    clearWorkspaceBindings(workspace.id)
+    expect(getSessionWorkspaceId('session-one')).toBeUndefined()
+    expect(getSessionWorkspaceId('session-two')).toBeUndefined()
   })
 })

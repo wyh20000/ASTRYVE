@@ -86,4 +86,35 @@ describe('session store empty conversation reuse', () => {
     expect(create).toHaveBeenCalledTimes(1)
     expect(useSessionStore.getState().activeId).toBe('fresh')
   })
+
+  it('closing a view preserves history, draft and background generation', async () => {
+    useSessionStore.setState({ sessions: [session('kept', '历史', 1)], activeId: 'kept' })
+    useChatStore.setState({ sending: { kept: true } })
+    useUiStore.getState().updateDraft('kept', (draft) => ({ ...draft, value: '未发送' }))
+    useSessionStore.getState().close()
+    expect(useSessionStore.getState().activeId).toBeNull()
+    expect(useSessionStore.getState().sessions).toHaveLength(1)
+    expect(useChatStore.getState().sending.kept).toBe(true)
+    expect(useUiStore.getState().drafts.kept.value).toBe('未发送')
+  })
+
+  it('restores a closed view without creating a replacement conversation', async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) }
+    })
+    const kept = session('kept', '历史', 1)
+    useSessionStore.setState({ sessions: [kept], activeId: kept.id })
+    useSessionStore.getState().close()
+    const create = vi.fn()
+    vi.stubGlobal('window', { agent: { session: {
+      list: vi.fn(async () => ({ ok: true as const, data: [kept] })), create
+    } } })
+    await useSessionStore.getState().init()
+    expect(useSessionStore.getState().activeId).toBeNull()
+    expect(useSessionStore.getState().sessions).toEqual([kept])
+    expect(create).not.toHaveBeenCalled()
+  })
 })

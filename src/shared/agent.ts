@@ -51,6 +51,8 @@ export interface WorkspaceGrant {
   id: string
   rootPath: string
   realRootPath: string
+  /** 撤销后保留身份墓碑；重新授权同一真实路径可恢复原会话。 */
+  revoked?: boolean
   /** 授权时根目录的设备/文件标识，用于发现同路径替换。 */
   rootIdentity?: string
   createdAt: number

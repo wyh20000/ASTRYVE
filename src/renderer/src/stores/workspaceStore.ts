@@ -10,6 +10,7 @@ interface WorkspaceState {
   selectAndActivate: (sessionId: string) => Promise<void>
   selectAndCreateWork: () => Promise<void>
   activate: (sessionId: string, workspaceId: string) => Promise<void>
+  revoke: (workspaceId: string) => Promise<boolean>
 }
 
 function sortRecent(workspaces: WorkspaceSummary[]): WorkspaceSummary[] {
@@ -69,5 +70,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       loading: false,
       error: null
     }))
+  },
+  revoke: async (workspaceId) => {
+    const result = await window.agent.workspace.revoke(workspaceId)
+    if (!result.ok) { set({ error: result.error.message }); return false }
+    set((state) => ({ recent: state.recent.filter((workspace) => workspace.id !== workspaceId), error: null }))
+    return true
   }
 }))

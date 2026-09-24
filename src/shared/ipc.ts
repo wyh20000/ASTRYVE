@@ -30,6 +30,7 @@ export const IPC = {
     recent: 'workspace:recent',
     select: 'workspace:select',
     activate: 'workspace:activate',
+    revoke: 'workspace:revoke',
     listFiles: 'workspace:list-files',
     findFiles: 'workspace:find-files',
     readFile: 'workspace:read-file',

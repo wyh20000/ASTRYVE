@@ -4,11 +4,15 @@ import { useUiStore } from './uiStore'
 import { useChatStore } from './chatStore'
 
 const ACTIVE_SESSION_KEY = 'astryve:active-session-id'
+const CLOSED_SESSION_VALUE = '__closed__'
 function rememberActive(id: string | null): void {
   try {
     if (id) localStorage.setItem(ACTIVE_SESSION_KEY, id)
     else localStorage.removeItem(ACTIVE_SESSION_KEY)
   } catch { /* storage unavailable */ }
+}
+function rememberClosed(): void {
+  try { localStorage.setItem(ACTIVE_SESSION_KEY, CLOSED_SESSION_VALUE) } catch { /* storage unavailable */ }
 }
 
 interface SessionState {
@@ -20,6 +24,7 @@ interface SessionState {
   create: (title?: string) => Promise<Session | null>
   createWork: (workspaceId: string, title?: string) => Promise<Session | null>
   select: (id: string) => void
+  close: () => void
   rename: (id: string, title: string) => Promise<void>
   remove: (id: string) => Promise<void>
   touch: (id: string) => Promise<void>
@@ -39,7 +44,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (res.ok) {
       set({ sessions: res.data, loading: false, error: null })
       let remembered: Session | undefined
-      try { remembered = res.data.find((session) => session.id === localStorage.getItem(ACTIVE_SESSION_KEY)) }
+      try {
+        const rememberedId = localStorage.getItem(ACTIVE_SESSION_KEY)
+        if (rememberedId === CLOSED_SESSION_VALUE) { set({ activeId: null }); return }
+        remembered = res.data.find((session) => session.id === rememberedId)
+      }
       catch { /* storage unavailable */ }
       if (remembered) { set({ activeId: remembered.id }); return }
       // 是否真正空白由主进程检查消息，标题为空并不等于没有历史。
@@ -81,6 +90,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   select: (id) => { set({ activeId: id }); rememberActive(id) },
+  close: () => { set({ activeId: null }); rememberClosed() },
 
   rename: async (id, title) => {
     const res = await window.agent.session.rename(id, title)
@@ -98,7 +108,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((s) => {
       const sessions = s.sessions.filter((x) => x.id !== id)
       const activeId = s.activeId === id ? (sessions[0]?.id ?? null) : s.activeId
-      rememberActive(activeId)
+      if (s.activeId === id) rememberActive(activeId)
       return { sessions, activeId }
     })
   },

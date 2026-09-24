@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Conversations } from '@ant-design/x'
 import type { ConversationItemType } from '@ant-design/x'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -8,6 +8,7 @@ import { itemTime, fullTime } from '../../lib/time'
 import { Button, IconButton } from '../ui'
 import { Icon } from '../ui/icons'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { normalizedProjectPath, sameProjectPath } from '../../lib/sessionNavigation'
 
 const CHAT_GROUP = '普通对话'
 
@@ -39,27 +40,46 @@ export default function SessionList(): JSX.Element {
   const remove = useSessionStore((s) => s.remove)
   const createWork = useSessionStore((s) => s.createWork)
   const recent = useWorkspaceStore((s) => s.recent)
+  const revokeWorkspace = useWorkspaceStore((s) => s.revoke)
   const searchQuery = useUiStore((s) => s.searchQuery)
   const approvalRequests = useChatStore((s) => s.approvalRequests)
 
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [confirmWorkspaceId, setConfirmWorkspaceId] = useState<string | null>(null)
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
 
   const grouped = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const filtered = q ? sessions.filter((s) => s.title.toLowerCase().includes(q)) : sessions
-    const projects = new Map<string, typeof filtered>()
+    const projects = new Map<string, { label: string; items: typeof filtered }>()
     const chats: typeof filtered = []
     for (const session of filtered) {
       if (!session.projectPath) { chats.push(session); continue }
-      const group = projects.get(session.projectPath) ?? []
-      group.push(session)
-      projects.set(session.projectPath, group)
+      const projectPath = session.projectPath
+      const workspace = recent.find((candidate) =>
+        (!session.workspaceId || candidate.id === session.workspaceId) &&
+        sameProjectPath(candidate.displayPath, projectPath))
+      const key = workspace ? `workspace:${workspace.id}` : `path:${normalizedProjectPath(projectPath)}`
+      const group = projects.get(key) ?? { label: workspace?.displayPath ?? projectPath, items: [] }
+      group.items.push(session)
+      projects.set(key, group)
     }
-    const groups = [...projects].map(([key, items]) => ({ key, label: key, items }))
+    const groups = [...projects].map(([key, group]) => ({ key, ...group }))
       .sort((left, right) => right.items[0].updatedAt - left.items[0].updatedAt)
     if (chats.length) groups.push({ key: CHAT_GROUP, label: CHAT_GROUP, items: chats })
     return groups
-  }, [sessions, searchQuery])
+  }, [sessions, searchQuery, recent])
+
+  useEffect(() => {
+    const activeGroup = grouped.find((group) => group.items.some((session) => session.id === activeId))
+    if (!activeGroup || activeGroup.label === CHAT_GROUP) return
+    setCollapsedProjects((current) => {
+      if (!current.has(activeGroup.label)) return current
+      const next = new Set(current)
+      next.delete(activeGroup.label)
+      return next
+    })
+  }, [activeId, grouped])
 
   /*
    * 保持分组顺序：按项目最近活动展开，组名使用与界面一致的 label，
@@ -139,6 +159,8 @@ export default function SessionList(): JSX.Element {
       }
     })
   )
+  const projectGroups = grouped.filter((group) => group.label !== CHAT_GROUP).map((group) => group.label)
+  const expandedKeys = projectGroups.filter((group) => !collapsedProjects.has(group))
 
   if (items.length === 0) {
     return (
@@ -149,25 +171,46 @@ export default function SessionList(): JSX.Element {
   }
 
   return (
-    <div className="min-h-0 flex-1" onBlur={() => setConfirmId(null)}>
+    <div className="min-h-0 flex-1" onBlur={() => { setConfirmId(null); setConfirmWorkspaceId(null) }}>
       <Conversations
         className="h-full"
         items={items}
         activeKey={activeId ?? undefined}
         onActiveChange={(key) => select(String(key))}
         groupable={{
+          collapsible: (group) => group !== CHAT_GROUP && !searchQuery.trim(),
+          expandedKeys,
+          onExpand: (keys) => setCollapsedProjects(new Set(projectGroups.filter((group) => !keys.includes(group)))),
           label: (group) => (
             <span className="flex min-w-0 items-center justify-between gap-1" title={group}>
-              <span className="block max-w-[190px] truncate text-[14px] font-medium text-txt-muted">
-                {group === CHAT_GROUP ? group : group.split(/[\\/]/).filter(Boolean).at(-1) ?? group}
-              </span>
+              {group === CHAT_GROUP
+                ? <span className="block max-w-[190px] truncate text-[14px] font-medium text-txt-muted">{group}</span>
+                : <button type="button" aria-label={`折叠或展开 ${group}`} aria-expanded={expandedKeys.includes(group)}
+                  className="block max-w-[190px] truncate text-left text-[14px] font-medium text-txt-muted">
+                  {group.split(/[\\/]/).filter(Boolean).at(-1) ?? group}
+                </button>}
               {group !== CHAT_GROUP && (() => {
-                const workspace = recent.find((item) => item.displayPath === group)
-                return workspace ? <button type="button" aria-label={`在 ${workspace.name} 下新建工作会话`}
-                  className="rounded p-1 text-txt-muted hover:text-accent"
-                  onClick={(event) => { event.stopPropagation(); void createWork(workspace.id) }}>
-                  <Icon.Plus size={13} />
-                </button> : null
+                const workspace = recent.find((item) => sameProjectPath(item.displayPath, group))
+                return workspace ? <span className="flex shrink-0 items-center gap-1">
+                  <button type="button" aria-label={`在 ${workspace.name} 下新建工作会话`}
+                    className="rounded p-1 text-txt-muted hover:text-accent"
+                    onClick={(event) => { event.stopPropagation(); void createWork(workspace.id) }}>
+                    <Icon.Plus size={13} />
+                  </button>
+                  {confirmWorkspaceId === workspace.id
+                    ? <button type="button" aria-label={`确认移除 ${workspace.name} 的项目授权`}
+                      className="rounded px-1 text-[14px] text-red-400 hover:bg-bg-raised"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setConfirmWorkspaceId(null)
+                        void revokeWorkspace(workspace.id)
+                      }}>确认移除</button>
+                    : <button type="button" aria-label={`移除 ${workspace.name} 的项目授权`}
+                      className="rounded p-1 text-txt-muted hover:text-red-400"
+                      onClick={(event) => { event.stopPropagation(); setConfirmWorkspaceId(workspace.id) }}>
+                      <Icon.Trash size={13} />
+                    </button>}
+                </span> : null
               })()}
             </span>
           )

@@ -56,6 +56,31 @@ describe('WorkspaceBoundaryService', () => {
     expect(grant?.rootIdentity).toBeTruthy()
   })
 
+  it('revokes project access without deleting history identity and restores it on reauthorization', async () => {
+    const storage = new InMemoryWorkspaceGrantStorage()
+    const first = new WorkspaceBoundaryService(storage)
+    const original = await first.createGrant(projectRoot)
+    first.revokeGrant(original.id)
+    expect(first.listRecent()).toEqual([])
+    expect(first.getGrant(original.id)).toBeUndefined()
+    await expectWorkspaceError(() => first.readFile(original.id, 'README.md'), 'UNKNOWN_WORKSPACE')
+    const restarted = new WorkspaceBoundaryService(storage)
+    expect(restarted.getGrant(original.id)).toBeUndefined()
+    const restored = await restarted.createGrant(projectRoot)
+    expect(restored.id).toBe(original.id)
+    expect((await restarted.readFile(original.id, 'README.md')).content).toContain('fixture')
+  })
+
+  it('does not claim revocation succeeded when saving the grant fails', async () => {
+    const failingStorage = new InMemoryWorkspaceGrantStorage()
+    const isolated = new WorkspaceBoundaryService(failingStorage)
+    const grant = await isolated.createGrant(projectRoot)
+    failingStorage.save = () => { throw new Error('disk failed') }
+    expect(() => isolated.revokeGrant(grant.id)).toThrow('disk failed')
+    expect(isolated.getGrant(grant.id)).toBeDefined()
+    expect(isolated.listRecent()).toHaveLength(1)
+  })
+
   it('refuses broad disk-root and home-directory grants', async () => {
     await expectWorkspaceError(() => service.createGrant(parse(projectRoot).root), 'INVALID_ROOT')
     await expectWorkspaceError(() => service.createGrant(homedir()), 'INVALID_ROOT')

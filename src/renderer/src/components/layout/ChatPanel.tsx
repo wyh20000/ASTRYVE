@@ -13,6 +13,7 @@ export default function ChatPanel(): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions)
   const create = useSessionStore((s) => s.create)
   const createWork = useSessionStore((s) => s.createWork)
+  const close = useSessionStore((s) => s.close)
   const recent = useWorkspaceStore((s) => s.recent)
   const selectAndCreateWork = useWorkspaceStore((s) => s.selectAndCreateWork)
   const messages = useChatStore((s) => (activeId ? s.messages[activeId] : undefined))
@@ -22,7 +23,7 @@ export default function ChatPanel(): JSX.Element {
   const load = useChatStore((s) => s.load)
   const loadOlder = useChatStore((s) => s.loadOlder)
   const active = sessions.find((s) => s.id === activeId)
-  const mode = active?.projectPath ? 'work' : 'chat'
+  const mode = active?.kind ?? null
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   useEffect(() => { setProjectPickerOpen(false) }, [activeId])
@@ -36,7 +37,7 @@ export default function ChatPanel(): JSX.Element {
             type="button"
             role="tab"
             aria-selected={mode === 'work'}
-            aria-expanded={mode === 'chat' ? projectPickerOpen : undefined}
+            aria-expanded={mode !== 'work' ? projectPickerOpen : undefined}
             aria-controls="work-project-picker"
             onClick={() => {
               if (mode === 'work') return
@@ -52,7 +53,7 @@ export default function ChatPanel(): JSX.Element {
             对话
           </button>
         </div>
-        {mode === 'chat' && projectPickerOpen && <div id="work-project-picker" role="dialog" aria-label="选择工作项目"
+        {mode !== 'work' && projectPickerOpen && <div id="work-project-picker" role="dialog" aria-label="选择工作项目"
           className="absolute left-2 top-10 z-20 w-[min(360px,calc(100vw-24px))] rounded-lg border border-border bg-bg-panel p-2 shadow-xl">
           <div className="px-2 py-1 text-[14px] text-txt-secondary">选择项目，开始新的工作会话</div>
           {recent.map((workspace) => <button key={workspace.id} type="button"
@@ -76,6 +77,7 @@ export default function ChatPanel(): JSX.Element {
         <div className="flex shrink-0 items-center gap-2">
           {active?.projectPath && <span className="chip max-w-[240px] truncate" title={active.projectPath}>{active.projectPath.split(/[\\/]/).filter(Boolean).at(-1)}</span>}
           {active?.projectPath && <IconButton icon={<Icon.Layout size={15} />} label="切换任务工作区" onClick={toggleWorkspace} />}
+          {active && <IconButton icon={<Icon.X size={15} />} label="关闭当前会话视图" onClick={close} />}
         </div>
       </div>
 
@@ -83,10 +85,15 @@ export default function ChatPanel(): JSX.Element {
         <span>历史记录读取失败：{loadError}</span>
         <button type="button" className="shrink-0 text-accent hover:underline" onClick={() => void load(activeId)}>重试</button>
       </div>}
-      <MessageList key={activeId ?? 'empty'} messages={messages ?? []} hasOlder={hasOlder}
-        loadingOlder={loadingOlder} loadError={Boolean(loadError)}
-        onLoadOlder={() => activeId ? loadOlder(activeId) : Promise.resolve()} />
-      <ChatInput sessionId={activeId ?? ''} />
+      {activeId ? <>
+        <MessageList key={activeId} messages={messages ?? []} hasOlder={hasOlder}
+          loadingOlder={loadingOlder} loadError={Boolean(loadError)}
+          onLoadOlder={() => loadOlder(activeId)} />
+        <ChatInput sessionId={activeId} />
+      </> : <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[14px] text-txt-muted">
+        <span>未打开会话</span>
+        <button type="button" className="text-accent hover:underline" onClick={() => void create()}>新建普通对话</button>
+      </div>}
     </main>
   )
 }

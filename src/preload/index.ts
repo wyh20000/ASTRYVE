@@ -78,6 +78,7 @@ const api: AgentApi = {
     listRecent: () => ipcRenderer.invoke(IPC.workspace.recent),
     select: () => ipcRenderer.invoke(IPC.workspace.select),
     activate: (input: ActivateWorkspaceInput) => ipcRenderer.invoke(IPC.workspace.activate, input),
+    revoke: (workspaceId: string) => ipcRenderer.invoke(IPC.workspace.revoke, workspaceId),
     listFiles: (input: WorkspaceListInput) => ipcRenderer.invoke(IPC.workspace.listFiles, input),
     findFiles: (input: WorkspaceFileSearchInput) => ipcRenderer.invoke(IPC.workspace.findFiles, input),
     readFile: (input: WorkspaceReadInput) => ipcRenderer.invoke(IPC.workspace.readFile, input),

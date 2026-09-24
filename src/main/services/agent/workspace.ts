@@ -203,6 +203,7 @@ export class WorkspaceBoundaryService {
           typeof grant.rootPath !== 'string' ||
           typeof grant.realRootPath !== 'string' ||
           typeof grant.rootIdentity !== 'string' ||
+          (grant.revoked !== undefined && typeof grant.revoked !== 'boolean') ||
           !Number.isFinite(grant.createdAt) ||
           (grant.lastOpenedAt != null && !Number.isFinite(grant.lastOpenedAt))
         ) {
@@ -219,18 +220,26 @@ export class WorkspaceBoundaryService {
 
   listRecent(): WorkspaceSummary[] {
     return [...this.grants.values()]
+      .filter((grant) => !grant.revoked)
       .sort((left, right) => (right.lastOpenedAt ?? right.createdAt) - (left.lastOpenedAt ?? left.createdAt))
       .map(toSummary)
   }
 
   getGrant(workspaceId: string): WorkspaceGrant | undefined {
     const grant = this.grants.get(workspaceId)
-    return grant ? { ...grant } : undefined
+    return grant && !grant.revoked ? { ...grant } : undefined
+  }
+
+  revokeGrant(workspaceId: string): void {
+    const grant = this.requireGrant(workspaceId)
+    const previous = grant.revoked
+    grant.revoked = true
+    try { this.persist() } catch (error) { grant.revoked = previous; throw error }
   }
 
   findByRootPath(rootPath: string): WorkspaceSummary | undefined {
     const found = [...this.grants.values()].find(
-      (grant) => canonical(grant.rootPath) === canonical(rootPath)
+      (grant) => !grant.revoked && canonical(grant.rootPath) === canonical(rootPath)
     )
     return found ? toSummary(found) : undefined
   }
@@ -258,6 +267,7 @@ export class WorkspaceBoundaryService {
           rootPath: selected,
           realRootPath,
           rootIdentity: identityOf(rootInfo),
+          revoked: false,
           lastOpenedAt: now
         }
       : {
@@ -269,15 +279,20 @@ export class WorkspaceBoundaryService {
           lastOpenedAt: now
         }
     this.grants.set(grant.id, grant)
-    this.persist()
+    try { this.persist() } catch (error) {
+      if (existing) this.grants.set(existing.id, existing)
+      else this.grants.delete(grant.id)
+      throw error
+    }
     return toSummary(grant)
   }
 
   async activate(workspaceId: string, now = Date.now()): Promise<WorkspaceSummary> {
     const grant = this.requireGrant(workspaceId)
     await this.verifyRoot(grant)
+    const previous = grant.lastOpenedAt
     grant.lastOpenedAt = now
-    this.persist()
+    try { this.persist() } catch (error) { grant.lastOpenedAt = previous; throw error }
     return toSummary(grant)
   }
 
@@ -537,7 +552,7 @@ export class WorkspaceBoundaryService {
 
   private requireGrant(workspaceId: string): WorkspaceGrant {
     const grant = this.grants.get(workspaceId)
-    if (!grant) throw new WorkspaceError('UNKNOWN_WORKSPACE', '工作区授权不存在或已失效')
+    if (!grant || grant.revoked) throw new WorkspaceError('UNKNOWN_WORKSPACE', '工作区授权不存在或已失效')
     return grant
   }
 

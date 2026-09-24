@@ -110,6 +110,14 @@ export function closeAllTerminals(): void {
   }
 }
 
+export function closeWorkspaceTerminals(workspaceId: string): void {
+  for (const terminal of terminals.values()) {
+    if (terminal.workspaceId !== workspaceId) continue
+    terminals.delete(terminal.id)
+    terminal.child.kill()
+  }
+}
+
 function terminalEnvironment(): NodeJS.ProcessEnv {
   const names = process.platform === 'win32'
     ? ['Path', 'PATH', 'SystemRoot', 'COMSPEC', 'TEMP', 'TMP', 'PATHEXT']

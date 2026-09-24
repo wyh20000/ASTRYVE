@@ -20,19 +20,21 @@ import ApprovalDialog from './components/chat/ApprovalDialog'
 import { usePluginStore } from './stores/pluginStore'
 import { LoginLockPage } from './components/auth/LoginLockPage'
 import type { AuthStatus } from '@shared/types'
+import { createSessionInCurrentSpace, currentWorkProject } from './lib/sessionNavigation'
 
 function AppShell(): JSX.Element {
   const { message: messageApi } = AntdApp.useApp()
   const init = useSessionStore((s) => s.init)
   const activeId = useSessionStore((s) => s.activeId)
-  const activeProjectPath = useSessionStore((s) => s.sessions.find((session) => session.id === s.activeId)?.projectPath)
+  const activeSession = useSessionStore((s) => s.sessions.find((session) => session.id === s.activeId))
+  const recentWorkspaces = useWorkspaceStore((s) => s.recent)
+  const activeProjectPath = currentWorkProject(activeSession, recentWorkspaces) ? activeSession?.projectPath : null
   const load = useChatStore((s) => s.load)
   const upsertMessage = useChatStore((s) => s.upsertMessage)
   const setInputRequest = useChatStore((s) => s.setInputRequest)
   const clearInputRequest = useChatStore((s) => s.clearInputRequest)
   const setApprovalRequest = useChatStore((s) => s.setApprovalRequest)
   const clearApprovalRequest = useChatStore((s) => s.clearApprovalRequest)
-  const create = useSessionStore((s) => s.create)
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
@@ -100,12 +102,19 @@ function AppShell(): JSX.Element {
         document.getElementById('session-search')?.focus()
       } else if (mod && e.key.toLowerCase() === 'n') {
         e.preventDefault()
-        void create()
+        const sessionState = useSessionStore.getState()
+        const active = sessionState.sessions.find((session) => session.id === sessionState.activeId)
+        const workspaceState = useWorkspaceStore.getState()
+        void createSessionInCurrentSpace(active, workspaceState.recent, {
+          createChat: sessionState.create,
+          createWork: sessionState.createWork,
+          selectAndCreateWork: workspaceState.selectAndCreateWork
+        })
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [create])
+  }, [])
 
   return (
     <div className="flex h-screen w-screen flex-col bg-bg-app text-txt-primary">

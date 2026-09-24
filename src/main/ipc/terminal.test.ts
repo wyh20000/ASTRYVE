@@ -26,7 +26,7 @@ vi.mock('../services/agent/workspaceManager', () => ({
 }))
 
 import { IPC } from '@shared/ipc'
-import { closeAllTerminals, registerTerminalIpc } from './terminal'
+import { closeAllTerminals, closeWorkspaceTerminals, registerTerminalIpc } from './terminal'
 import { configureTrustedIpcSender, setBusinessIpcAvailable } from './validation'
 
 function event(): unknown {
@@ -84,5 +84,18 @@ describe('terminal authentication lifecycle', () => {
     resolveActivation()
     expect((await pending).ok).toBe(false)
     expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+
+  it('closes an open terminal when its project authorization is revoked', async () => {
+    const child = new EventEmitter() as EventEmitter & Record<string, unknown>
+    child.stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() })
+    child.stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() })
+    child.stdin = { write: vi.fn() }
+    child.kill = vi.fn()
+    mocks.spawn.mockReturnValue(child)
+    const opened = await mocks.handlers.get(IPC.terminal.open)!(event(), crypto.randomUUID()) as { data: { id: string } }
+    closeWorkspaceTerminals('workspace-1')
+    expect(child.kill).toHaveBeenCalledOnce()
+    expect((mocks.handlers.get(IPC.terminal.write)!(event(), opened.data.id, 'echo test') as { ok: boolean }).ok).toBe(false)
   })
 })

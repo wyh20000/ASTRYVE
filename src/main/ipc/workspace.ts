@@ -13,12 +13,14 @@ import { getStore } from '../db'
 import { cancelGeneration } from '../services/generationTasks'
 import {
   activateSessionWorkspace,
+  clearWorkspaceBindings,
   getWorkspaceService,
   onSessionWorkspaceSwitched
 } from '../services/agent/workspaceManager'
 import { isWorkSessionForWorkspace } from '../services/agent/sessionScope'
 import { WorkspaceError } from '../services/agent/workspace'
-import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
+import { cancelTasksForSession, cancelTasksForWorkspace } from '../services/agent/taskRuntimeManager'
+import { closeWorkspaceTerminals } from './terminal'
 import { getPatchWorkspaceService, getTaskRuntime } from '../services/agent/taskRuntimeManager'
 import { PatchWorkspaceError } from '../services/agent/patchWorkspaceService'
 import type { RejectPatchFileInput } from '@shared/types'
@@ -96,6 +98,20 @@ export function registerWorkspaceIpc(): void {
       }
       const workspace = await activateSessionWorkspace(sessionId, workspaceId)
       return ok({ workspace, session: existing })
+    } catch (error) {
+      return workspaceFailure(error)
+    }
+  })
+
+  ipcMain.handle(IPC.workspace.revoke, (event, rawWorkspaceId?: string) => {
+    try {
+      assertTrustedIpcSender(event)
+      const workspaceId = validateWorkspaceId(rawWorkspaceId)
+      getWorkspaceService().revokeGrant(workspaceId)
+      cancelTasksForWorkspace(workspaceId, 'workspace_revoked')
+      clearWorkspaceBindings(workspaceId)
+      closeWorkspaceTerminals(workspaceId)
+      return ok({ workspaceId })
     } catch (error) {
       return workspaceFailure(error)
     }

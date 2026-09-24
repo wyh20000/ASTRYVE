@@ -635,6 +635,7 @@ export interface AgentApi {
     activate: (
       input: ActivateWorkspaceInput
     ) => Promise<IpcResult<{ workspace: WorkspaceSummary; session: Session }>>
+    revoke: (workspaceId: string) => Promise<IpcResult<{ workspaceId: string }>>
     listFiles: (input: WorkspaceListInput) => Promise<IpcResult<WorkspaceFileEntry[]>>
     findFiles: (input: WorkspaceFileSearchInput) => Promise<IpcResult<WorkspaceFileEntry[]>>
     readFile: (input: WorkspaceReadInput) => Promise<IpcResult<WorkspaceFileContent>>

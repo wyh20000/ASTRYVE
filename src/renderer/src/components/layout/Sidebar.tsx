@@ -6,6 +6,7 @@ import { Button, IconButton, SearchInput } from '../ui'
 import { Icon } from '../ui/icons'
 import astryveIcon from '../../assets/astryve-icon.png'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { createSessionInCurrentSpace } from '../../lib/sessionNavigation'
 
 /**
  * 左侧会话管理（文档 8.2）。
@@ -26,7 +27,7 @@ export default function Sidebar(): JSX.Element {
   const workspaceError = useWorkspaceStore((s) => s.error)
   const selectAndCreateWork = useWorkspaceStore((s) => s.selectAndCreateWork)
   const active = sessions.find((session) => session.id === activeId)
-  const workMode = Boolean(active?.projectPath)
+  const workMode = active?.kind === 'work'
   const searchQuery = useUiStore((s) => s.searchQuery)
   const setSearchQuery = useUiStore((s) => s.setSearchQuery)
   const toggle = useUiStore((s) => s.toggleSidebar)
@@ -60,11 +61,9 @@ export default function Sidebar(): JSX.Element {
       {/* 当前类型的新会话 + 搜索 */}
       <div className="space-y-2 px-3 py-2">
         <Button block icon={<Icon.Plus size={14} />} onClick={() => {
-          if (!workMode) { void create(); return }
-          const target = recent.find((workspace) => workspace.id === active?.workspaceId ||
-            workspace.displayPath === active?.projectPath)?.id
-          if (target) void createWork(target)
-          else void selectAndCreateWork()
+          void createSessionInCurrentSpace(active, recent, {
+            createChat: create, createWork, selectAndCreateWork
+          })
         }}>
           {workMode ? '新工作会话' : '新对话'}
         </Button>

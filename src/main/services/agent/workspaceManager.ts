@@ -71,6 +71,12 @@ export function clearSessionWorkspace(sessionId: string): void {
   }
 }
 
+export function clearWorkspaceBindings(workspaceId: string): void {
+  for (const [sessionId, boundId] of activeWorkspaces) {
+    if (boundId === workspaceId) clearSessionWorkspace(sessionId)
+  }
+}
+
 export function onSessionWorkspaceSwitched(
   listener: (sessionId: string, previousWorkspaceId: string | undefined, workspaceId: string | undefined) => void
 ): () => void {

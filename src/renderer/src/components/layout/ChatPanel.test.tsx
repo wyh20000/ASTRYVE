@@ -5,10 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@shared/types'
 
 const state = vi.hoisted(() => ({
-  activeId: 'chat',
+  activeId: 'chat' as string | null,
   sessions: [] as Session[],
   create: vi.fn(),
   createWork: vi.fn(),
+  close: vi.fn(),
   selectAndCreateWork: vi.fn(),
   recent: [{ id: 'workspace-a', name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }]
 }))
@@ -46,6 +47,7 @@ describe('work and chat tabs', () => {
     state.recent = [{ id: 'workspace-a', name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }]
     state.create.mockClear()
     state.createWork.mockClear()
+    state.close.mockClear()
     state.selectAndCreateWork.mockClear()
   })
 
@@ -113,5 +115,21 @@ describe('work and chat tabs', () => {
     expect(state.create).toHaveBeenCalledOnce()
     expect(state.createWork).not.toHaveBeenCalled()
     expect(state.sessions).toEqual([work, chat])
+  })
+
+  it('closes only the current view and leaves session history untouched', async () => {
+    render(<ChatPanel />)
+    await userEvent.click(screen.getByRole('button', { name: '关闭当前会话视图' }))
+    expect(state.close).toHaveBeenCalledOnce()
+    expect(state.sessions).toEqual([work, chat])
+  })
+
+  it('does not mount a chat input when no view is open', () => {
+    state.activeId = null
+    render(<ChatPanel />)
+    expect(screen.getByText('未打开会话')).toBeInTheDocument()
+    expect(screen.queryByTestId('input')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '工作' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('tab', { name: '对话' })).toHaveAttribute('aria-selected', 'false')
   })
 })
