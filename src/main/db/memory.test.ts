@@ -83,11 +83,15 @@ describe('MemoryStore（无文件路径，纯内存）', () => {
     })
   })
 
-  it('为会话持久化当前项目路径', async () => {
-    const session = await store.createSession('workspace')
-    const updated = await store.setSessionProjectPath(session.id, 'D:\\project')
-    expect(updated?.projectPath).toBe('D:\\project')
-    expect((await store.getSession(session.id))?.projectPath).toBe('D:\\project')
+  it('会话创建后保持固定类型和项目身份', async () => {
+    const chat = await store.createSession('普通对话')
+    const work = await store.createSession('工作', 'D:\\project', 'workspace-a')
+    await store.renameSession(chat.id, '重命名')
+    await store.touchSession(work.id)
+    expect(await store.getSession(chat.id)).toMatchObject({ kind: 'chat', projectPath: null, workspaceId: null })
+    expect(await store.getSession(work.id)).toMatchObject({ kind: 'work', projectPath: 'D:\\project', workspaceId: 'workspace-a' })
+    await expect(store.createSession('不完整', 'D:\\project')).rejects.toThrow('Session project identity is incomplete')
+    await expect(store.createSession('不完整', null, 'workspace-a')).rejects.toThrow('Session project identity is incomplete')
   })
 
   it('附件随消息持久化', async () => {

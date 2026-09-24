@@ -175,6 +175,7 @@ export class MySqlStore implements DbStore {
   }
 
   async createSession(title: string, projectPath: string | null = null, workspaceId: string | null = null): Promise<Session> {
+    if (Boolean(projectPath) !== Boolean(workspaceId)) throw new Error('Session project identity is incomplete')
     const id = randomUUID()
     const now = Date.now()
     await this.pool.query(
@@ -188,16 +189,6 @@ export class MySqlStore implements DbStore {
   async renameSession(id: string, title: string): Promise<Session | null> {
     await this.pool.query('UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?', [
       title,
-      Date.now(),
-      id
-    ])
-    return this.getSession(id)
-  }
-
-  async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
-    await this.pool.query('UPDATE sessions SET project_path = ?, kind = ?, workspace_id = NULL, updated_at = ? WHERE id = ?', [
-      projectPath,
-      projectPath ? 'work' : 'chat',
       Date.now(),
       id
     ])

@@ -52,6 +52,8 @@ describe('SQLite and Artifact Store', () => {
     expect(await reopened.getSession(created.id)).toMatchObject({
       kind: 'work', projectPath: 'D:\\project-a', workspaceId: 'workspace-a'
     })
+    await expect(reopened.createSession('incomplete', 'D:\\project-a')).rejects.toThrow('Session project identity is incomplete')
+    await expect(reopened.createSession('incomplete', null, 'workspace-a')).rejects.toThrow('Session project identity is incomplete')
   })
   it('stores image bytes outside message rows and reloads them after reopening', async () => {
     const root = await directory()

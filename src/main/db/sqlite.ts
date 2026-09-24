@@ -143,6 +143,7 @@ export class SqliteStore implements DbStore {
   }
 
   async createSession(title: string, projectPath: string | null = null, workspaceId: string | null = null): Promise<Session> {
+    if (Boolean(projectPath) !== Boolean(workspaceId)) throw new Error('Session project identity is incomplete')
     const now = Date.now()
     const session: Session = {
       id: randomUUID(), title, kind: projectPath ? 'work' : 'chat', workspaceId,
@@ -155,12 +156,6 @@ export class SqliteStore implements DbStore {
 
   async renameSession(id: string, title: string): Promise<Session | null> {
     this.db.prepare('UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?').run(title, Date.now(), id)
-    return this.getSession(id)
-  }
-
-  async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
-    this.db.prepare('UPDATE sessions SET project_path = ?, kind = ?, workspace_id = NULL, updated_at = ? WHERE id = ?')
-      .run(projectPath, projectPath ? 'work' : 'chat', Date.now(), id)
     return this.getSession(id)
   }
 

@@ -61,4 +61,12 @@ describe('session creation scope', () => {
     expect(work.data.id).not.toBe(chat.data.id)
     expect(again.data.id).toBe(work.data.id)
   })
+
+  it('never reuses an untitled session that already has visible messages', async () => {
+    const create = mocks.handlers.get(IPC.session.create)!
+    const first = await create(event(), { kind: 'chat' }) as { data: { id: string } }
+    await (mocks.store as MemoryStore).insertMessage({ sessionId: first.data.id, role: 'user', content: 'history' })
+    const second = await create(event(), { kind: 'chat' }) as { data: { id: string } }
+    expect(second.data.id).not.toBe(first.data.id)
+  })
 })

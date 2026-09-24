@@ -17,23 +17,23 @@ describe('session store empty conversation reuse', () => {
   })
 
   it('does not create another conversation while an empty new conversation exists', async () => {
-    const create = vi.fn()
+    const create = vi.fn(async () => ({ ok: true as const, data: session('empty', '', 1) }))
     useSessionStore.setState({ sessions: [session('empty', '', 1)], activeId: 'empty' })
     vi.stubGlobal('window', { agent: { session: { create } } })
     await expect(useSessionStore.getState().create()).resolves.toMatchObject({ id: 'empty' })
-    expect(create).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledWith({ title: undefined, kind: 'chat' })
     expect(useSessionStore.getState().sessions).toHaveLength(1)
   })
 
   it('selects an existing empty conversation during initialization even when it is not first', async () => {
-    const create = vi.fn()
+    const create = vi.fn(async () => ({ ok: true as const, data: session('empty', '', 1) }))
     vi.stubGlobal('window', { agent: { session: {
       list: vi.fn(async () => ({ ok: true, data: [session('recent', '有内容', 2), session('empty', '', 1)] })),
       create
     } } })
     await useSessionStore.getState().init()
     expect(useSessionStore.getState().activeId).toBe('empty')
-    expect(create).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledWith({ title: '', kind: 'chat' })
   })
 
   it('coalesces concurrent initialization attempts', async () => {
@@ -74,6 +74,16 @@ describe('session store empty conversation reuse', () => {
     expect(create).toHaveBeenCalledWith({ title: undefined, kind: 'work', workspaceId: 'workspace-a' })
     expect(useSessionStore.getState().activeId).toBe('work-a')
     await useSessionStore.getState().createWork('workspace-a')
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(useSessionStore.getState().sessions.filter((item) => item.id === 'work-a')).toHaveLength(1)
+  })
+
+  it('does not trust an untitled cached session to be message-free', async () => {
+    useSessionStore.setState({ sessions: [session('old', '', 1)], activeId: 'old' })
+    const create = vi.fn(async () => ({ ok: true as const, data: session('fresh', '', 2) }))
+    vi.stubGlobal('window', { agent: { session: { create } } })
+    await useSessionStore.getState().create()
     expect(create).toHaveBeenCalledTimes(1)
+    expect(useSessionStore.getState().activeId).toBe('fresh')
   })
 })

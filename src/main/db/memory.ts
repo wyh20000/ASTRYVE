@@ -74,6 +74,7 @@ export class MemoryStore implements DbStore {
   }
 
   async createSession(title: string, projectPath: string | null = null, workspaceId: string | null = null): Promise<Session> {
+    if (Boolean(projectPath) !== Boolean(workspaceId)) throw new Error('Session project identity is incomplete')
     const now = Date.now()
     const s: Session = {
       id: randomUUID(),
@@ -97,17 +98,6 @@ export class MemoryStore implements DbStore {
     s.updatedAt = Date.now()
     await this.persist()
     return s
-  }
-
-  async setSessionProjectPath(id: string, projectPath: string | null): Promise<Session | null> {
-    const session = this.sessions.get(id)
-    if (!session) return null
-    session.projectPath = projectPath
-    session.kind = projectPath ? 'work' : 'chat'
-    session.workspaceId = null
-    session.updatedAt = Date.now()
-    await this.persist()
-    return session
   }
 
   async touchSession(id: string): Promise<Session | null> {

@@ -42,21 +42,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       try { remembered = res.data.find((session) => session.id === localStorage.getItem(ACTIVE_SESSION_KEY)) }
       catch { /* storage unavailable */ }
       if (remembered) { set({ activeId: remembered.id }); return }
-      // 首次启动没有可恢复会话时，复用普通对话空白会话。
+      // 是否真正空白由主进程检查消息，标题为空并不等于没有历史。
       const top = res.data[0]
-      const reusable = res.data.find((session) => !session.title.trim() && !session.projectPath)
-      if (reusable) {
-        set({ activeId: reusable.id })
-        rememberActive(reusable.id)
-      } else {
-        const created = await window.agent.session.create({ title: '', kind: 'chat' })
-        if (created.ok) {
-          set((s) => ({ sessions: [created.data, ...s.sessions], activeId: created.data.id }))
-          rememberActive(created.data.id)
-        } else if (top) {
-          set({ activeId: top.id })
-          rememberActive(top.id)
-        }
+      const created = await window.agent.session.create({ title: '', kind: 'chat' })
+      if (created.ok) {
+        set((s) => ({ sessions: [created.data, ...s.sessions.filter((session) => session.id !== created.data.id)], activeId: created.data.id }))
+        rememberActive(created.data.id)
+      } else if (top) {
+        set({ activeId: top.id })
+        rememberActive(top.id)
       }
     } else {
       set({ loading: false, error: res.error.message })
@@ -64,14 +58,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   create: async (title) => {
-    if (!title?.trim()) {
-      const reusable = get().sessions.find((session) => !session.title.trim() && !session.projectPath)
-      if (reusable) {
-        set({ activeId: reusable.id })
-        rememberActive(reusable.id)
-        return reusable
-      }
-    }
     const res = await window.agent.session.create({ title, kind: 'chat' })
     if (!res.ok) { set({ error: res.error.message }); return null }
     set((s) => ({
@@ -84,21 +70,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   createWork: async (workspaceId, title) => {
-    if (!title?.trim()) {
-      const reusable = get().sessions.find((session) =>
-        !session.title.trim() && session.kind === 'work' && session.workspaceId === workspaceId)
-      if (reusable) {
-        set({ activeId: reusable.id })
-        rememberActive(reusable.id)
-        return reusable
-      }
-    }
     const res = await window.agent.session.create({ title, kind: 'work', workspaceId })
     if (!res.ok) {
       set({ error: res.error.message })
       return null
     }
-    set((state) => ({ sessions: [res.data, ...state.sessions], activeId: res.data.id, error: null }))
+    set((state) => ({ sessions: [res.data, ...state.sessions.filter((session) => session.id !== res.data.id)], activeId: res.data.id, error: null }))
     rememberActive(res.data.id)
     return res.data
   },
