@@ -62,7 +62,7 @@ export default function Sidebar(): JSX.Element {
         <Button block icon={<Icon.Plus size={14} />} onClick={() => {
           if (!workMode) { void create(); return }
           const target = recent.find((workspace) => workspace.id === active?.workspaceId ||
-            workspace.displayPath === active?.projectPath)?.id ?? recent[0]?.id
+            workspace.displayPath === active?.projectPath)?.id
           if (target) void createWork(target)
           else void selectAndCreateWork()
         }}>

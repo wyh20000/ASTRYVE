@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   sessions: [] as Session[],
   create: vi.fn(),
   createWork: vi.fn(),
+  selectAndCreateWork: vi.fn(),
   recent: [{ id: 'workspace-a', name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }]
 }))
 
@@ -17,7 +18,7 @@ vi.mock('../../stores/sessionStore', () => ({
 }))
 vi.mock('../../stores/workspaceStore', () => ({
   useWorkspaceStore: (selector: (value: unknown) => unknown) => selector({
-    recent: state.recent, selectAndCreateWork: vi.fn()
+    recent: state.recent, selectAndCreateWork: state.selectAndCreateWork
   })
 }))
 vi.mock('../../stores/chatStore', () => ({
@@ -42,15 +43,67 @@ describe('work and chat tabs', () => {
   beforeEach(() => {
     state.sessions = [work, chat]
     state.activeId = 'chat'
+    state.recent = [{ id: 'workspace-a', name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }]
     state.create.mockClear()
     state.createWork.mockClear()
+    state.selectAndCreateWork.mockClear()
   })
 
-  it('opens a new work conversation in the last authorized project', async () => {
+  it('requires a project choice before opening a work conversation', async () => {
     render(<ChatPanel />)
     await userEvent.click(screen.getByRole('tab', { name: '工作' }))
+    expect(state.createWork).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: '选择工作项目' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /project-a.*D:\\project-a/ }))
     expect(state.createWork).toHaveBeenCalledWith('workspace-a')
     expect(state.create).not.toHaveBeenCalled()
+  })
+
+  it('can choose a different project without silently falling back to the last one', async () => {
+    state.recent = [
+      { id: 'workspace-a', name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 },
+      { id: 'workspace-b', name: 'project-b', displayPath: 'D:\\project-b', createdAt: 1, lastOpenedAt: 2 }
+    ]
+    render(<ChatPanel />)
+    await userEvent.click(screen.getByRole('tab', { name: '工作' }))
+    await userEvent.click(screen.getByRole('button', { name: /project-b.*D:\\project-b/ }))
+    expect(state.createWork).toHaveBeenCalledWith('workspace-b')
+    expect(state.createWork).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the current chat when the project picker is cancelled', async () => {
+    render(<ChatPanel />)
+    await userEvent.click(screen.getByRole('tab', { name: '工作' }))
+    await userEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(state.createWork).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: '选择工作项目' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '对话' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('closes the project picker with Escape from the work tab', async () => {
+    render(<ChatPanel />)
+    const tab = screen.getByRole('tab', { name: '工作' })
+    await userEvent.click(tab)
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '选择工作项目' })).not.toBeInTheDocument()
+    expect(state.createWork).not.toHaveBeenCalled()
+  })
+
+  it('can select a new project from the picker', async () => {
+    render(<ChatPanel />)
+    await userEvent.click(screen.getByRole('tab', { name: '工作' }))
+    await userEvent.click(screen.getByRole('button', { name: '选择其他项目…' }))
+    expect(state.selectAndCreateWork).toHaveBeenCalledOnce()
+  })
+
+  it('does not reopen a stale picker when returning to the old chat', async () => {
+    const view = render(<ChatPanel />)
+    await userEvent.click(screen.getByRole('tab', { name: '工作' }))
+    state.activeId = 'work'
+    view.rerender(<ChatPanel />)
+    state.activeId = 'chat'
+    view.rerender(<ChatPanel />)
+    expect(screen.queryByRole('dialog', { name: '选择工作项目' })).not.toBeInTheDocument()
   })
 
   it('opens a separate ordinary conversation without converting project history', async () => {

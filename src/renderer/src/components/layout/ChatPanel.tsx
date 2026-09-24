@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useChatStore } from '../../stores/chatStore'
 import { MessageList } from '../chat/MessageList'
@@ -23,32 +24,48 @@ export default function ChatPanel(): JSX.Element {
   const active = sessions.find((s) => s.id === activeId)
   const mode = active?.projectPath ? 'work' : 'chat'
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  useEffect(() => { setProjectPickerOpen(false) }, [activeId])
 
   return (
     <main className="flex min-h-0 min-w-[340px] flex-1 flex-col bg-bg-app">
       {/* 工作/对话是会话类型，跨类型进入时新建会话，不转换历史。 */}
-      <div role="tablist" aria-label="会话类型" className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'work'}
-          onClick={() => {
-            if (mode === 'work') return
-            const lastWork = sessions.find((session) => session.projectPath)
-            const target = recent.find((workspace) => workspace.id === lastWork?.workspaceId ||
-              workspace.displayPath === lastWork?.projectPath)?.id ?? recent[0]?.id
-            if (target) void createWork(target)
-            else void selectAndCreateWork()
-          }}
-          className={`rounded-t-md px-4 text-[14px] ${mode === 'work' ? 'border-b-2 border-accent text-txt-primary' : 'text-txt-muted hover:bg-bg-panel'}`}
-        >
-          工作
-        </button>
-        <button type="button" role="tab" aria-selected={mode === 'chat'}
-          onClick={() => { if (mode !== 'chat') void create() }}
-          className={`rounded-t-md px-4 text-[14px] ${mode === 'chat' ? 'border-b-2 border-accent text-txt-primary' : 'text-txt-muted hover:bg-bg-panel'}`}>
-          对话
-        </button>
+      <div className="relative shrink-0" onKeyDown={(event) => { if (event.key === 'Escape') setProjectPickerOpen(false) }}>
+        <div role="tablist" aria-label="会话类型" className="flex h-10 items-center gap-1 border-b border-border px-2">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'work'}
+            aria-expanded={mode === 'chat' ? projectPickerOpen : undefined}
+            aria-controls="work-project-picker"
+            onClick={() => {
+              if (mode === 'work') return
+              setProjectPickerOpen((open) => !open)
+            }}
+            className={`rounded-t-md px-4 text-[14px] ${mode === 'work' ? 'border-b-2 border-accent text-txt-primary' : 'text-txt-muted hover:bg-bg-panel'}`}
+          >
+            工作
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'chat'}
+            onClick={() => { setProjectPickerOpen(false); if (mode !== 'chat') void create() }}
+            className={`rounded-t-md px-4 text-[14px] ${mode === 'chat' ? 'border-b-2 border-accent text-txt-primary' : 'text-txt-muted hover:bg-bg-panel'}`}>
+            对话
+          </button>
+        </div>
+        {mode === 'chat' && projectPickerOpen && <div id="work-project-picker" role="dialog" aria-label="选择工作项目"
+          className="absolute left-2 top-10 z-20 w-[min(360px,calc(100vw-24px))] rounded-lg border border-border bg-bg-panel p-2 shadow-xl">
+          <div className="px-2 py-1 text-[14px] text-txt-secondary">选择项目，开始新的工作会话</div>
+          {recent.map((workspace) => <button key={workspace.id} type="button"
+            className="flex w-full flex-col rounded-md px-2 py-2 text-left hover:bg-bg-raised"
+            onClick={() => { setProjectPickerOpen(false); void createWork(workspace.id) }}>
+            <span className="text-[14px] text-txt-primary">{workspace.name}</span>
+            <span className="max-w-full truncate text-[14px] text-txt-muted" title={workspace.displayPath}>{workspace.displayPath}</span>
+          </button>)}
+          <button type="button" className="w-full rounded-md px-2 py-2 text-left text-[14px] text-accent hover:bg-bg-raised"
+            onClick={() => { setProjectPickerOpen(false); void selectAndCreateWork() }}>选择其他项目…</button>
+          <button type="button" className="w-full rounded-md px-2 py-2 text-left text-[14px] text-txt-muted hover:bg-bg-raised"
+            onClick={() => setProjectPickerOpen(false)}>取消</button>
+        </div>}
       </div>
 
       {/* 标题 + 徽标 */}
