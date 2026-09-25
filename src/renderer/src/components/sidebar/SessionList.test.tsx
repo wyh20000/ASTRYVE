@@ -163,6 +163,18 @@ describe('会话列表 - 分组与时间', () => {
     expect(screen.getByText('新对话')).toBeInTheDocument()
   })
 
+  it('搜索可找到界面显示为新对话的无标题会话，并保留项目来源', () => {
+    sessionState.sessions = [
+      { ...session('work', '', NOW), kind: 'work', projectPath: 'D:\\project-a' },
+      { ...session('chat', '', NOW - 1), kind: 'chat', projectPath: null }
+    ]
+    uiState.searchQuery = '新对话'
+    render(<SessionList />)
+    expect(screen.getByText('project-a')).toBeInTheDocument()
+    expect(screen.getByText('普通对话')).toBeInTheDocument()
+    expect(screen.getAllByText('新对话')).toHaveLength(2)
+  })
+
   it('后台会话有待审批请求时在侧栏标记来源', () => {
     sessionState.sessions = [session('a', '会话 A', NOW), session('b', '会话 B', NOW)]
     sessionState.activeId = 'a'

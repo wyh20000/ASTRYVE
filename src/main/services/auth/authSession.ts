@@ -151,7 +151,9 @@ export async function initializeAuth(basePath: string, mode: AuthMode = __AI_AGE
 
 export function currentAuthStatus(): AuthStatus { return { ...status } }
 export function setDevelopmentSmokeAuth(): void {
-  if (app.isPackaged || process.env.AI_AGENT_THEME_SMOKE !== '1') throw new Error('只允许开发主题测试使用')
+  if (app.isPackaged || (process.env.AI_AGENT_THEME_SMOKE !== '1' && process.env.AI_AGENT_3A_UI_ACCEPTANCE !== '1')) {
+    throw new Error('只允许开发隔离验收使用')
+  }
   status = { mode: __AI_AGENT_AUTH_MODE__, state: 'authenticated',
     ...(__AI_AGENT_AUTH_MODE__ === 'local' ? { userId: LOCAL_PROFILE_ID } : {}) }
 }

@@ -7,6 +7,7 @@ import { Icon } from '../ui/icons'
 import { IconButton } from '../ui'
 import { useUiStore } from '../../stores/uiStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { currentWorkProject } from '../../lib/sessionNavigation'
 
 export default function ChatPanel(): JSX.Element {
   const activeId = useSessionStore((s) => s.activeId)
@@ -16,6 +17,7 @@ export default function ChatPanel(): JSX.Element {
   const close = useSessionStore((s) => s.close)
   const recent = useWorkspaceStore((s) => s.recent)
   const selectAndCreateWork = useWorkspaceStore((s) => s.selectAndCreateWork)
+  const selectAndActivate = useWorkspaceStore((s) => s.selectAndActivate)
   const messages = useChatStore((s) => (activeId ? s.messages[activeId] : undefined))
   const hasOlder = useChatStore((s) => activeId ? s.hasOlder[activeId] ?? false : false)
   const loadingOlder = useChatStore((s) => activeId ? s.loadingOlder[activeId] ?? false : false)
@@ -24,6 +26,7 @@ export default function ChatPanel(): JSX.Element {
   const loadOlder = useChatStore((s) => s.loadOlder)
   const active = sessions.find((s) => s.id === activeId)
   const mode = active?.kind ?? null
+  const projectAuthorizationMissing = active?.kind === 'work' && !currentWorkProject(active, recent)
   const toggleWorkspace = useUiStore((s) => s.toggleWorkspace)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   useEffect(() => { setProjectPickerOpen(false) }, [activeId])
@@ -85,11 +88,17 @@ export default function ChatPanel(): JSX.Element {
         <span>历史记录读取失败：{loadError}</span>
         <button type="button" className="shrink-0 text-accent hover:underline" onClick={() => void load(activeId)}>重试</button>
       </div>}
+      {projectAuthorizationMissing && active && <div role="alert" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-bg-panel px-3 py-2 text-[13px] text-txt-secondary">
+        <span>项目授权已失效。历史仍可查看；重新授权原项目后才能继续发送和使用项目工具。</span>
+        <button type="button" className="shrink-0 text-accent hover:underline" onClick={() => void selectAndActivate(active.id)}>重新授权原项目</button>
+      </div>}
       {activeId ? <>
         <MessageList key={activeId} messages={messages ?? []} hasOlder={hasOlder}
           loadingOlder={loadingOlder} loadError={Boolean(loadError)}
           onLoadOlder={() => loadOlder(activeId)} />
-        <ChatInput sessionId={activeId} />
+        {projectAuthorizationMissing
+          ? <div className="shrink-0 px-4 py-5 text-center text-[13px] text-txt-muted">已暂停发送，等待重新授权原项目</div>
+          : <ChatInput sessionId={activeId} />}
       </> : <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[14px] text-txt-muted">
         <span>未打开会话</span>
         <button type="button" className="text-accent hover:underline" onClick={() => void create()}>新建普通对话</button>

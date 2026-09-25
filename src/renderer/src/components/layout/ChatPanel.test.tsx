@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   createWork: vi.fn(),
   close: vi.fn(),
   selectAndCreateWork: vi.fn(),
+  selectAndActivate: vi.fn(),
   recent: [{ id: 'workspace-a', name: 'project-a', displayPath: 'D:\\project-a', createdAt: 1, lastOpenedAt: 1 }]
 }))
 
@@ -19,7 +20,8 @@ vi.mock('../../stores/sessionStore', () => ({
 }))
 vi.mock('../../stores/workspaceStore', () => ({
   useWorkspaceStore: (selector: (value: unknown) => unknown) => selector({
-    recent: state.recent, selectAndCreateWork: state.selectAndCreateWork
+    recent: state.recent, selectAndCreateWork: state.selectAndCreateWork,
+    selectAndActivate: state.selectAndActivate
   })
 }))
 vi.mock('../../stores/chatStore', () => ({
@@ -49,6 +51,7 @@ describe('work and chat tabs', () => {
     state.createWork.mockClear()
     state.close.mockClear()
     state.selectAndCreateWork.mockClear()
+    state.selectAndActivate.mockClear()
   })
 
   it('requires a project choice before opening a work conversation', async () => {
@@ -131,5 +134,16 @@ describe('work and chat tabs', () => {
     expect(screen.queryByTestId('input')).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '工作' })).toHaveAttribute('aria-selected', 'false')
     expect(screen.getByRole('tab', { name: '对话' })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('keeps revoked work history readable but pauses sending until the original project is reauthorized', async () => {
+    state.activeId = 'work'
+    state.recent = []
+    render(<ChatPanel />)
+    expect(screen.getByTestId('messages')).toBeInTheDocument()
+    expect(screen.queryByTestId('input')).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('项目授权已失效')
+    await userEvent.click(screen.getByRole('button', { name: '重新授权原项目' }))
+    expect(state.selectAndActivate).toHaveBeenCalledWith('work')
   })
 })

@@ -50,7 +50,7 @@ export default function SessionList(): JSX.Element {
 
   const grouped = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const filtered = q ? sessions.filter((s) => s.title.toLowerCase().includes(q)) : sessions
+    const filtered = q ? sessions.filter((s) => (s.title || '新对话').toLowerCase().includes(q)) : sessions
     const projects = new Map<string, { label: string; items: typeof filtered }>()
     const chats: typeof filtered = []
     for (const session of filtered) {

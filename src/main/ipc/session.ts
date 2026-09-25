@@ -6,7 +6,7 @@ import { ok, err } from './result'
 import { cancelGeneration } from '../services/generationTasks'
 import { activateSessionWorkspace, clearSessionWorkspace, getWorkspaceService, sameProjectPath } from '../services/agent/workspaceManager'
 import { cancelTasksForSession } from '../services/agent/taskRuntimeManager'
-import { isVisibleMessage } from '../services/emptySessionCleanup'
+import { isVisibleMessage } from '../services/visibleMessage'
 import {
   assertTrustedIpcSender,
   validateCreateSessionInput,

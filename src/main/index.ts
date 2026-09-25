@@ -1,5 +1,5 @@
 import { app, BrowserWindow, nativeTheme, shell } from 'electron'
-import { join } from 'path'
+import { isAbsolute, join, relative, resolve } from 'path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { getStore, initStore } from './db'
@@ -27,7 +27,6 @@ import {
 } from './services/generationTasks'
 import { refreshAgentExecutionCapabilities } from './services/agent/projectPreferences'
 import { cleanupInterruptedDockerResources, startDockerCleanupTimer } from './services/agent/dockerCleanup'
-import { cleanupEmptySessions } from './services/emptySessionCleanup'
 import { initSkillRegistry } from './services/agent/skillManager'
 import { initPluginRegistry } from './services/agent/pluginManager'
 import { configureTrustedIpcSender } from './ipc/validation'
@@ -46,11 +45,22 @@ import {
 } from './services/browser/officialChromeBrowserRuntime'
 
 const isDev = !app.isPackaged
+const uiAcceptance = isDev && process.env.AI_AGENT_3A_UI_ACCEPTANCE === '1'
 // Keep the pre-rebrand storage location stable. The folder name is an internal
 // compatibility key; changing the visible product name must not hide user data.
-app.setPath('userData', join(app.getPath('appData'), 'ai-agent'))
+const defaultUserData = join(app.getPath('appData'), 'ai-agent')
+app.setPath('userData', defaultUserData)
 app.setName('ASTRYVE')
-if (isDev && process.env.AI_AGENT_AUTH_SMOKE && process.env.AI_AGENT_AUTH_SMOKE_USER_DATA) {
+if (uiAcceptance) {
+  const isolated = process.env.AI_AGENT_3A_UI_USER_DATA
+  const allowedRoot = resolve(process.cwd(), '.local-acceptance')
+  const relativePath = isolated ? relative(allowedRoot, resolve(isolated)) : ''
+  if (!isolated || !isAbsolute(isolated) || !relativePath || relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new Error('3A UI acceptance requires a child of the local acceptance directory')
+  }
+  mkdirSync(isolated, { recursive: true })
+  app.setPath('userData', isolated)
+} else if (isDev && process.env.AI_AGENT_AUTH_SMOKE && process.env.AI_AGENT_AUTH_SMOKE_USER_DATA) {
   app.setPath('userData', process.env.AI_AGENT_AUTH_SMOKE_USER_DATA)
 }
 const rendererEntry = isDev && process.env['ELECTRON_RENDERER_URL']
@@ -197,31 +207,34 @@ app.whenReady().then(async () => {
   configureTrustedIpcSender(rendererEntry)
   registerAuthIpc()
   const themeSmoke = !app.isPackaged && process.env.AI_AGENT_THEME_SMOKE === '1'
-  if (themeSmoke) setDevelopmentSmokeAuth()
-  const authStatus = themeSmoke ? currentAuthStatus() : await initializeAuth(app.getPath('userData'))
+  if (themeSmoke || uiAcceptance) setDevelopmentSmokeAuth()
+  const authStatus = themeSmoke || uiAcceptance ? currentAuthStatus() : await initializeAuth(app.getPath('userData'))
   if (authStatus.state === 'authenticated') {
-    if (!themeSmoke) {
+    if (!themeSmoke && !uiAcceptance) {
       const accountPath = currentAccountPath()
       if (!accountPath) throw new Error('已验证账号缺少数据目录')
       mkdirSync(accountPath, { recursive: true })
       app.setPath('userData', accountPath)
     }
     initSettings()
-    const dockerPreflight = refreshAgentExecutionCapabilities()
-    try {
-      const cleanup = await cleanupInterruptedDockerResources()
-      if (cleanup.containersRemoved) console.log('[agent] removed interrupted Docker resources', cleanup)
-    } catch (error) {
-      console.warn('[agent] Docker recovery unavailable:', error)
+    if (!uiAcceptance) {
+      void refreshAgentExecutionCapabilities()
+      try {
+        const cleanup = await cleanupInterruptedDockerResources()
+        if (cleanup.containersRemoved) console.log('[agent] removed interrupted Docker resources', cleanup)
+      } catch (error) {
+        console.warn('[agent] Docker recovery unavailable:', error)
+      }
+      startDockerCleanupTimer()
     }
-    void dockerPreflight
-    startDockerCleanupTimer()
     initWorkspaceService()
     let browserGateway
-    try {
-      browserGateway = await initOfficialChromeBrowserRuntime()
-    } catch (error) {
-      console.warn('[browser] Google Chrome DevTools MCP unavailable:', error)
+    if (!uiAcceptance) {
+      try {
+        browserGateway = await initOfficialChromeBrowserRuntime()
+      } catch (error) {
+        console.warn('[browser] Google Chrome DevTools MCP unavailable:', error)
+      }
     }
     initTaskRuntime(browserGateway)
     initPluginRegistry(app.getPath('userData'))
@@ -234,17 +247,11 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.warn('[agent] runtime persistence unavailable:', error)
     }
-    await initStore(!themeSmoke)
-    try {
-      const removed = await cleanupEmptySessions(getStore())
-      if (removed) console.log('[session] removed empty sessions at startup:', removed)
-    } catch (error) {
-      console.warn('[session] startup empty-session cleanup failed:', error)
-    }
+    await initStore(!themeSmoke || uiAcceptance)
     initModelConfig()
     setBusinessIpcAvailable(true)
     registerIpcHandlers()
-    if (!themeSmoke) startSessionRechecks()
+    if (!themeSmoke && !uiAcceptance) startSessionRechecks()
   }
   const mainWindow = createWindow(authStatus.state !== 'authenticated')
 
@@ -315,18 +322,11 @@ app.on('before-quit', (event) => {
   const timeout = new Promise<void>((resolve) => {
     timeoutHandle = setTimeout(resolve, 2_000)
   })
-  const emptySessionCleanup = Promise.resolve()
-    .then(() => cleanupEmptySessions(getStore()))
-    .catch((error) => {
-      console.warn('[session] empty-session cleanup failed:', error)
-      return 0
-    })
   void Promise.race([
     Promise.all([
       flushTaskPersistence(),
       flushGenerationFinalizations(),
-      closeOfficialChromeBrowserRuntime(),
-      emptySessionCleanup
+      closeOfficialChromeBrowserRuntime()
     ]).then(() => undefined),
     timeout
   ])

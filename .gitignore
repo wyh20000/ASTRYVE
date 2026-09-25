@@ -9,6 +9,8 @@ dist/
 *.err
 .smoke*.log*
 .diag.cjs
+.local-backups/
+.local-acceptance/
 .env
 .env.*
 !.env.example
